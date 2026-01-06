@@ -64,7 +64,6 @@ artifacts/
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
-
 # NUnit
 *.VisualState.xml
 TestResult.xml
@@ -127,5 +126,3 @@ appsettings.*.json
 *.tmp
 *.temp
 
-/docs/*
-!/docs/README.md
