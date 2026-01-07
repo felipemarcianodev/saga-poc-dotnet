@@ -18,6 +18,9 @@ try
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Registrar serviços de negócio
+    builder.Services.AddScoped<SagaPoc.ServicoEntregador.Servicos.IServicoEntregador, SagaPoc.ServicoEntregador.Servicos.ServicoEntregador>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
@@ -25,9 +28,9 @@ try
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
     {
-        // Os consumers serão adicionados na Fase 4
-        // x.AddConsumer<AlocarEntregadorConsumer>();
-        // x.AddConsumer<LiberarEntregadorConsumer>();
+        // Registrar consumers
+        x.AddConsumer<SagaPoc.ServicoEntregador.Consumers.AlocarEntregadorConsumer>();
+        x.AddConsumer<SagaPoc.ServicoEntregador.Consumers.LiberarEntregadorConsumer>();
 
         x.UsingAzureServiceBus((context, cfg) =>
         {
@@ -36,9 +39,9 @@ try
             // Configurar endpoint para este serviço
             cfg.ReceiveEndpoint("fila-entregador", e =>
             {
-                // Os consumers serão configurados aqui na Fase 4
-                // e.ConfigureConsumer<AlocarEntregadorConsumer>(context);
-                // e.ConfigureConsumer<LiberarEntregadorConsumer>(context);
+                // Configurar consumers neste endpoint
+                e.ConfigureConsumer<SagaPoc.ServicoEntregador.Consumers.AlocarEntregadorConsumer>(context);
+                e.ConfigureConsumer<SagaPoc.ServicoEntregador.Consumers.LiberarEntregadorConsumer>(context);
             });
         });
     });

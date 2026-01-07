@@ -18,6 +18,9 @@ try
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Registrar serviços de negócio
+    builder.Services.AddScoped<SagaPoc.ServicoPagamento.Servicos.IServicoPagamento, SagaPoc.ServicoPagamento.Servicos.ServicoPagamento>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
@@ -25,9 +28,9 @@ try
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
     {
-        // Os consumers serão adicionados na Fase 4
-        // x.AddConsumer<ProcessarPagamentoConsumer>();
-        // x.AddConsumer<EstornarPagamentoConsumer>();
+        // Registrar consumers
+        x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>();
+        x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>();
 
         x.UsingAzureServiceBus((context, cfg) =>
         {
@@ -36,9 +39,9 @@ try
             // Configurar endpoint para este serviço
             cfg.ReceiveEndpoint("fila-pagamento", e =>
             {
-                // Os consumers serão configurados aqui na Fase 4
-                // e.ConfigureConsumer<ProcessarPagamentoConsumer>(context);
-                // e.ConfigureConsumer<EstornarPagamentoConsumer>(context);
+                // Configurar consumers neste endpoint
+                e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>(context);
+                e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>(context);
             });
         });
     });

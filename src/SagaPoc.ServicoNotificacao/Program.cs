@@ -18,6 +18,9 @@ try
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Registrar serviços de negócio
+    builder.Services.AddScoped<SagaPoc.ServicoNotificacao.Servicos.IServicoNotificacao, SagaPoc.ServicoNotificacao.Servicos.ServicoNotificacao>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
@@ -25,8 +28,8 @@ try
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
     {
-        // Os consumers serão adicionados na Fase 4
-        // x.AddConsumer<NotificarClienteConsumer>();
+        // Registrar consumer
+        x.AddConsumer<SagaPoc.ServicoNotificacao.Consumers.NotificarClienteConsumer>();
 
         x.UsingAzureServiceBus((context, cfg) =>
         {
@@ -35,8 +38,8 @@ try
             // Configurar endpoint para este serviço
             cfg.ReceiveEndpoint("fila-notificacao", e =>
             {
-                // Os consumers serão configurados aqui na Fase 4
-                // e.ConfigureConsumer<NotificarClienteConsumer>(context);
+                // Configurar consumer neste endpoint
+                e.ConfigureConsumer<SagaPoc.ServicoNotificacao.Consumers.NotificarClienteConsumer>(context);
             });
         });
     });

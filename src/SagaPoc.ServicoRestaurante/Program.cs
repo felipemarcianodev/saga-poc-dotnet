@@ -18,6 +18,9 @@ try
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Registrar serviços de negócio
+    builder.Services.AddScoped<SagaPoc.ServicoRestaurante.Servicos.IServicoRestaurante, SagaPoc.ServicoRestaurante.Servicos.ServicoRestaurante>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
@@ -25,8 +28,9 @@ try
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
     {
-        // Os consumers serão adicionados na Fase 4
-        // x.AddConsumer<ValidarPedidoRestauranteConsumer>();
+        // Registrar consumers
+        x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>();
+        x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>();
 
         x.UsingAzureServiceBus((context, cfg) =>
         {
@@ -35,8 +39,9 @@ try
             // Configurar endpoint para este serviço
             cfg.ReceiveEndpoint("fila-restaurante", e =>
             {
-                // Os consumers serão configurados aqui na Fase 4
-                // e.ConfigureConsumer<ValidarPedidoRestauranteConsumer>(context);
+                // Configurar consumers neste endpoint
+                e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>(context);
+                e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>(context);
             });
         });
     });
