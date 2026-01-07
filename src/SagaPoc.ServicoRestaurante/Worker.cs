@@ -1,4 +1,4 @@
-namespace SagaPoc.ServicoValidacao;
+namespace SagaPoc.ServicoRestaurante;
 
 public class Worker : BackgroundService
 {

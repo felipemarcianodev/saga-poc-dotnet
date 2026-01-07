@@ -126,3 +126,8 @@ appsettings.*.json
 *.tmp
 *.temp
 
+# Ignora tudo dentro da pasta docs
+/docs/*
+
+# Mas permite o README.md
+!/docs/README.md

@@ -1,41 +1,84 @@
-var builder = WebApplication.CreateBuilder(args);
+using MassTransit;
+using Serilog;
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Configurar Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
+        .Build())
+    .Enrich.FromLogContext()
+    .CreateLogger();
 
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+try
 {
-    app.MapOpenApi();
+    Log.Information("Iniciando API SAGA POC");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Configurar Serilog
+    builder.Host.UseSerilog();
+
+    // Add services to the container
+    builder.Services.AddControllers();
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen(c =>
+    {
+        c.SwaggerDoc("v1", new() {
+            Title = "SAGA POC - Sistema de Delivery",
+            Version = "v1",
+            Description = "POC de SAGA Pattern com MassTransit e Azure Service Bus"
+        });
+    });
+
+    // Configurar MassTransit com Azure Service Bus
+    builder.Services.AddMassTransit(x =>
+    {
+        x.UsingAzureServiceBus((context, cfg) =>
+        {
+            cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
+
+            // A API não precisa de receive endpoints, apenas publica mensagens
+        });
+    });
+
+    // Configurar Health Checks
+    builder.Services.AddHealthChecks()
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
+
+    var app = builder.Build();
+
+    // Configure the HTTP request pipeline
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI(c =>
+        {
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "SAGA POC API v1");
+            c.RoutePrefix = string.Empty; // Swagger na raiz
+        });
+    }
+
+    app.UseSerilogRequestLogging();
+
+    app.UseHttpsRedirection();
+
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    app.MapHealthChecks("/health");
+
+    app.Run();
+
+    Log.Information("API SAGA POC encerrada");
 }
-
-app.UseHttpsRedirection();
-
-var summaries = new[]
+catch (Exception ex)
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
+    Log.Fatal(ex, "API SAGA POC falhou ao iniciar");
+    throw;
+}
+finally
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
-app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    Log.CloseAndFlush();
 }
