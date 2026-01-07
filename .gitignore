@@ -129,5 +129,10 @@ appsettings.*.json
 # Ignora tudo dentro da pasta docs
 /docs/*
 
-# Mas permite o README.md
+# Mas permite arquivos de documentação
 !/docs/README.md
+!/docs/PLANO-EXECUCAO.md
+!/docs/ARQUITETURA.md
+!/docs/MASSTRANSIT-GUIDE.md
+!/docs/CASOS-DE-USO.md
+!/docs/scripts/
