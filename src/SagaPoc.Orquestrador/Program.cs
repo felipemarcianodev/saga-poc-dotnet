@@ -1,5 +1,6 @@
 using MassTransit;
 using SagaPoc.Orquestrador;
+using SagaPoc.Orquestrador.Sagas;
 using Serilog;
 
 // Configurar Serilog
@@ -25,14 +26,15 @@ try
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
     {
-        // A SAGA State Machine será adicionada na Fase 3
-        // x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-        //     .InMemoryRepository();
+        // Configurar SAGA State Machine para orquestração de pedidos
+        x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+            .InMemoryRepository(); // Para POC - usar Redis/SQL em produção
 
         x.UsingAzureServiceBus((context, cfg) =>
         {
             cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
 
+            // Configurar endpoints automaticamente
             cfg.ConfigureEndpoints(context);
         });
     });
