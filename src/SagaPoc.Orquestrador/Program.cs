@@ -1,5 +1,6 @@
 using MassTransit;
 using SagaPoc.Orquestrador;
+using SagaPoc.Orquestrador.Consumers;
 using SagaPoc.Orquestrador.Sagas;
 using Serilog;
 
@@ -21,7 +22,22 @@ try
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
-        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy())
+        .AddAzureServiceBusQueue(
+            builder.Configuration["AzureServiceBus:ConnectionString"]!,
+            queueName: "fila-restaurante",
+            name: "azure-servicebus-restaurante"
+        )
+        .AddAzureServiceBusQueue(
+            builder.Configuration["AzureServiceBus:ConnectionString"]!,
+            queueName: "fila-pagamento",
+            name: "azure-servicebus-pagamento"
+        )
+        .AddAzureServiceBusQueue(
+            builder.Configuration["AzureServiceBus:ConnectionString"]!,
+            queueName: "fila-entregador",
+            name: "azure-servicebus-entregador"
+        );
 
     // Configurar MassTransit com Azure Service Bus
     builder.Services.AddMassTransit(x =>
@@ -30,9 +46,46 @@ try
         x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
             .InMemoryRepository(); // Para POC - usar Redis/SQL em produção
 
+        // Configurar Dead Letter Queue Consumer
+        x.AddConsumer<DeadLetterQueueConsumer>();
+
         x.UsingAzureServiceBus((context, cfg) =>
         {
             cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
+
+            // ============ RETRY POLICY ============
+            // Configuração de retry com exponential backoff
+            cfg.UseMessageRetry(retry =>
+            {
+                retry.Exponential(
+                    retryLimit: 5,
+                    minInterval: TimeSpan.FromSeconds(1),
+                    maxInterval: TimeSpan.FromSeconds(30),
+                    intervalDelta: TimeSpan.FromSeconds(2)
+                );
+
+                // Retry apenas em erros transitórios
+                retry.Handle<TimeoutException>();
+                retry.Handle<HttpRequestException>();
+            });
+
+            // ============ CIRCUIT BREAKER ============
+            cfg.UseCircuitBreaker(cb =>
+            {
+                // Abrir circuito após 15 falhas em 1 minuto
+                cb.TrackingPeriod = TimeSpan.FromMinutes(1);
+                cb.TripThreshold = 15;
+                cb.ActiveThreshold = 10;
+
+                // Fechar circuito após 5 minutos sem falhas
+                cb.ResetInterval = TimeSpan.FromMinutes(5);
+            });
+
+            // ============ DEAD LETTER QUEUE ============
+            cfg.ReceiveEndpoint("fila-dead-letter", e =>
+            {
+                e.ConfigureConsumer<DeadLetterQueueConsumer>(context);
+            });
 
             // Configurar endpoints automaticamente
             cfg.ConfigureEndpoints(context);

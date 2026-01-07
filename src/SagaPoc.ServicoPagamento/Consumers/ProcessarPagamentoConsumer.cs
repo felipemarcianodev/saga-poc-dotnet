@@ -26,6 +26,13 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
     {
         var mensagem = context.Message;
 
+        // ============ TIMEOUT POLICY ============
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Timeout de 10s
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            context.CancellationToken,
+            cts.Token
+        );
+
         _logger.LogInformation(
             "Recebido comando ProcessarPagamento. CorrelacaoId: {CorrelacaoId}, " +
             "ClienteId: {ClienteId}, Valor: {Valor:C}, FormaPagamento: {FormaPagamento}",
@@ -41,7 +48,8 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
             var resultado = await _servico.ProcessarAsync(
                 mensagem.ClienteId,
                 mensagem.ValorTotal,
-                mensagem.FormaPagamento
+                mensagem.FormaPagamento,
+                linkedCts.Token
             );
 
             // Preparar resposta baseada no resultado
@@ -70,6 +78,21 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
                 resposta.Sucesso,
                 resposta.TransacaoId
             );
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            _logger.LogError(
+                "[TIMEOUT] Timeout ao processar pagamento. CorrelacaoId: {CorrelacaoId}",
+                mensagem.CorrelacaoId
+            );
+
+            // Enviar resposta de falha por timeout
+            await context.RespondAsync(new PagamentoProcessado(
+                CorrelacaoId: mensagem.CorrelacaoId,
+                Sucesso: false,
+                TransacaoId: null,
+                MotivoFalha: "Timeout ao processar pagamento"
+            ));
         }
         catch (Exception ex)
         {

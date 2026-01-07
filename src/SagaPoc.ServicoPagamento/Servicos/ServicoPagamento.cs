@@ -26,7 +26,8 @@ public class ServicoPagamento : IServicoPagamento
     public async Task<Resultado<DadosTransacao>> ProcessarAsync(
         string clienteId,
         decimal valorTotal,
-        string formaPagamento)
+        string formaPagamento,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
             "Processando pagamento. ClienteId: {ClienteId}, Valor: {Valor:C}, FormaPagamento: {FormaPagamento}",
@@ -48,7 +49,7 @@ public class ServicoPagamento : IServicoPagamento
 
         // 3. Processar pagamento no gateway (encadeamento com BindAsync)
         return await resultadoForma
-            .BindAsync(_ => ProcessarPagamentoGatewayAsync(clienteId, valorTotal, formaPagamento));
+            .BindAsync(_ => ProcessarPagamentoGatewayAsync(clienteId, valorTotal, formaPagamento, cancellationToken));
     }
 
     /// <summary>
@@ -106,10 +107,11 @@ public class ServicoPagamento : IServicoPagamento
     private async Task<Resultado<DadosTransacao>> ProcessarPagamentoGatewayAsync(
         string clienteId,
         decimal valorTotal,
-        string formaPagamento)
+        string formaPagamento,
+        CancellationToken cancellationToken = default)
     {
         // Simulação de delay de processamento (integração com gateway)
-        await Task.Delay(Random.Shared.Next(200, 800));
+        await Task.Delay(Random.Shared.Next(200, 800), cancellationToken);
 
         // CENÁRIO 1: Cliente com cartão recusado
         if (clienteId == "CLI_CARTAO_RECUSADO")

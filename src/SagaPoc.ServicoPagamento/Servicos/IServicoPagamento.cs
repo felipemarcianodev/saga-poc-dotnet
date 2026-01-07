@@ -14,11 +14,13 @@ public interface IServicoPagamento
     /// <param name="clienteId">Identificador do cliente.</param>
     /// <param name="valorTotal">Valor total a ser cobrado.</param>
     /// <param name="formaPagamento">Forma de pagamento (Cartão, PIX, etc).</param>
+    /// <param name="cancellationToken">Token de cancelamento para timeout.</param>
     /// <returns>Resultado contendo dados da transação ou erro.</returns>
     Task<Resultado<DadosTransacao>> ProcessarAsync(
         string clienteId,
         decimal valorTotal,
-        string formaPagamento
+        string formaPagamento,
+        CancellationToken cancellationToken = default
     );
 
     /// <summary>
