@@ -18,7 +18,7 @@ Criar uma Proof of Concept (POC) demonstrando a implementação do **padrão SAG
 ```
 saga-poc-dotnet/
 ├── docs/
-│   ├── PLANO-EXECUCAO.md
+│   ├── plano-execucao.md
 │   ├── ARQUITETURA.md
 │   ├── MASSTRANSIT-GUIDE.md
 │   └── CASOS-DE-USO.md
@@ -866,7 +866,7 @@ az servicebus namespace authorization-rule keys list \
 saga-poc-dotnet/
 │
 ├── docs/
-│   ├── PLANO-EXECUCAO.md
+│   ├── plano-execucao.md
 │   ├── ARQUITETURA.md
 │   ├── MASSTRANSIT-GUIDE.md
 │   └── CASOS-DE-USO.md

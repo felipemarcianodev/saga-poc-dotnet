@@ -62,6 +62,51 @@ public class EstadoPedido : SagaStateMachineInstance
     /// </summary>
     public Guid? PedidoRestauranteId { get; set; }
 
+    /// <summary>
+    /// Indica se o pedido está em processo de compensação.
+    /// </summary>
+    public bool EmCompensacao { get; set; }
+
+    /// <summary>
+    /// Timestamp de início da compensação.
+    /// </summary>
+    public DateTime? DataInicioCompensacao { get; set; }
+
+    /// <summary>
+    /// Timestamp de conclusão da compensação.
+    /// </summary>
+    public DateTime? DataConclusaoCompensacao { get; set; }
+
+    /// <summary>
+    /// Lista de passos compensados com sucesso (para rastreamento).
+    /// </summary>
+    public List<string> PassosCompensados { get; set; } = new();
+
+    /// <summary>
+    /// Indica se a validação do restaurante foi executada (precisa compensar).
+    /// </summary>
+    public bool RestauranteValidado { get; set; }
+
+    /// <summary>
+    /// Indica se o pagamento foi processado (precisa estornar).
+    /// </summary>
+    public bool PagamentoProcessado { get; set; }
+
+    /// <summary>
+    /// Indica se o entregador foi alocado (precisa liberar).
+    /// </summary>
+    public bool EntregadorAlocado { get; set; }
+
+    /// <summary>
+    /// Contador de tentativas de compensação (para idempotência).
+    /// </summary>
+    public int TentativasCompensacao { get; set; }
+
+    /// <summary>
+    /// Erros ocorridos durante a compensação.
+    /// </summary>
+    public List<string> ErrosCompensacao { get; set; } = new();
+
     // ==================== Timestamps ====================
 
     /// <summary>

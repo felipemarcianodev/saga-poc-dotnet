@@ -76,6 +76,21 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
     public Event<NotificacaoEnviada> NotificacaoEnviada { get; private set; } = null!;
 
     /// <summary>
+    /// Evento: Pedido cancelado no restaurante (compensação).
+    /// </summary>
+    public Event<PedidoRestauranteCancelado> PedidoCanceladoRestaurante { get; private set; } = null!;
+
+    /// <summary>
+    /// Evento: Pagamento estornado (compensação).
+    /// </summary>
+    public Event<PagamentoEstornado> PagamentoEstornado { get; private set; } = null!;
+
+    /// <summary>
+    /// Evento: Entregador liberado (compensação).
+    /// </summary>
+    public Event<EntregadorLiberado> EntregadorLiberado { get; private set; } = null!;
+
+    /// <summary>
     /// Construtor da SAGA. Define a máquina de estados e suas transições.
     /// </summary>
     public PedidoSaga()
@@ -123,6 +138,7 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                             context.Saga.ValorTotal = context.Message.ValorTotal;
                             context.Saga.TempoPreparoMinutos = context.Message.TempoPreparoMinutos;
                             context.Saga.TaxaEntrega = context.Saga.ValorTotal * 0.15m; // 15% de taxa
+                            context.Saga.RestauranteValidado = true; // Marcar para compensação
                         })
                         .TransitionTo(ProcessandoPagamento)
                         .Publish(context => new ProcessarPagamento(
@@ -166,6 +182,7 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                         .Then(context =>
                         {
                             context.Saga.TransacaoId = context.Message.TransacaoId;
+                            context.Saga.PagamentoProcessado = true; // Marcar para compensação
                         })
                         .TransitionTo(AlocandoEntregador)
                         .Publish(context => new AlocarEntregador(
@@ -174,36 +191,26 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                             context.Saga.EnderecoEntrega,
                             context.Saga.TaxaEntrega
                         )),
-                    // FLUXO DE FALHA: Pagamento recusado
+                    // FLUXO DE FALHA: Pagamento recusado - Compensar Restaurante
                     recusado => recusado
                         .Then(context =>
                         {
                             context.Saga.MensagemErro = context.Message.MotivoFalha;
-                            context.Saga.DataConclusao = DateTime.UtcNow;
+                            context.Saga.EmCompensacao = true;
+                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pagamento falhou: {context.Message.MotivoFalha}");
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Iniciando compensação...");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO INICIADA");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Motivo: {context.Message.MotivoFalha}");
                         })
                         .TransitionTo(ExecutandoCompensacao)
-                        // Compensar: Cancelar pedido no restaurante
-                        .Publish(context => new CancelarPedidoRestaurante(
-                            context.Saga.CorrelationId,
-                            context.Saga.RestauranteId,
-                            context.Saga.CorrelationId // Usando CorrelationId como PedidoId
-                        ))
-                        .Then(context =>
-                        {
-                            // Após compensar, notificar cliente e finalizar
-                            context.Saga.DataConclusao = DateTime.UtcNow;
-                        })
-                        .TransitionTo(PedidoCancelado)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido cancelado: {context.Saga.MensagemErro}",
-                            TipoNotificacao.PedidoCancelado
-                        ))
-                        .Finalize()
+                        .If(context => context.Saga.RestauranteValidado, // Só compensa se validou
+                            compensa => compensa
+                                .Publish(context => new CancelarPedidoRestaurante(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.RestauranteId,
+                                    context.Saga.CorrelationId
+                                ))
+                        )
                 )
         );
 
@@ -223,6 +230,7 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                         {
                             context.Saga.EntregadorId = context.Message.EntregadorId;
                             context.Saga.TempoEntregaMinutos = context.Message.TempoEstimadoMinutos;
+                            context.Saga.EntregadorAlocado = true; // Marcar para compensação
 
                             Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador {context.Message.EntregadorId} alocado com sucesso!");
                         })
@@ -233,39 +241,36 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                             $"Pedido confirmado! Entregador {context.Message.EntregadorId} a caminho. Tempo estimado: {context.Saga.TempoPreparoMinutos + context.Saga.TempoEntregaMinutos} minutos.",
                             TipoNotificacao.PedidoConfirmado
                         )),
-                    // FLUXO DE FALHA: Sem entregadores disponíveis
+                    // FLUXO DE FALHA: Sem entregadores - Compensar TUDO (Pagamento + Restaurante)
                     semEntregador => semEntregador
                         .Then(context =>
                         {
                             context.Saga.MensagemErro = context.Message.MotivoFalha;
+                            context.Saga.EmCompensacao = true;
+                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Falha ao alocar entregador: {context.Message.MotivoFalha}");
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Iniciando compensação completa...");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO TOTAL INICIADA");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Compensando: Pagamento + Restaurante");
                         })
                         .TransitionTo(ExecutandoCompensacao)
-                        // Compensar: Estornar pagamento
-                        .Publish(context => new EstornarPagamento(
-                            context.Saga.CorrelationId,
-                            context.Saga.TransacaoId!
-                        ))
-                        // Compensar: Cancelar pedido no restaurante
-                        .Publish(context => new CancelarPedidoRestaurante(
-                            context.Saga.CorrelationId,
-                            context.Saga.RestauranteId,
-                            context.Saga.CorrelationId
-                        ))
-                        .Then(context =>
-                        {
-                            context.Saga.DataConclusao = DateTime.UtcNow;
-                        })
-                        .TransitionTo(PedidoCancelado)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido cancelado: {context.Saga.MensagemErro}. Pagamento estornado.",
-                            TipoNotificacao.PedidoCancelado
-                        ))
-                        .Finalize()
+                        // Compensação em ORDEM REVERSA
+                        // 1. Estornar pagamento
+                        .If(context => context.Saga.PagamentoProcessado,
+                            estorna => estorna
+                                .Publish(context => new EstornarPagamento(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.TransacaoId!
+                                ))
+                        )
+                        // 2. Cancelar no restaurante
+                        .If(context => context.Saga.RestauranteValidado,
+                            cancela => cancela
+                                .Publish(context => new CancelarPedidoRestaurante(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.RestauranteId,
+                                    context.Saga.CorrelationId
+                                ))
+                        )
                 )
         );
 
@@ -286,9 +291,97 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                 .Finalize()
         );
 
+        // ==================== TRATAMENTO DE EVENTOS DE COMPENSAÇÃO ====================
+
+        During(ExecutandoCompensacao,
+            When(PagamentoEstornado)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"PagamentoEstornado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pagamento estornado com sucesso");
+                })
+                .ThenAsync(async context =>
+                {
+                    await FinalizarCompensacaoSeCompleta(context);
+                }),
+
+            When(PedidoCanceladoRestaurante)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"RestauranteCancelado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pedido cancelado no restaurante");
+                })
+                .ThenAsync(async context =>
+                {
+                    await FinalizarCompensacaoSeCompleta(context);
+                }),
+
+            When(EntregadorLiberado)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"EntregadorLiberado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador liberado");
+                })
+                .ThenAsync(async context =>
+                {
+                    await FinalizarCompensacaoSeCompleta(context);
+                })
+        );
+
         // ==================== CONFIGURAÇÕES ADICIONAIS ====================
 
         // Configurar o que acontece quando a SAGA é finalizada
         SetCompletedWhenFinalized();
+    }
+
+    /// <summary>
+    /// Verifica se todas as compensações necessárias foram executadas e finaliza a SAGA.
+    /// </summary>
+    private async Task FinalizarCompensacaoSeCompleta<T>(BehaviorContext<EstadoPedido, T> context)
+        where T : class
+    {
+        // Verificar se todas as compensações necessárias foram executadas
+        var todasCompensadas = true;
+
+        if (context.Saga.PagamentoProcessado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("PagamentoEstornado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (context.Saga.RestauranteValidado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("RestauranteCancelado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (context.Saga.EntregadorAlocado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("EntregadorLiberado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (todasCompensadas)
+        {
+            context.Saga.DataConclusaoCompensacao = DateTime.UtcNow;
+            context.Saga.DataConclusao = DateTime.UtcNow;
+
+            var duracao = (context.Saga.DataConclusaoCompensacao.Value -
+                          context.Saga.DataInicioCompensacao!.Value).TotalSeconds;
+
+            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO CONCLUÍDA ({duracao:F2}s)");
+            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Passos compensados: {context.Saga.PassosCompensados.Count}");
+
+            // Notificar cliente
+            await context.Publish(new NotificarCliente(
+                context.Saga.CorrelationId,
+                context.Saga.ClienteId,
+                $"Pedido cancelado: {context.Saga.MensagemErro}. Todos os valores foram estornados.",
+                TipoNotificacao.PedidoCancelado
+            ));
+
+            // Finalizar SAGA
+            context.SetCompleted();
+        }
     }
 }

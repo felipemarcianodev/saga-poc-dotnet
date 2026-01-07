@@ -1,5 +1,7 @@
 using MassTransit;
+using SagaPoc.Shared.Infraestrutura;
 using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoRestaurante.Servicos;
 
 namespace SagaPoc.ServicoRestaurante.Consumers;
@@ -11,19 +13,23 @@ namespace SagaPoc.ServicoRestaurante.Consumers;
 public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaurante>
 {
     private readonly IServicoRestaurante _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
     private readonly ILogger<CancelarPedidoRestauranteConsumer> _logger;
 
     public CancelarPedidoRestauranteConsumer(
         IServicoRestaurante servico,
+        IRepositorioIdempotencia idempotencia,
         ILogger<CancelarPedidoRestauranteConsumer> logger)
     {
         _servico = servico;
+        _idempotencia = idempotencia;
         _logger = logger;
     }
 
     public async Task Consume(ConsumeContext<CancelarPedidoRestaurante> context)
     {
         var mensagem = context.Message;
+        var chaveIdempotencia = $"cancelamento:{mensagem.PedidoId}";
 
         _logger.LogWarning(
             "COMPENSAÇÃO: Recebido comando CancelarPedidoRestaurante. " +
@@ -33,9 +39,25 @@ public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaur
             mensagem.PedidoId
         );
 
+        // ==================== IDEMPOTÊNCIA ====================
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "COMPENSAÇÃO: Cancelamento já processado anteriormente - PedidoId: {PedidoId}",
+                mensagem.PedidoId
+            );
+
+            await context.Publish(new PedidoRestauranteCancelado(
+                mensagem.CorrelacaoId,
+                Sucesso: true,
+                PedidoId: mensagem.PedidoId
+            ));
+            return;
+        }
+
         try
         {
-            // Executar cancelamento do pedido
+            // ==================== PROCESSAR CANCELAMENTO ====================
             var resultado = await _servico.CancelarPedidoAsync(
                 mensagem.RestauranteId,
                 mensagem.PedidoId
@@ -49,6 +71,11 @@ public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaur
                     mensagem.CorrelacaoId,
                     mensagem.PedidoId
                 );
+
+                await _idempotencia.MarcarProcessadoAsync(
+                    chaveIdempotencia,
+                    new { pedidoId = mensagem.PedidoId, data = DateTime.UtcNow }
+                );
             }
             else
             {
@@ -59,10 +86,13 @@ public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaur
                     mensagem.PedidoId,
                     resultado.Erro.Mensagem
                 );
-
-                // Mesmo que falhe, não vamos lançar exceção para não travar a SAGA
-                // Em produção, isso deveria ser logado em um sistema de alertas
             }
+
+            await context.Publish(new PedidoRestauranteCancelado(
+                mensagem.CorrelacaoId,
+                Sucesso: resultado.EhSucesso,
+                PedidoId: mensagem.PedidoId
+            ));
         }
         catch (Exception ex)
         {
@@ -74,8 +104,11 @@ public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaur
                 mensagem.PedidoId
             );
 
-            // Não re-throw - compensações devem ser idempotentes e tolerantes a falhas
-            // Em produção, criar alerta para investigação manual
+            await context.Publish(new PedidoRestauranteCancelado(
+                mensagem.CorrelacaoId,
+                Sucesso: false,
+                PedidoId: mensagem.PedidoId
+            ));
         }
     }
 }

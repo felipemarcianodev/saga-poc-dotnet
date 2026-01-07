@@ -21,6 +21,9 @@ try
     // Registrar serviços de negócio
     builder.Services.AddScoped<SagaPoc.ServicoPagamento.Servicos.IServicoPagamento, SagaPoc.ServicoPagamento.Servicos.ServicoPagamento>();
 
+    // Registrar repositório de idempotência
+    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia, SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());

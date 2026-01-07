@@ -1,5 +1,7 @@
 using MassTransit;
+using SagaPoc.Shared.Infraestrutura;
 using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoPagamento.Servicos;
 
 namespace SagaPoc.ServicoPagamento.Consumers;
@@ -11,19 +13,23 @@ namespace SagaPoc.ServicoPagamento.Consumers;
 public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
 {
     private readonly IServicoPagamento _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
     private readonly ILogger<EstornarPagamentoConsumer> _logger;
 
     public EstornarPagamentoConsumer(
         IServicoPagamento servico,
+        IRepositorioIdempotencia idempotencia,
         ILogger<EstornarPagamentoConsumer> logger)
     {
         _servico = servico;
+        _idempotencia = idempotencia;
         _logger = logger;
     }
 
     public async Task Consume(ConsumeContext<EstornarPagamento> context)
     {
         var mensagem = context.Message;
+        var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
 
         _logger.LogWarning(
             "COMPENSAÇÃO: Recebido comando EstornarPagamento. " +
@@ -32,9 +38,27 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
             mensagem.TransacaoId
         );
 
+        // ==================== IDEMPOTÊNCIA ====================
+        // Verificar se já foi estornado
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "COMPENSAÇÃO: Estorno já processado anteriormente - TransacaoId: {TransacaoId}",
+                mensagem.TransacaoId
+            );
+
+            // Responder com sucesso mesmo assim (idempotência)
+            await context.Publish(new PagamentoEstornado(
+                mensagem.CorrelacaoId,
+                Sucesso: true,
+                TransacaoId: mensagem.TransacaoId
+            ));
+            return;
+        }
+
         try
         {
-            // Executar estorno do pagamento
+            // ==================== PROCESSAR ESTORNO ====================
             var resultado = await _servico.EstornarAsync(mensagem.TransacaoId);
 
             if (resultado.EhSucesso)
@@ -44,6 +68,12 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
                     "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
                     mensagem.CorrelacaoId,
                     mensagem.TransacaoId
+                );
+
+                // Marcar como processado
+                await _idempotencia.MarcarProcessadoAsync(
+                    chaveIdempotencia,
+                    new { transacaoId = mensagem.TransacaoId, data = DateTime.UtcNow }
                 );
             }
             else
@@ -55,10 +85,14 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
                     mensagem.TransacaoId,
                     resultado.Erro.Mensagem
                 );
-
-                // Mesmo que falhe, não vamos lançar exceção para não travar a SAGA
-                // Em produção, isso deveria ser logado em um sistema de alertas
             }
+
+            // Publicar resposta
+            await context.Publish(new PagamentoEstornado(
+                mensagem.CorrelacaoId,
+                Sucesso: resultado.EhSucesso,
+                TransacaoId: mensagem.TransacaoId
+            ));
         }
         catch (Exception ex)
         {
@@ -70,8 +104,12 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
                 mensagem.TransacaoId
             );
 
-            // Não re-throw - compensações devem ser idempotentes e tolerantes a falhas
-            // Em produção, criar alerta para investigação manual
+            // Publicar resposta de falha
+            await context.Publish(new PagamentoEstornado(
+                mensagem.CorrelacaoId,
+                Sucesso: false,
+                TransacaoId: mensagem.TransacaoId
+            ));
         }
     }
 }

@@ -307,7 +307,7 @@ Esta POC é **educacional**. Para produção, considere:
 - Testes de carga (NBomber)
 - Chaos Engineering
 
-Veja mais detalhes em [PLANO-EXECUCAO.md - Seção 9](docs/PLANO-EXECUCAO.md#9-pr%C3%B3ximos-passos-opcionais---produ%C3%A7%C3%A3o).
+Veja mais detalhes em [plano-execucao.md - Seção 9](docs/plano-execucao.md#9-pr%C3%B3ximos-passos-opcionais---produ%C3%A7%C3%A3o).
 
 ---
 

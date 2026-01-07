@@ -1,5 +1,7 @@
 using MassTransit;
+using SagaPoc.Shared.Infraestrutura;
 using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoEntregador.Servicos;
 
 namespace SagaPoc.ServicoEntregador.Consumers;
@@ -11,19 +13,23 @@ namespace SagaPoc.ServicoEntregador.Consumers;
 public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
 {
     private readonly IServicoEntregador _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
     private readonly ILogger<LiberarEntregadorConsumer> _logger;
 
     public LiberarEntregadorConsumer(
         IServicoEntregador servico,
+        IRepositorioIdempotencia idempotencia,
         ILogger<LiberarEntregadorConsumer> logger)
     {
         _servico = servico;
+        _idempotencia = idempotencia;
         _logger = logger;
     }
 
     public async Task Consume(ConsumeContext<LiberarEntregador> context)
     {
         var mensagem = context.Message;
+        var chaveIdempotencia = $"liberacao:{mensagem.EntregadorId}:{mensagem.CorrelacaoId}";
 
         _logger.LogWarning(
             "COMPENSAÇÃO: Recebido comando LiberarEntregador. " +
@@ -32,9 +38,25 @@ public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
             mensagem.EntregadorId
         );
 
+        // ==================== IDEMPOTÊNCIA ====================
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "COMPENSAÇÃO: Liberação já processada anteriormente - EntregadorId: {EntregadorId}",
+                mensagem.EntregadorId
+            );
+
+            await context.Publish(new EntregadorLiberado(
+                mensagem.CorrelacaoId,
+                Sucesso: true,
+                EntregadorId: mensagem.EntregadorId
+            ));
+            return;
+        }
+
         try
         {
-            // Executar liberação do entregador
+            // ==================== PROCESSAR LIBERAÇÃO ====================
             var resultado = await _servico.LiberarAsync(mensagem.EntregadorId);
 
             if (resultado.EhSucesso)
@@ -44,6 +66,11 @@ public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
                     "CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
                     mensagem.CorrelacaoId,
                     mensagem.EntregadorId
+                );
+
+                await _idempotencia.MarcarProcessadoAsync(
+                    chaveIdempotencia,
+                    new { entregadorId = mensagem.EntregadorId, data = DateTime.UtcNow }
                 );
             }
             else
@@ -55,10 +82,13 @@ public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
                     mensagem.EntregadorId,
                     resultado.Erro.Mensagem
                 );
-
-                // Mesmo que falhe, não vamos lançar exceção para não travar a SAGA
-                // Em produção, isso deveria ser logado em um sistema de alertas
             }
+
+            await context.Publish(new EntregadorLiberado(
+                mensagem.CorrelacaoId,
+                Sucesso: resultado.EhSucesso,
+                EntregadorId: mensagem.EntregadorId
+            ));
         }
         catch (Exception ex)
         {
@@ -70,8 +100,11 @@ public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
                 mensagem.EntregadorId
             );
 
-            // Não re-throw - compensações devem ser idempotentes e tolerantes a falhas
-            // Em produção, criar alerta para investigação manual
+            await context.Publish(new EntregadorLiberado(
+                mensagem.CorrelacaoId,
+                Sucesso: false,
+                EntregadorId: mensagem.EntregadorId
+            ));
         }
     }
 }
