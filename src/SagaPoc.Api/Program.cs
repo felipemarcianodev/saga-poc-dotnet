@@ -27,20 +27,41 @@ try
         c.SwaggerDoc("v1", new() {
             Title = "SAGA POC - Sistema de Delivery",
             Version = "v1",
-            Description = "POC de SAGA Pattern com MassTransit e Azure Service Bus"
+            Description = "POC de SAGA Pattern com MassTransit e Azure Service Bus para sistema de delivery de comida"
         });
-    });
 
-    // Configurar MassTransit com Azure Service Bus
-    builder.Services.AddMassTransit(x =>
-    {
-        x.UsingAzureServiceBus((context, cfg) =>
+        // Incluir comentários XML na documentação
+        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+        if (File.Exists(xmlPath))
         {
-            cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
-
-            // A API não precisa de receive endpoints, apenas publica mensagens
-        });
+            c.IncludeXmlComments(xmlPath);
+        }
     });
+
+    // Configurar MassTransit com Azure Service Bus (somente se connection string válida)
+    var azureServiceBusConnectionString = builder.Configuration["AzureServiceBus:ConnectionString"];
+    var isValidConnectionString = !string.IsNullOrWhiteSpace(azureServiceBusConnectionString)
+                                   && !azureServiceBusConnectionString.Contains("[seu-namespace]")
+                                   && !azureServiceBusConnectionString.Contains("[sua-chave]");
+
+    if (isValidConnectionString)
+    {
+        builder.Services.AddMassTransit(x =>
+        {
+            x.UsingAzureServiceBus((context, cfg) =>
+            {
+                cfg.Host(azureServiceBusConnectionString);
+
+                // A API não precisa de receive endpoints, apenas publica mensagens
+            });
+        });
+    }
+    else
+    {
+        // Modo demo: MassTransit desabilitado
+        Log.Warning("Azure Service Bus não configurado. API rodando em modo DEMO (sem publicação de mensagens).");
+    }
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
