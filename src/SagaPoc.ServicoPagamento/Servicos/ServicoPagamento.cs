@@ -20,6 +20,9 @@ public class ServicoPagamento : IServicoPagamento
         _logger = logger;
     }
 
+    /// <summary>
+    /// Processa um pagamento usando validação em cascata com Result Pattern.
+    /// </summary>
     public async Task<Resultado<DadosTransacao>> ProcessarAsync(
         string clienteId,
         decimal valorTotal,
@@ -32,6 +35,79 @@ public class ServicoPagamento : IServicoPagamento
             formaPagamento
         );
 
+        // Validação em cascata (Railway-Oriented Programming)
+        // 1. Validar valor
+        var resultadoValor = ValidarValor(valorTotal);
+        if (resultadoValor.EhFalha)
+            return Resultado<DadosTransacao>.Falha(resultadoValor.Erro);
+
+        // 2. Validar forma de pagamento (encadeamento com Bind)
+        var resultadoForma = resultadoValor.Bind(_ => ValidarFormaPagamento(formaPagamento));
+        if (resultadoForma.EhFalha)
+            return Resultado<DadosTransacao>.Falha(resultadoForma.Erro);
+
+        // 3. Processar pagamento no gateway (encadeamento com BindAsync)
+        return await resultadoForma
+            .BindAsync(_ => ProcessarPagamentoGatewayAsync(clienteId, valorTotal, formaPagamento));
+    }
+
+    /// <summary>
+    /// Etapa 1: Valida o valor da transação.
+    /// </summary>
+    private Resultado<Unit> ValidarValor(decimal valorTotal)
+    {
+        if (valorTotal <= 0)
+        {
+            return Resultado.Falha(
+                Erro.Validacao("VALOR_INVALIDO", "Valor do pagamento deve ser maior que zero")
+            );
+        }
+
+        if (valorTotal > 10000m)
+        {
+            return Resultado.Falha(
+                Erro.Negocio("VALOR_EXCEDE_LIMITE", "Valor excede o limite permitido (R$ 10.000,00)")
+            );
+        }
+
+        return Resultado.Sucesso();
+    }
+
+    /// <summary>
+    /// Etapa 2: Valida a forma de pagamento.
+    /// </summary>
+    private Resultado<Unit> ValidarFormaPagamento(string formaPagamento)
+    {
+        var formasValidas = new[] { "CREDITO", "DEBITO", "PIX", "DINHEIRO" };
+
+        if (string.IsNullOrWhiteSpace(formaPagamento))
+        {
+            return Resultado.Falha(
+                Erro.Validacao("FORMA_PAGAMENTO_VAZIA", "Forma de pagamento é obrigatória")
+            );
+        }
+
+        if (!formasValidas.Contains(formaPagamento.ToUpper()))
+        {
+            return Resultado.Falha(
+                Erro.Validacao(
+                    "FORMA_PAGAMENTO_INVALIDA",
+                    $"Forma de pagamento '{formaPagamento}' não é válida. Opções: {string.Join(", ", formasValidas)}"
+                )
+            );
+        }
+
+        return Resultado.Sucesso();
+    }
+
+    /// <summary>
+    /// Etapa 3: Processa o pagamento no gateway.
+    /// </summary>
+    private async Task<Resultado<DadosTransacao>> ProcessarPagamentoGatewayAsync(
+        string clienteId,
+        decimal valorTotal,
+        string formaPagamento)
+    {
         // Simulação de delay de processamento (integração com gateway)
         await Task.Delay(Random.Shared.Next(200, 800));
 
@@ -67,11 +143,23 @@ public class ServicoPagamento : IServicoPagamento
                 clienteId
             );
             return Resultado<DadosTransacao>.Falha(
-                Erro.Tecnico("TIMEOUT_GATEWAY", "Timeout ao comunicar com gateway de pagamento")
+                Erro.Timeout("Timeout ao comunicar com gateway de pagamento", "TIMEOUT_GATEWAY")
             );
         }
 
-        // CENÁRIO 4: Pagamento aprovado
+        // CENÁRIO 4: Erro no gateway (sistema externo)
+        if (clienteId == "CLI_ERRO_GATEWAY")
+        {
+            _logger.LogError(
+                "Erro no gateway de pagamento. ClienteId: {ClienteId}",
+                clienteId
+            );
+            return Resultado<DadosTransacao>.Falha(
+                Erro.Externo("Gateway de pagamento retornou erro", "ERRO_GATEWAY")
+            );
+        }
+
+        // CENÁRIO 5: Pagamento aprovado
         var transacaoId = $"TXN_{Guid.NewGuid():N}";
         var autorizacao = $"AUTH_{Random.Shared.Next(100000, 999999)}";
 

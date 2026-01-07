@@ -21,6 +21,10 @@ public class ServicoRestaurante : IServicoRestaurante
         _logger = logger;
     }
 
+    /// <summary>
+    /// Valida um pedido usando encadeamento de validações com Result Pattern.
+    /// Demonstra o uso de Bind/BindAsync para Railway-Oriented Programming.
+    /// </summary>
     public async Task<Resultado<DadosValidacaoPedido>> ValidarPedidoAsync(
         string restauranteId,
         List<ItemPedido> itens)
@@ -31,50 +35,129 @@ public class ServicoRestaurante : IServicoRestaurante
             itens.Count
         );
 
-        // Simulação de delay de processamento (simula chamada a banco/API)
-        await Task.Delay(Random.Shared.Next(100, 500));
+        // Validação em cascata usando Bind/BindAsync (Railway-Oriented Programming)
+        // 1. Validar restaurante
+        var resultadoValidacao = await ValidarRestauranteAsync(restauranteId);
+        if (resultadoValidacao.EhFalha)
+            return Resultado<DadosValidacaoPedido>.Falha(resultadoValidacao.Erro);
 
-        // CENÁRIO 1: Restaurante fechado
-        if (restauranteId == "REST_FECHADO")
-        {
-            _logger.LogWarning("Restaurante {RestauranteId} está fechado", restauranteId);
-            return Resultado<DadosValidacaoPedido>.Falha(
-                Erro.Negocio("RESTAURANTE_FECHADO", "Restaurante fechado no momento")
-            );
-        }
+        // 2. Validar itens (encadeamento com BindAsync)
+        var resultadoItens = await resultadoValidacao
+            .BindAsync(_ => ValidarItensAsync(restauranteId, itens));
 
-        // CENÁRIO 2: Restaurante inexistente
-        if (restauranteId == "REST_INVALIDO")
+        if (resultadoItens.EhFalha)
+            return Resultado<DadosValidacaoPedido>.Falha(resultadoItens.Erro);
+
+        // 3. Calcular valores finais (encadeamento com BindAsync)
+        return await resultadoItens
+            .BindAsync(itensValidados => CalcularValorTotalAsync(restauranteId, itensValidados));
+    }
+
+    /// <summary>
+    /// Etapa 1: Valida se o restaurante existe e está aberto.
+    /// </summary>
+    private async Task<Resultado<bool>> ValidarRestauranteAsync(string restauranteId)
+    {
+        // Simulação de delay de consulta ao banco
+        await Task.Delay(Random.Shared.Next(50, 150));
+
+        return restauranteId switch
         {
-            _logger.LogWarning("Restaurante {RestauranteId} não encontrado", restauranteId);
-            return Resultado<DadosValidacaoPedido>.Falha(
+            "REST_FECHADO" => Resultado<bool>.Falha(
+                Erro.Negocio("RESTAURANTE_FECHADO", "Restaurante está fechado no momento")
+            ),
+            "REST_INVALIDO" => Resultado<bool>.Falha(
                 Erro.NaoEncontrado($"Restaurante {restauranteId} não encontrado")
-            );
+            ),
+            "REST_INATIVO" => Resultado<bool>.Falha(
+                Erro.Negocio("RESTAURANTE_INATIVO", "Restaurante temporariamente indisponível")
+            ),
+            _ when restauranteId.StartsWith("REST") => Resultado<bool>.Sucesso(true),
+            _ => Resultado<bool>.Falha(
+                Erro.NaoEncontrado($"Restaurante '{restauranteId}' não encontrado", "RESTAURANTE_NAO_ENCONTRADO")
+            )
+        };
+    }
+
+    /// <summary>
+    /// Etapa 2: Valida se todos os itens estão disponíveis.
+    /// </summary>
+    private async Task<Resultado<List<ItemPedido>>> ValidarItensAsync(
+        string restauranteId,
+        List<ItemPedido> itens)
+    {
+        // Simulação de delay de consulta ao estoque
+        await Task.Delay(Random.Shared.Next(100, 300));
+
+        var erros = new List<Erro>();
+
+        foreach (var item in itens)
+        {
+            // Validação de item indisponível
+            if (item.ProdutoId == "INDISPONIVEL")
+            {
+                erros.Add(Erro.Negocio(
+                    "PRODUTO_INDISPONIVEL",
+                    $"Produto '{item.Nome}' está indisponível"
+                ));
+            }
+
+            // Validação de quantidade
+            if (item.Quantidade > 10)
+            {
+                erros.Add(Erro.Validacao(
+                    "QUANTIDADE_EXCEDIDA",
+                    $"Quantidade máxima para '{item.Nome}' é 10 unidades"
+                ));
+            }
+
+            // Validação de preço
+            if (item.PrecoUnitario <= 0)
+            {
+                erros.Add(Erro.Validacao(
+                    "PRECO_INVALIDO",
+                    $"Preço do item '{item.Nome}' é inválido"
+                ));
+            }
         }
 
-        // CENÁRIO 3: Item indisponível
-        var itemIndisponivel = itens.FirstOrDefault(i => i.ProdutoId == "INDISPONIVEL");
-        if (itemIndisponivel != null)
+        // Se houver erros, retornar todos eles
+        if (erros.Any())
         {
             _logger.LogWarning(
-                "Item {ProdutoId} indisponível no restaurante {RestauranteId}",
-                itemIndisponivel.ProdutoId,
-                restauranteId
+                "Itens com problemas no restaurante {RestauranteId}: {Erros}",
+                restauranteId,
+                string.Join("; ", erros.Select(e => e.Mensagem))
             );
+            return Resultado<List<ItemPedido>>.Falha(erros);
+        }
+
+        return Resultado<List<ItemPedido>>.Sucesso(itens);
+    }
+
+    /// <summary>
+    /// Etapa 3: Calcula o valor total e tempo de preparo.
+    /// </summary>
+    private async Task<Resultado<DadosValidacaoPedido>> CalcularValorTotalAsync(
+        string restauranteId,
+        List<ItemPedido> itensValidados)
+    {
+        // Simulação de delay de cálculo
+        await Task.Delay(Random.Shared.Next(50, 100));
+
+        var valorTotal = itensValidados.Sum(i => i.PrecoUnitario * i.Quantidade);
+
+        // Validar se o valor mínimo foi atingido
+        if (valorTotal < 10m)
+        {
             return Resultado<DadosValidacaoPedido>.Falha(
-                Erro.Negocio(
-                    "ITEM_INDISPONIVEL",
-                    $"O item '{itemIndisponivel.Nome}' não está disponível no momento"
-                )
+                Erro.Validacao("VALOR_MINIMO", "Valor mínimo do pedido é R$ 10,00")
             );
         }
 
-        // CENÁRIO 4: Validação OK - Calcular valores
-        var valorTotal = itens.Sum(i => i.PrecoUnitario * i.Quantidade);
-
-        // Tempo de preparo baseado na quantidade de itens (10 min por item)
-        // Restaurantes VIP têm preparo mais rápido
-        var tempoPreparoBase = itens.Count * 10;
+        // Tempo de preparo baseado na quantidade de itens (15 min por item)
+        // Restaurantes VIP têm preparo mais rápido (metade do tempo)
+        var tempoPreparoBase = itensValidados.Count * 15;
         var tempoPreparo = restauranteId == "REST_VIP"
             ? tempoPreparoBase / 2
             : tempoPreparoBase;

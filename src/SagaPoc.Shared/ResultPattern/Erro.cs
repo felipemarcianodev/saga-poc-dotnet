@@ -103,6 +103,42 @@ public sealed class Erro
     public static Erro Conflito(string mensagem) =>
         new("CONFLITO", mensagem, TipoErro.Conflito);
 
+    /// <summary>
+    /// Cria um erro de timeout.
+    /// </summary>
+    /// <param name="mensagem">Mensagem descritiva.</param>
+    /// <param name="codigo">Código do erro (opcional).</param>
+    /// <returns>Instância de <see cref="Erro"/>.</returns>
+    public static Erro Timeout(string mensagem, string codigo = "TIMEOUT") =>
+        new(codigo, mensagem, TipoErro.Timeout);
+
+    /// <summary>
+    /// Cria um erro de infraestrutura.
+    /// </summary>
+    /// <param name="mensagem">Mensagem descritiva.</param>
+    /// <param name="codigo">Código do erro (opcional).</param>
+    /// <returns>Instância de <see cref="Erro"/>.</returns>
+    public static Erro Infraestrutura(string mensagem, string codigo = "INFRAESTRUTURA") =>
+        new(codigo, mensagem, TipoErro.Infraestrutura);
+
+    /// <summary>
+    /// Cria um erro externo (de API/serviço externo).
+    /// </summary>
+    /// <param name="mensagem">Mensagem descritiva.</param>
+    /// <param name="codigo">Código do erro (opcional).</param>
+    /// <returns>Instância de <see cref="Erro"/>.</returns>
+    public static Erro Externo(string mensagem, string codigo = "EXTERNO") =>
+        new(codigo, mensagem, TipoErro.Externo);
+
+    /// <summary>
+    /// Cria um erro de recurso não encontrado com código customizado.
+    /// </summary>
+    /// <param name="mensagem">Mensagem descritiva.</param>
+    /// <param name="codigo">Código do erro.</param>
+    /// <returns>Instância de <see cref="Erro"/>.</returns>
+    public static Erro NaoEncontrado(string mensagem, string codigo) =>
+        new(codigo, mensagem, TipoErro.NaoEncontrado);
+
     public override string ToString() => $"[{Tipo}] {Codigo}: {Mensagem}";
 }
 
@@ -134,5 +170,20 @@ public enum TipoErro
     /// <summary>
     /// Conflito (ex: recurso já existe, estado inconsistente).
     /// </summary>
-    Conflito
+    Conflito,
+
+    /// <summary>
+    /// Timeout em operação (ex: gateway de pagamento não respondeu).
+    /// </summary>
+    Timeout,
+
+    /// <summary>
+    /// Erro de infraestrutura (ex: banco de dados, fila de mensagens).
+    /// </summary>
+    Infraestrutura,
+
+    /// <summary>
+    /// Erro de sistema externo (ex: API externa retornou erro).
+    /// </summary>
+    Externo
 }

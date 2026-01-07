@@ -26,6 +26,9 @@ public class ServicoEntregador : IServicoEntregador
         _logger = logger;
     }
 
+    /// <summary>
+    /// Aloca um entregador usando validação em cascata com Result Pattern.
+    /// </summary>
     public async Task<Resultado<DadosAlocacao>> AlocarAsync(
         string restauranteId,
         string enderecoEntrega,
@@ -39,25 +42,91 @@ public class ServicoEntregador : IServicoEntregador
             taxaEntrega
         );
 
-        // Simulação de delay de processamento (busca de entregador disponível)
-        await Task.Delay(Random.Shared.Next(150, 600));
+        // Validação em cascata (Railway-Oriented Programming)
+        // 1. Validar taxa de entrega
+        var resultadoTaxa = ValidarTaxaEntrega(taxaEntrega);
+        if (resultadoTaxa.EhFalha)
+            return Resultado<DadosAlocacao>.Falha(resultadoTaxa.Erro);
 
-        // CENÁRIO 1: Endereço muito longe (sem entregadores disponíveis)
-        if (enderecoEntrega.Contains("LONGE") || enderecoEntrega.Contains("DISTANTE"))
+        // 2. Validar endereço (encadeamento com BindAsync)
+        var resultadoEndereco = await resultadoTaxa
+            .BindAsync(_ => ValidarEnderecoAsync(enderecoEntrega));
+
+        if (resultadoEndereco.EhFalha)
+            return Resultado<DadosAlocacao>.Falha(resultadoEndereco.Erro);
+
+        // 3. Buscar e alocar entregador (encadeamento com BindAsync)
+        return await resultadoEndereco
+            .BindAsync(_ => BuscarEAlocarEntregadorAsync(restauranteId, enderecoEntrega, taxaEntrega));
+    }
+
+    /// <summary>
+    /// Etapa 1: Valida a taxa de entrega.
+    /// </summary>
+    private Resultado<Unit> ValidarTaxaEntrega(decimal taxaEntrega)
+    {
+        if (taxaEntrega < 0)
         {
-            _logger.LogWarning(
-                "Nenhum entregador disponível para endereço distante. Endereco: {Endereco}",
-                enderecoEntrega
-            );
-            return Resultado<DadosAlocacao>.Falha(
-                Erro.Negocio(
-                    "SEM_ENTREGADOR_DISPONIVEL",
-                    "Nenhum entregador disponível para este endereço no momento"
-                )
+            return Resultado.Falha(
+                Erro.Validacao("TAXA_NEGATIVA", "Taxa de entrega não pode ser negativa")
             );
         }
 
-        // CENÁRIO 2: Horário de pico (sem entregadores)
+        if (taxaEntrega > 100m)
+        {
+            return Resultado.Falha(
+                Erro.Validacao("TAXA_MUITO_ALTA", "Taxa de entrega excede o limite máximo (R$ 100,00)")
+            );
+        }
+
+        return Resultado.Sucesso();
+    }
+
+    /// <summary>
+    /// Etapa 2: Valida o endereço de entrega.
+    /// </summary>
+    private async Task<Resultado<Unit>> ValidarEnderecoAsync(string enderecoEntrega)
+    {
+        // Simulação de delay de validação de endereço (chamada a API de geolocalização)
+        await Task.Delay(Random.Shared.Next(50, 150));
+
+        if (string.IsNullOrWhiteSpace(enderecoEntrega))
+        {
+            return Resultado.Falha(
+                Erro.Validacao("ENDERECO_VAZIO", "Endereço de entrega é obrigatório")
+            );
+        }
+
+        if (enderecoEntrega.Length < 10)
+        {
+            return Resultado.Falha(
+                Erro.Validacao("ENDERECO_INVALIDO", "Endereço de entrega muito curto")
+            );
+        }
+
+        // Validar se está dentro da área de cobertura
+        if (enderecoEntrega.Contains("LONGE") || enderecoEntrega.Contains("DISTANTE"))
+        {
+            return Resultado.Falha(
+                Erro.Negocio("AREA_NAO_COBERTA", "Endereço fora da área de cobertura")
+            );
+        }
+
+        return Resultado.Sucesso();
+    }
+
+    /// <summary>
+    /// Etapa 3: Busca e aloca um entregador disponível.
+    /// </summary>
+    private async Task<Resultado<DadosAlocacao>> BuscarEAlocarEntregadorAsync(
+        string restauranteId,
+        string enderecoEntrega,
+        decimal taxaEntrega)
+    {
+        // Simulação de delay de busca de entregador
+        await Task.Delay(Random.Shared.Next(150, 400));
+
+        // Verificar horário de pico
         if (DateTime.UtcNow.Hour >= 12 && DateTime.UtcNow.Hour <= 14)
         {
             // Simular probabilidade de não ter entregador (30% de chance)
@@ -73,7 +142,7 @@ public class ServicoEntregador : IServicoEntregador
             }
         }
 
-        // CENÁRIO 3: Alocar entregador disponível
+        // Tentar alocar entregador
         string? entregadorId = null;
         lock (Lock)
         {

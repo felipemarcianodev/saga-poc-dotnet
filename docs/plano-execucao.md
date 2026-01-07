@@ -1237,7 +1237,1793 @@ x.UsingAzureServiceBus((context, cfg) =>
 
 ---
 
+---
+
+### **FASE 9: Integração Completa do Result Pattern no Fluxo de Delivery**
+
+#### 3.9.1 Objetivos
+- Refatorar todos os serviços para usar Result Pattern de forma consistente
+- Criar classes de resultado específicas para cada domínio
+- Implementar validações estruturadas com Result Pattern
+- Propagar erros de forma elegante através da SAGA
+
+#### 3.9.2 Entregas
+
+##### 1. **Refatoração dos Serviços de Negócio**
+
+**Serviço de Restaurante - Com Result Pattern Completo**
+```csharp
+// Resultados específicos do domínio
+public record DadosValidacaoPedido(
+    decimal ValorTotal,
+    int TempoPreparoMinutos,
+    List<ItemValidado> ItensValidados
+);
+
+public record ItemValidado(
+    string ProdutoId,
+    string Nome,
+    int QuantidadeDisponivel,
+    decimal PrecoAtual
+);
+
+public class ServicoRestaurante : IServicoRestaurante
+{
+    public async Task<Resultado<DadosValidacaoPedido>> ValidarPedidoAsync(
+        string restauranteId,
+        List<ItemPedido> itens,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Validar restaurante
+        var validacaoRestaurante = await ValidarRestauranteAsync(restauranteId, cancellationToken);
+        if (validacaoRestaurante.EhFalha)
+            return Resultado<DadosValidacaoPedido>.Falha(validacaoRestaurante.Erro);
+
+        // 2. Validar itens (encadeamento com Bind)
+        return await validacaoRestaurante
+            .BindAsync(async _ => await ValidarItensAsync(itens, cancellationToken))
+            .BindAsync(async itensValidados => await CalcularValorTotalAsync(itensValidados, cancellationToken));
+    }
+
+    private async Task<Resultado<bool>> ValidarRestauranteAsync(
+        string restauranteId,
+        CancellationToken cancellationToken)
+    {
+        // Simular consulta ao banco
+        await Task.Delay(50, cancellationToken);
+
+        return restauranteId switch
+        {
+            "REST_FECHADO" => Resultado<bool>.Falha(
+                Erro.Negocio("Restaurante está fechado no momento", "RESTAURANTE_FECHADO")
+            ),
+            "REST_INATIVO" => Resultado<bool>.Falha(
+                Erro.Negocio("Restaurante temporariamente indisponível", "RESTAURANTE_INATIVO")
+            ),
+            _ when restauranteId.StartsWith("REST") => Resultado<bool>.Sucesso(true),
+            _ => Resultado<bool>.Falha(
+                Erro.NaoEncontrado("Restaurante não encontrado", "RESTAURANTE_NAO_ENCONTRADO")
+            )
+        };
+    }
+
+    private async Task<Resultado<List<ItemValidado>>> ValidarItensAsync(
+        List<ItemPedido> itens,
+        CancellationToken cancellationToken)
+    {
+        await Task.Delay(100, cancellationToken);
+
+        var itensValidados = new List<ItemValidado>();
+        var erros = new List<Erro>();
+
+        foreach (var item in itens)
+        {
+            if (item.ProdutoId == "PROD_INDISPONIVEL")
+            {
+                erros.Add(Erro.Negocio(
+                    $"Produto {item.Nome} está indisponível",
+                    "PRODUTO_INDISPONIVEL"
+                ));
+            }
+            else if (item.Quantidade > 10)
+            {
+                erros.Add(Erro.Validacao(
+                    $"Quantidade máxima para {item.Nome} é 10 unidades",
+                    "QUANTIDADE_EXCEDIDA"
+                ));
+            }
+            else
+            {
+                itensValidados.Add(new ItemValidado(
+                    item.ProdutoId,
+                    item.Nome,
+                    QuantidadeDisponivel: 50, // Simulado
+                    item.PrecoUnitario
+                ));
+            }
+        }
+
+        return erros.Any()
+            ? Resultado<List<ItemValidado>>.Falha(erros)
+            : Resultado<List<ItemValidado>>.Sucesso(itensValidados);
+    }
+
+    private async Task<Resultado<DadosValidacaoPedido>> CalcularValorTotalAsync(
+        List<ItemValidado> itensValidados,
+        CancellationToken cancellationToken)
+    {
+        await Task.Delay(50, cancellationToken);
+
+        var valorTotal = itensValidados.Sum(i => i.PrecoAtual * i.QuantidadeDisponivel);
+        var tempoPreparo = itensValidados.Count * 15; // 15min por item
+
+        return Resultado<DadosValidacaoPedido>.Sucesso(
+            new DadosValidacaoPedido(valorTotal, tempoPreparo, itensValidados)
+        );
+    }
+
+    // Compensação com Result Pattern
+    public async Task<Resultado<Unit>> CancelarPedidoAsync(
+        string restauranteId,
+        Guid pedidoId,
+        CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(100, cancellationToken);
+
+        // Simular cancelamento no sistema do restaurante
+        Console.WriteLine($"[Restaurante] Cancelando pedido {pedidoId} no restaurante {restauranteId}");
+
+        return Resultado.Sucesso();
+    }
+}
+```
+
+**Serviço de Pagamento - Com Result Pattern Completo**
+```csharp
+public record DadosPagamento(
+    string TransacaoId,
+    DateTime DataProcessamento,
+    string Autorizacao
+);
+
+public class ServicoPagamento : IServicoPagamento
+{
+    public async Task<Resultado<DadosPagamento>> ProcessarAsync(
+        string clienteId,
+        decimal valorTotal,
+        string formaPagamento,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Validar valor
+        if (valorTotal <= 0)
+            return Resultado<DadosPagamento>.Falha(
+                Erro.Validacao("Valor do pagamento deve ser maior que zero", "VALOR_INVALIDO")
+            );
+
+        if (valorTotal > 1000)
+            return Resultado<DadosPagamento>.Falha(
+                Erro.Negocio("Valor excede o limite permitido (R$ 1.000)", "VALOR_EXCEDE_LIMITE")
+            );
+
+        // 2. Validar forma de pagamento
+        var validacaoForma = ValidarFormaPagamento(formaPagamento);
+        if (validacaoForma.EhFalha)
+            return Resultado<DadosPagamento>.Falha(validacaoForma.Erro);
+
+        // 3. Processar pagamento (simulado)
+        await Task.Delay(200, cancellationToken); // Simular latência de gateway
+
+        // Simular diferentes cenários
+        return clienteId switch
+        {
+            "CLI_SEM_SALDO" => Resultado<DadosPagamento>.Falha(
+                Erro.Negocio("Saldo insuficiente", "SALDO_INSUFICIENTE")
+            ),
+            "CLI_CARTAO_RECUSADO" => Resultado<DadosPagamento>.Falha(
+                Erro.Negocio("Cartão recusado pela operadora", "CARTAO_RECUSADO")
+            ),
+            "CLI_TIMEOUT" => Resultado<DadosPagamento>.Falha(
+                Erro.Timeout("Timeout ao processar pagamento", "PAGAMENTO_TIMEOUT")
+            ),
+            _ => Resultado<DadosPagamento>.Sucesso(new DadosPagamento(
+                TransacaoId: $"TXN_{Guid.NewGuid():N}",
+                DataProcessamento: DateTime.UtcNow,
+                Autorizacao: $"AUTH_{Random.Shared.Next(100000, 999999)}"
+            ))
+        };
+    }
+
+    private Resultado<Unit> ValidarFormaPagamento(string formaPagamento)
+    {
+        var formasValidas = new[] { "CREDITO", "DEBITO", "PIX", "DINHEIRO" };
+
+        return formasValidas.Contains(formaPagamento.ToUpper())
+            ? Resultado.Sucesso()
+            : Resultado.Falha(
+                Erro.Validacao($"Forma de pagamento '{formaPagamento}' não é válida", "FORMA_PAGAMENTO_INVALIDA")
+            );
+    }
+
+    // Compensação: Estornar pagamento
+    public async Task<Resultado<Unit>> EstornarAsync(
+        string transacaoId,
+        CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        if (string.IsNullOrEmpty(transacaoId))
+            return Resultado.Falha("TransacaoId não pode ser vazio");
+
+        Console.WriteLine($"[Pagamento] Estornando transação {transacaoId}");
+
+        // Simular estorno
+        return Resultado.Sucesso();
+    }
+}
+```
+
+**Serviço de Entregador - Com Result Pattern Completo**
+```csharp
+public record DadosEntregador(
+    string EntregadorId,
+    string NomeEntregador,
+    int TempoEstimadoMinutos,
+    string Veiculo
+);
+
+public class ServicoEntregador : IServicoEntregador
+{
+    public async Task<Resultado<DadosEntregador>> AlocarAsync(
+        string restauranteId,
+        string enderecoEntrega,
+        decimal taxaEntrega,
+        CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(150, cancellationToken);
+
+        // Validar taxa
+        if (taxaEntrega < 0)
+            return Resultado<DadosEntregador>.Falha(
+                Erro.Validacao("Taxa de entrega não pode ser negativa", "TAXA_INVALIDA")
+            );
+
+        // Simular diferentes cenários
+        if (restauranteId == "REST_AREA_REMOTA")
+        {
+            return Resultado<DadosEntregador>.Falha(
+                Erro.Negocio("Nenhum entregador disponível para essa região", "ENTREGADOR_INDISPONIVEL")
+            );
+        }
+
+        if (enderecoEntrega.Contains("LONGE"))
+        {
+            return Resultado<DadosEntregador>.Falha(
+                Erro.Negocio("Endereço fora da área de cobertura", "AREA_NAO_COBERTA")
+            );
+        }
+
+        // Alocar entregador
+        var entregadorId = $"ENT{Random.Shared.Next(100, 999)}";
+        var tempoEstimado = CalcularTempoEstimado(enderecoEntrega);
+
+        return Resultado<DadosEntregador>.Sucesso(new DadosEntregador(
+            EntregadorId: entregadorId,
+            NomeEntregador: $"Entregador {entregadorId}",
+            TempoEstimadoMinutos: tempoEstimado,
+            Veiculo: taxaEntrega > 10 ? "Moto" : "Bicicleta"
+        ));
+    }
+
+    private int CalcularTempoEstimado(string endereco)
+    {
+        // Simulação simples
+        return endereco.Length % 10 + 15; // Entre 15-25 minutos
+    }
+
+    // Compensação: Liberar entregador
+    public async Task<Resultado<Unit>> LiberarAsync(
+        string entregadorId,
+        CancellationToken cancellationToken = default)
+    {
+        await Task.Delay(100, cancellationToken);
+
+        Console.WriteLine($"[Entregador] Liberando entregador {entregadorId}");
+
+        return Resultado.Sucesso();
+    }
+}
+```
+
+##### 2. **Atualização dos Consumers para Usar Result Pattern**
+
+```csharp
+public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestaurante>
+{
+    private readonly IServicoRestaurante _servico;
+    private readonly ILogger<ValidarPedidoRestauranteConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<ValidarPedidoRestaurante> context)
+    {
+        var correlacaoId = context.Message.CorrelacaoId;
+
+        _logger.LogInformation(
+            "[Restaurante] Validando pedido {CorrelacaoId} - Restaurante: {RestauranteId}, Itens: {QtdItens}",
+            correlacaoId,
+            context.Message.RestauranteId,
+            context.Message.Itens.Count
+        );
+
+        var resultado = await _servico.ValidarPedidoAsync(
+            context.Message.RestauranteId,
+            context.Message.Itens,
+            context.CancellationToken
+        );
+
+        // Usar Match para tratar sucesso/falha
+        resultado.Match(
+            sucesso: dados =>
+            {
+                _logger.LogInformation(
+                    "[Restaurante] Pedido {CorrelacaoId} validado com sucesso - Valor: R$ {Valor:F2}, Tempo: {Tempo}min",
+                    correlacaoId,
+                    dados.ValorTotal,
+                    dados.TempoPreparoMinutos
+                );
+            },
+            falha: erro =>
+            {
+                _logger.LogWarning(
+                    "[Restaurante] Pedido {CorrelacaoId} rejeitado - Motivo: {Motivo} ({Codigo})",
+                    correlacaoId,
+                    erro.Mensagem,
+                    erro.Codigo
+                );
+            }
+        );
+
+        await context.RespondAsync(new PedidoRestauranteValidado(
+            correlacaoId,
+            Valido: resultado.EhSucesso,
+            ValorTotal: resultado.EhSucesso ? resultado.Valor.ValorTotal : 0,
+            TempoPreparoMinutos: resultado.EhSucesso ? resultado.Valor.TempoPreparoMinutos : 0,
+            MotivoRejeicao: resultado.EhFalha ? resultado.Erro.Mensagem : null
+        ));
+    }
+}
+```
+
+##### 3. **Extensão do Result Pattern com Tipos de Erro**
+
+```csharp
+// Adicionar em Erro.cs
+public enum TipoErro
+{
+    Validacao,
+    Negocio,
+    NaoEncontrado,
+    Timeout,
+    Infraestrutura,
+    Externo
+}
+
+public partial class Erro
+{
+    public TipoErro Tipo { get; }
+    public string Codigo { get; }
+    public Dictionary<string, object>? Metadata { get; }
+
+    // Factory methods específicos
+    public static Erro Validacao(string mensagem, string codigo = "VALIDACAO")
+        => new(mensagem, TipoErro.Validacao, codigo);
+
+    public static Erro Negocio(string mensagem, string codigo = "NEGOCIO")
+        => new(mensagem, TipoErro.Negocio, codigo);
+
+    public static Erro NaoEncontrado(string mensagem, string codigo = "NAO_ENCONTRADO")
+        => new(mensagem, TipoErro.NaoEncontrado, codigo);
+
+    public static Erro Timeout(string mensagem, string codigo = "TIMEOUT")
+        => new(mensagem, TipoErro.Timeout, codigo);
+
+    public static Erro Infraestrutura(string mensagem, string codigo = "INFRAESTRUTURA")
+        => new(mensagem, TipoErro.Infraestrutura, codigo);
+
+    public static Erro Externo(string mensagem, string codigo = "EXTERNO")
+        => new(mensagem, TipoErro.Externo, codigo);
+}
+```
+
+#### 3.9.3 Critérios de Aceitação
+- [ ] Todos os serviços usam Result Pattern consistentemente
+- [ ] Erros categorizados por tipo (Validação, Negócio, Timeout, etc)
+- [ ] Logs estruturados com contexto de Result
+- [ ] Consumers tratam Result Pattern adequadamente
+- [ ] Compensações retornam Result Pattern
+
+---
+
+### **FASE 10: Tratamentos de Resiliência**
+
+#### 3.10.1 Objetivos
+- Implementar Retry Policy com exponential backoff
+- Configurar Circuit Breaker para proteção de serviços
+- Adicionar Timeout Policy
+- Configurar Dead Letter Queue
+- Implementar Rate Limiting
+
+#### 3.10.2 Entregas
+
+##### 1. **Configuração de Retry Policy no MassTransit**
+
+```csharp
+// Program.cs - Orquestrador e Serviços
+services.AddMassTransit(x =>
+{
+    // Configurar consumers
+    x.AddConsumer<ValidarPedidoRestauranteConsumer>();
+
+    x.UsingAzureServiceBus((context, cfg) =>
+    {
+        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+
+        // ============ RETRY POLICY ============
+        cfg.UseMessageRetry(retry =>
+        {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            retry.Exponential(
+                retryLimit: 5,
+                minInterval: TimeSpan.FromSeconds(1),
+                maxInterval: TimeSpan.FromSeconds(30),
+                intervalDelta: TimeSpan.FromSeconds(2)
+            );
+
+            // Ignorar erros de validação (não adianta retry)
+            retry.Ignore<ValidationException>();
+            retry.Ignore(e =>
+                e.Message.InnerException is InvalidOperationException
+            );
+
+            // Retry apenas em erros transitórios
+            retry.Handle<TimeoutException>();
+            retry.Handle<HttpRequestException>();
+
+            // Incrementar retry count em logs
+            retry.OnRetry(retryContext =>
+            {
+                Console.WriteLine(
+                    $"[RETRY] Tentativa {retryContext.RetryAttempt} de {retryContext.RetryCount} - Mensagem: {retryContext.Exception.Message}"
+                );
+            });
+        });
+
+        // ============ CIRCUIT BREAKER ============
+        cfg.UseCircuitBreaker(cb =>
+        {
+            // Abrir circuito após 15 falhas em 1 minuto
+            cb.TrackingPeriod = TimeSpan.FromMinutes(1);
+            cb.TripThreshold = 15;  // Número de falhas para abrir
+            cb.ActiveThreshold = 10; // Tentativas ativas simultâneas
+
+            // Fechar circuito após 5 minutos sem falhas
+            cb.ResetInterval = TimeSpan.FromMinutes(5);
+        });
+
+        // ============ RATE LIMITER ============
+        cfg.UseRateLimiter(rl =>
+        {
+            // Máximo 100 mensagens por segundo
+            rl.SetRateLimitForQueue("fila-restaurante", 100, TimeSpan.FromSeconds(1));
+            rl.SetRateLimitForQueue("fila-pagamento", 50, TimeSpan.FromSeconds(1));
+        });
+
+        cfg.ConfigureEndpoints(context);
+    });
+});
+```
+
+##### 2. **Timeout Policy nos Consumers**
+
+```csharp
+public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
+{
+    private readonly IServicoPagamento _servico;
+    private readonly ILogger<ProcessarPagamentoConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<ProcessarPagamento> context)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Timeout de 10s
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            context.CancellationToken,
+            cts.Token
+        );
+
+        try
+        {
+            _logger.LogInformation(
+                "[Pagamento] Processando pagamento {CorrelacaoId} - Valor: R$ {Valor:F2}",
+                context.Message.CorrelacaoId,
+                context.Message.ValorTotal
+            );
+
+            var resultado = await _servico.ProcessarAsync(
+                context.Message.ClienteId,
+                context.Message.ValorTotal,
+                context.Message.FormaPagamento,
+                linkedCts.Token
+            );
+
+            resultado.Match(
+                sucesso: dados =>
+                {
+                    _logger.LogInformation(
+                        "[Pagamento] Pagamento {CorrelacaoId} aprovado - Transação: {TransacaoId}",
+                        context.Message.CorrelacaoId,
+                        dados.TransacaoId
+                    );
+                },
+                falha: erro =>
+                {
+                    _logger.LogWarning(
+                        "[Pagamento] Pagamento {CorrelacaoId} recusado - Motivo: {Motivo}",
+                        context.Message.CorrelacaoId,
+                        erro.Mensagem
+                    );
+                }
+            );
+
+            await context.RespondAsync(new PagamentoProcessado(
+                context.Message.CorrelacaoId,
+                Sucesso: resultado.EhSucesso,
+                TransacaoId: resultado.EhSucesso ? resultado.Valor.TransacaoId : null,
+                MotivoFalha: resultado.EhFalha ? resultado.Erro.Mensagem : null
+            ));
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            _logger.LogError(
+                "[Pagamento] Timeout ao processar pagamento {CorrelacaoId}",
+                context.Message.CorrelacaoId
+            );
+
+            await context.RespondAsync(new PagamentoProcessado(
+                context.Message.CorrelacaoId,
+                Sucesso: false,
+                TransacaoId: null,
+                MotivoFalha: "Timeout ao processar pagamento"
+            ));
+        }
+    }
+}
+```
+
+##### 3. **Dead Letter Queue (DLQ) Handling**
+
+```csharp
+// Consumer para processar mensagens da DLQ
+public class DeadLetterQueueConsumer : IConsumer<Fault<IniciarPedido>>
+{
+    private readonly ILogger<DeadLetterQueueConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<Fault<IniciarPedido>> context)
+    {
+        var mensagemOriginal = context.Message.Message;
+        var excecoes = context.Message.Exceptions;
+
+        _logger.LogError(
+            "[DLQ] Mensagem {MessageId} movida para DLQ após {TentativasRetry} tentativas - Erros: {Erros}",
+            context.MessageId,
+            excecoes.Length,
+            string.Join("; ", excecoes.Select(e => e.Message))
+        );
+
+        // Armazenar em banco de dados para análise posterior
+        // await _repositorio.SalvarMensagemFalhadaAsync(mensagemOriginal, excecoes);
+
+        // Enviar alerta para equipe de operações
+        // await _servicoNotificacao.EnviarAlertaAsync($"Pedido {mensagemOriginal.CorrelacaoId} falhou");
+    }
+}
+
+// Configuração no Program.cs
+x.AddConsumer<DeadLetterQueueConsumer>();
+
+cfg.ReceiveEndpoint("fila-dead-letter", e =>
+{
+    e.ConfigureConsumer<DeadLetterQueueConsumer>(context);
+});
+```
+
+##### 4. **Health Checks para Resiliência**
+
+```csharp
+// Program.cs
+builder.Services.AddHealthChecks()
+    .AddCheck("masstransit-bus", () =>
+    {
+        // Verificar se o bus está conectado
+        var busControl = serviceProvider.GetRequiredService<IBusControl>();
+        return busControl != null
+            ? HealthCheckResult.Healthy("MassTransit bus está ativo")
+            : HealthCheckResult.Unhealthy("MassTransit bus não está respondendo");
+    })
+    .AddAzureServiceBusQueue(
+        configuration["AzureServiceBus:ConnectionString"]!,
+        queueName: "fila-restaurante",
+        name: "azure-servicebus-restaurante"
+    )
+    .AddAzureServiceBusQueue(
+        configuration["AzureServiceBus:ConnectionString"]!,
+        queueName: "fila-pagamento",
+        name: "azure-servicebus-pagamento"
+    );
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var resultado = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                duration = e.Value.Duration.TotalMilliseconds
+            }),
+            totalDuration = report.TotalDuration.TotalMilliseconds
+        };
+        await context.Response.WriteAsJsonAsync(resultado);
+    }
+});
+```
+
+##### 5. **Polly Integration (Resiliência Avançada)**
+
+```csharp
+// Instalar: dotnet add package Polly
+
+public class ServicoPagamentoComPolly : IServicoPagamento
+{
+    private readonly IAsyncPolicy<Resultado<DadosPagamento>> _politicaResiliencia;
+
+    public ServicoPagamentoComPolly()
+    {
+        _politicaResiliencia = Policy
+            .HandleResult<Resultado<DadosPagamento>>(r =>
+                r.EhFalha && r.Erro.Tipo == TipoErro.Timeout
+            )
+            .Or<HttpRequestException>()
+            .Or<TimeoutException>()
+            .WaitAndRetryAsync(
+                retryCount: 3,
+                sleepDurationProvider: tentativa => TimeSpan.FromSeconds(Math.Pow(2, tentativa)),
+                onRetry: (resultado, tempo, tentativa, contexto) =>
+                {
+                    Console.WriteLine($"[Polly] Retry {tentativa} após {tempo.TotalSeconds}s");
+                }
+            )
+            .WrapAsync(
+                Policy<Resultado<DadosPagamento>>
+                    .Handle<Exception>()
+                    .CircuitBreakerAsync(
+                        handledEventsAllowedBeforeBreaking: 5,
+                        durationOfBreak: TimeSpan.FromMinutes(1),
+                        onBreak: (resultado, duracao) =>
+                        {
+                            Console.WriteLine($"[Polly] Circuit Breaker ABERTO por {duracao.TotalSeconds}s");
+                        },
+                        onReset: () =>
+                        {
+                            Console.WriteLine("[Polly] Circuit Breaker FECHADO");
+                        }
+                    )
+            );
+    }
+
+    public async Task<Resultado<DadosPagamento>> ProcessarAsync(
+        string clienteId,
+        decimal valorTotal,
+        string formaPagamento,
+        CancellationToken cancellationToken = default)
+    {
+        return await _politicaResiliencia.ExecuteAsync(async () =>
+        {
+            // Lógica de processamento
+            return await ProcessarPagamentoInternoAsync(clienteId, valorTotal, formaPagamento, cancellationToken);
+        });
+    }
+}
+```
+
+#### 3.10.3 Critérios de Aceitação
+- [ ] Retry policy configurado com exponential backoff
+- [ ] Circuit breaker protegendo serviços
+- [ ] Timeouts configurados em todos os consumers
+- [ ] Dead Letter Queue processando falhas
+- [ ] Health checks funcionando
+- [ ] Logs mostram tentativas de retry
+
+---
+
+### **FASE 11: Compensação e Rollback Completo**
+
+#### 3.11.1 Objetivos
+- Implementar compensação completa em cascata
+- Adicionar idempotência nas operações de compensação
+- Criar estado de rastreamento de compensações
+- Implementar rollback transacional
+- Garantir que compensações sejam executadas em ordem reversa
+
+#### 3.11.2 Entregas
+
+##### 1. **Estado Estendido da SAGA com Controle de Compensação**
+
+```csharp
+public class EstadoPedido : SagaStateMachineInstance
+{
+    public Guid CorrelationId { get; set; }
+    public string EstadoAtual { get; set; } = string.Empty;
+
+    // ... (propriedades existentes)
+
+    // ==================== Controle de Compensação ====================
+
+    /// <summary>
+    /// Indica se o pedido está em processo de compensação.
+    /// </summary>
+    public bool EmCompensacao { get; set; }
+
+    /// <summary>
+    /// Timestamp de início da compensação.
+    /// </summary>
+    public DateTime? DataInicioCompensacao { get; set; }
+
+    /// <summary>
+    /// Timestamp de conclusão da compensação.
+    /// </summary>
+    public DateTime? DataConclusaoCompensacao { get; set; }
+
+    /// <summary>
+    /// Lista de passos compensados com sucesso (para rastreamento).
+    /// </summary>
+    public List<string> PassosCompensados { get; set; } = new();
+
+    /// <summary>
+    /// Indica se a validação do restaurante foi executada (precisa compensar).
+    /// </summary>
+    public bool RestauranteValidado { get; set; }
+
+    /// <summary>
+    /// Indica se o pagamento foi processado (precisa estornar).
+    /// </summary>
+    public bool PagamentoProcessado { get; set; }
+
+    /// <summary>
+    /// Indica se o entregador foi alocado (precisa liberar).
+    /// </summary>
+    public bool EntregadorAlocado { get; set; }
+
+    /// <summary>
+    /// Contador de tentativas de compensação (para idempotência).
+    /// </summary>
+    public int TentativasCompensacao { get; set; }
+
+    /// <summary>
+    /// Erros ocorridos durante a compensação.
+    /// </summary>
+    public List<string> ErrosCompensacao { get; set; } = new();
+}
+```
+
+##### 2. **SAGA Estendida com Compensação Completa**
+
+```csharp
+public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
+{
+    // ... (estados e eventos existentes)
+
+    // Novos eventos de compensação
+    public Event<PedidoRestauranteCancelado> PedidoCancelado { get; private set; } = null!;
+    public Event<PagamentoEstornado> PagamentoEstornado { get; private set; } = null!;
+    public Event<EntregadorLiberado> EntregadorLiberado { get; private set; } = null!;
+
+    public PedidoSaga()
+    {
+        InstanceState(x => x.EstadoAtual);
+
+        // ... (fluxo normal existente)
+
+        // ==================== COMPENSAÇÃO: FALHA NO PAGAMENTO ====================
+
+        During(ProcessandoPagamento,
+            When(PagamentoProcessado)
+                .IfElse(
+                    context => context.Message.Sucesso,
+                    // Sucesso
+                    aprovado => aprovado
+                        .Then(context =>
+                        {
+                            context.Saga.TransacaoId = context.Message.TransacaoId;
+                            context.Saga.PagamentoProcessado = true; // Marcar para compensação
+                        })
+                        .TransitionTo(AlocandoEntregador)
+                        .Publish(context => new AlocarEntregador(
+                            context.Saga.CorrelationId,
+                            context.Saga.RestauranteId,
+                            context.Saga.EnderecoEntrega,
+                            context.Saga.TaxaEntrega
+                        )),
+                    // Falha - Compensar Restaurante
+                    recusado => recusado
+                        .Then(context =>
+                        {
+                            context.Saga.MensagemErro = context.Message.MotivoFalha;
+                            context.Saga.EmCompensacao = true;
+                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
+
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO INICIADA");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Motivo: {context.Message.MotivoFalha}");
+                        })
+                        .TransitionTo(ExecutandoCompensacao)
+                        .If(context => context.Saga.RestauranteValidado, // Só compensa se validou
+                            compensa => compensa
+                                .Publish(context => new CancelarPedidoRestaurante(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.RestauranteId,
+                                    context.Saga.CorrelationId
+                                ))
+                        )
+                )
+        );
+
+        // ==================== COMPENSAÇÃO: FALHA NO ENTREGADOR ====================
+
+        During(AlocandoEntregador,
+            When(EntregadorAlocado)
+                .IfElse(
+                    context => context.Message.Alocado,
+                    // Sucesso
+                    alocado => alocado
+                        .Then(context =>
+                        {
+                            context.Saga.EntregadorId = context.Message.EntregadorId;
+                            context.Saga.TempoEntregaMinutos = context.Message.TempoEstimadoMinutos;
+                            context.Saga.EntregadorAlocado = true;
+                        })
+                        .TransitionTo(NotificandoCliente)
+                        .Publish(context => new NotificarCliente(
+                            context.Saga.CorrelationId,
+                            context.Saga.ClienteId,
+                            $"Pedido confirmado! Entregador {context.Message.EntregadorId} a caminho.",
+                            TipoNotificacao.PedidoConfirmado
+                        )),
+                    // Falha - Compensar TUDO (Pagamento + Restaurante)
+                    semEntregador => semEntregador
+                        .Then(context =>
+                        {
+                            context.Saga.MensagemErro = context.Message.MotivoFalha;
+                            context.Saga.EmCompensacao = true;
+                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
+
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO TOTAL INICIADA");
+                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Compensando: Pagamento + Restaurante");
+                        })
+                        .TransitionTo(ExecutandoCompensacao)
+                        // Compensação em ORDEM REVERSA
+                        // 1. Estornar pagamento
+                        .If(context => context.Saga.PagamentoProcessado,
+                            estorna => estorna
+                                .Publish(context => new EstornarPagamento(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.TransacaoId!
+                                ))
+                        )
+                        // 2. Cancelar no restaurante
+                        .If(context => context.Saga.RestauranteValidado,
+                            cancela => cancela
+                                .Publish(context => new CancelarPedidoRestaurante(
+                                    context.Saga.CorrelationId,
+                                    context.Saga.RestauranteId,
+                                    context.Saga.CorrelationId
+                                ))
+                        )
+                )
+        );
+
+        // ==================== TRATAMENTO DE EVENTOS DE COMPENSAÇÃO ====================
+
+        During(ExecutandoCompensacao,
+            When(PagamentoEstornado)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"PagamentoEstornado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pagamento estornado com sucesso");
+                })
+                .ThenAsync(async context =>
+                {
+                    // Verificar se todas as compensações foram executadas
+                    await FinalizarCompensacaoSeCompleta(context);
+                }),
+
+            When(PedidoCancelado)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"RestauranteCancelado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pedido cancelado no restaurante");
+                })
+                .ThenAsync(async context =>
+                {
+                    await FinalizarCompensacaoSeCompleta(context);
+                }),
+
+            When(EntregadorLiberado)
+                .Then(context =>
+                {
+                    context.Saga.PassosCompensados.Add($"EntregadorLiberado:{DateTime.UtcNow}");
+                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador liberado");
+                })
+                .ThenAsync(async context =>
+                {
+                    await FinalizarCompensacaoSeCompleta(context);
+                })
+        );
+    }
+
+    private async Task FinalizarCompensacaoSeCompleta<T>(BehaviorContext<EstadoPedido, T> context)
+        where T : class
+    {
+        // Verificar se todas as compensações necessárias foram executadas
+        var todasCompensadas = true;
+
+        if (context.Saga.PagamentoProcessado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("PagamentoEstornado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (context.Saga.RestauranteValidado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("RestauranteCancelado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (context.Saga.EntregadorAlocado &&
+            !context.Saga.PassosCompensados.Any(p => p.StartsWith("EntregadorLiberado")))
+        {
+            todasCompensadas = false;
+        }
+
+        if (todasCompensadas)
+        {
+            context.Saga.DataConclusaoCompensacao = DateTime.UtcNow;
+            context.Saga.DataConclusao = DateTime.UtcNow;
+
+            var duracao = (context.Saga.DataConclusaoCompensacao.Value -
+                          context.Saga.DataInicioCompensacao!.Value).TotalSeconds;
+
+            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO CONCLUÍDA ({duracao:F2}s)");
+            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Passos compensados: {context.Saga.PassosCompensados.Count}");
+
+            // Notificar cliente
+            await context.Publish(new NotificarCliente(
+                context.Saga.CorrelationId,
+                context.Saga.ClienteId,
+                $"Pedido cancelado: {context.Saga.MensagemErro}. Todos os valores foram estornados.",
+                TipoNotificacao.PedidoCancelado
+            ));
+
+            // Finalizar SAGA
+            context.SetCompleted();
+        }
+    }
+}
+```
+
+##### 3. **Consumers de Compensação com Idempotência**
+
+```csharp
+public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
+{
+    private readonly IServicoPagamento _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly ILogger<EstornarPagamentoConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<EstornarPagamento> context)
+    {
+        var correlacaoId = context.Message.CorrelacaoId;
+        var transacaoId = context.Message.TransacaoId;
+        var chaveIdempotencia = $"estorno:{transacaoId}";
+
+        _logger.LogInformation(
+            "[Pagamento] Iniciando estorno - CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
+            correlacaoId,
+            transacaoId
+        );
+
+        // ==================== IDEMPOTÊNCIA ====================
+        // Verificar se já foi estornado
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "[Pagamento] Estorno já processado anteriormente - TransacaoId: {TransacaoId}",
+                transacaoId
+            );
+
+            // Responder com sucesso mesmo assim (idempotência)
+            await context.Publish(new PagamentoEstornado(
+                correlacaoId,
+                Sucesso: true,
+                TransacaoId: transacaoId
+            ));
+            return;
+        }
+
+        // ==================== PROCESSAR ESTORNO ====================
+        var resultado = await _servico.EstornarAsync(transacaoId, context.CancellationToken);
+
+        resultado.Match(
+            sucesso: _ =>
+            {
+                _logger.LogInformation(
+                    "[Pagamento] Estorno realizado com sucesso - TransacaoId: {TransacaoId}",
+                    transacaoId
+                );
+            },
+            falha: erro =>
+            {
+                _logger.LogError(
+                    "[Pagamento] Falha ao estornar - TransacaoId: {TransacaoId}, Erro: {Erro}",
+                    transacaoId,
+                    erro.Mensagem
+                );
+            }
+        );
+
+        // Marcar como processado
+        if (resultado.EhSucesso)
+        {
+            await _idempotencia.MarcarProcessadoAsync(
+                chaveIdempotencia,
+                new { transacaoId, data = DateTime.UtcNow }
+            );
+        }
+
+        await context.Publish(new PagamentoEstornado(
+            correlacaoId,
+            Sucesso: resultado.EhSucesso,
+            TransacaoId: transacaoId
+        ));
+    }
+}
+
+public class CancelarPedidoRestauranteConsumer : IConsumer<CancelarPedidoRestaurante>
+{
+    private readonly IServicoRestaurante _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly ILogger<CancelarPedidoRestauranteConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<CancelarPedidoRestaurante> context)
+    {
+        var correlacaoId = context.Message.CorrelacaoId;
+        var pedidoId = context.Message.PedidoId;
+        var chaveIdempotencia = $"cancelamento:{pedidoId}";
+
+        _logger.LogInformation(
+            "[Restaurante] Cancelando pedido - CorrelacaoId: {CorrelacaoId}, PedidoId: {PedidoId}",
+            correlacaoId,
+            pedidoId
+        );
+
+        // Idempotência
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "[Restaurante] Cancelamento já processado - PedidoId: {PedidoId}",
+                pedidoId
+            );
+
+            await context.Publish(new PedidoRestauranteCancelado(
+                correlacaoId,
+                Sucesso: true,
+                PedidoId: pedidoId
+            ));
+            return;
+        }
+
+        var resultado = await _servico.CancelarPedidoAsync(
+            context.Message.RestauranteId,
+            pedidoId,
+            context.CancellationToken
+        );
+
+        if (resultado.EhSucesso)
+        {
+            await _idempotencia.MarcarProcessadoAsync(chaveIdempotencia, new { pedidoId });
+        }
+
+        await context.Publish(new PedidoRestauranteCancelado(
+            correlacaoId,
+            Sucesso: resultado.EhSucesso,
+            PedidoId: pedidoId
+        ));
+    }
+}
+
+public class LiberarEntregadorConsumer : IConsumer<LiberarEntregador>
+{
+    private readonly IServicoEntregador _servico;
+    private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly ILogger<LiberarEntregadorConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<LiberarEntregador> context)
+    {
+        var correlacaoId = context.Message.CorrelacaoId;
+        var entregadorId = context.Message.EntregadorId;
+        var chaveIdempotencia = $"liberacao:{entregadorId}:{correlacaoId}";
+
+        _logger.LogInformation(
+            "[Entregador] Liberando entregador - CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
+            correlacaoId,
+            entregadorId
+        );
+
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
+        {
+            _logger.LogWarning(
+                "[Entregador] Liberação já processada - EntregadorId: {EntregadorId}",
+                entregadorId
+            );
+
+            await context.Publish(new EntregadorLiberado(
+                correlacaoId,
+                Sucesso: true,
+                EntregadorId: entregadorId
+            ));
+            return;
+        }
+
+        var resultado = await _servico.LiberarAsync(entregadorId, context.CancellationToken);
+
+        if (resultado.EhSucesso)
+        {
+            await _idempotencia.MarcarProcessadoAsync(chaveIdempotencia, new { entregadorId });
+        }
+
+        await context.Publish(new EntregadorLiberado(
+            correlacaoId,
+            Sucesso: resultado.EhSucesso,
+            EntregadorId: entregadorId
+        ));
+    }
+}
+```
+
+##### 4. **Repositório de Idempotência (InMemory para POC)**
+
+```csharp
+public interface IRepositorioIdempotencia
+{
+    Task<bool> JaProcessadoAsync(string chave);
+    Task MarcarProcessadoAsync(string chave, object dados);
+}
+
+public class RepositorioIdempotenciaInMemory : IRepositorioIdempotencia
+{
+    private readonly ConcurrentDictionary<string, (DateTime DataProcessamento, object Dados)> _cache = new();
+    private readonly TimeSpan _tempoExpiracao = TimeSpan.FromHours(24);
+
+    public Task<bool> JaProcessadoAsync(string chave)
+    {
+        if (_cache.TryGetValue(chave, out var entrada))
+        {
+            // Verificar se não expirou
+            if (DateTime.UtcNow - entrada.DataProcessamento < _tempoExpiracao)
+            {
+                return Task.FromResult(true);
+            }
+
+            // Remover entrada expirada
+            _cache.TryRemove(chave, out _);
+        }
+
+        return Task.FromResult(false);
+    }
+
+    public Task MarcarProcessadoAsync(string chave, object dados)
+    {
+        _cache[chave] = (DateTime.UtcNow, dados);
+        return Task.CompletedTask;
+    }
+}
+
+// Registrar no DI
+builder.Services.AddSingleton<IRepositorioIdempotencia, RepositorioIdempotenciaInMemory>();
+```
+
+##### 5. **Novos Contratos de Mensagens de Compensação**
+
+```csharp
+// Respostas de compensação
+public record PagamentoEstornado(
+    Guid CorrelacaoId,
+    bool Sucesso,
+    string TransacaoId
+);
+
+public record PedidoRestauranteCancelado(
+    Guid CorrelacaoId,
+    bool Sucesso,
+    Guid PedidoId
+);
+
+public record EntregadorLiberado(
+    Guid CorrelacaoId,
+    bool Sucesso,
+    string EntregadorId
+);
+```
+
+#### 3.11.3 Critérios de Aceitação
+- [ ] Compensações executam em ordem reversa corretamente
+- [ ] Idempotência garante que compensações não sejam duplicadas
+- [ ] Estado da SAGA rastreia passos compensados
+- [ ] Logs mostram claramente o fluxo de compensação
+- [ ] Compensação parcial funciona (apenas o que foi executado)
+- [ ] Compensação total funciona (todos os passos)
+
+---
+
+### **FASE 12: Observabilidade e Métricas**
+
+#### 3.12.1 Objetivos
+- Implementar logs estruturados com correlação end-to-end
+- Adicionar métricas de negócio e técnicas
+- Configurar dashboards para monitoramento
+- Rastrear duração e taxa de sucesso das SAGAs
+
+#### 3.12.2 Entregas
+
+##### 1. **Logs Estruturados com Serilog e Contexto de Correlação**
+
+```csharp
+// Program.cs - Configuração Serilog
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithEnvironmentName()
+        .Enrich.WithProperty("Aplicacao", "SagaPoc.Orquestrador")
+        .WriteTo.Console(
+            outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{SourceContext}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        )
+        .WriteTo.File(
+            path: "logs/saga-.log",
+            rollingInterval: RollingInterval.Day,
+            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        );
+});
+```
+
+##### 2. **Middleware de Correlação para MassTransit**
+
+```csharp
+public class CorrelationIdFilter<T> : IFilter<ConsumeContext<T>>
+    where T : class
+{
+    public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
+    {
+        var correlacaoId = context.CorrelationId ?? context.MessageId ?? Guid.NewGuid();
+
+        using (LogContext.PushProperty("CorrelacaoId", correlacaoId))
+        using (LogContext.PushProperty("MessageType", typeof(T).Name))
+        {
+            await next.Send(context);
+        }
+    }
+
+    public void Probe(ProbeContext context) { }
+}
+
+// Registrar no MassTransit
+cfg.UseConsumeFilter(typeof(CorrelationIdFilter<>), context);
+```
+
+##### 3. **Métricas com App.Metrics**
+
+```csharp
+// Instalar: dotnet add package App.Metrics
+// Instalar: dotnet add package App.Metrics.AspNetCore.Mvc
+
+public class MetricasSaga
+{
+    private readonly IMetrics _metrics;
+
+    public MetricasSaga(IMetrics metrics)
+    {
+        _metrics = metrics;
+    }
+
+    public void RegistrarInicioSaga()
+    {
+        _metrics.Measure.Counter.Increment(new CounterOptions
+        {
+            Name = "saga_iniciadas_total",
+            MeasurementUnit = Unit.Calls,
+            Tags = new MetricTags("tipo", "pedido")
+        });
+    }
+
+    public void RegistrarSucesso(TimeSpan duracao)
+    {
+        _metrics.Measure.Counter.Increment(new CounterOptions
+        {
+            Name = "saga_sucesso_total",
+            MeasurementUnit = Unit.Calls
+        });
+
+        _metrics.Measure.Histogram.Update(new HistogramOptions
+        {
+            Name = "saga_duracao_segundos",
+            MeasurementUnit = Unit.Requests
+        }, (long)duracao.TotalMilliseconds);
+    }
+
+    public void RegistrarFalha(string motivo)
+    {
+        _metrics.Measure.Counter.Increment(new CounterOptions
+        {
+            Name = "saga_falha_total",
+            MeasurementUnit = Unit.Calls,
+            Tags = new MetricTags("motivo", motivo)
+        });
+    }
+
+    public void RegistrarCompensacao(int passos)
+    {
+        _metrics.Measure.Counter.Increment(new CounterOptions
+        {
+            Name = "saga_compensacoes_total",
+            MeasurementUnit = Unit.Calls
+        });
+
+        _metrics.Measure.Histogram.Update(new HistogramOptions
+        {
+            Name = "saga_compensacao_passos",
+            MeasurementUnit = Unit.Items
+        }, passos);
+    }
+}
+
+// Configurar no Program.cs
+builder.Services.AddMetrics();
+builder.Services.AddSingleton<MetricasSaga>();
+
+app.UseMetricsAllMiddleware();
+app.UseMetricsAllEndpoints();
+```
+
+##### 4. **Dashboard de Métricas (Prometheus + Grafana)**
+
+```yaml
+# docker-compose.yml - Adicionar Prometheus e Grafana
+version: '3.8'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+
+volumes:
+  grafana-storage:
+```
+
+```yaml
+# prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'saga-poc'
+    static_configs:
+      - targets: ['host.docker.internal:5000'] # API
+      - targets: ['host.docker.internal:5001'] # Orquestrador
+```
+
+#### 3.12.3 Critérios de Aceitação
+- [ ] Logs incluem CorrelationId em todas as mensagens
+- [ ] Métricas de taxa de sucesso/falha funcionando
+- [ ] Métricas de duração da SAGA funcionando
+- [ ] Dashboard Grafana exibindo métricas
+- [ ] Rastreamento de compensações em métricas
+
+---
+
+### **FASE 13: Testes de Cenários Complexos**
+
+#### 3.13.1 Objetivos
+- Criar testes automatizados para cenários de falha
+- Testar compensação em cascata
+- Testar resiliência (retry, circuit breaker, timeout)
+- Validar idempotência das compensações
+
+#### 3.13.2 Entregas
+
+##### 1. **Testes de Integração com MassTransit Test Harness**
+
+```csharp
+// Instalar: dotnet add package MassTransit.TestFramework
+
+public class PedidoSagaTests
+{
+    [Fact]
+    public async Task DeveCompensarQuandoPagamentoFalhar()
+    {
+        // Arrange
+        await using var provider = new ServiceCollection()
+            .AddMassTransitTestHarness(x =>
+            {
+                x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+                    .InMemoryRepository();
+
+                x.AddConsumer<ValidarPedidoRestauranteConsumer>();
+                x.AddConsumer<ProcessarPagamentoConsumer>();
+                x.AddConsumer<CancelarPedidoRestauranteConsumer>();
+            })
+            .BuildServiceProvider(true);
+
+        var harness = provider.GetRequiredService<ITestHarness>();
+        await harness.Start();
+
+        // Act
+        var correlacaoId = NewId.NextGuid();
+        await harness.Bus.Publish(new IniciarPedido(
+            correlacaoId,
+            ClienteId: "CLI_CARTAO_RECUSADO", // Simula falha
+            RestauranteId: "REST001",
+            Itens: new List<ItemPedido> { new("PROD001", "Pizza", 1, 45.90m) },
+            EnderecoEntrega: "Rua Teste, 123",
+            FormaPagamento: "CREDITO"
+        ));
+
+        // Assert
+        var saga = harness.Saga<EstadoPedido, PedidoSaga>();
+        Assert.True(await saga.Consumed.Any<IniciarPedido>());
+
+        var instance = saga.Created.ContainsInState(correlacaoId, saga.StateMachine.ExecutandoCompensacao);
+        Assert.NotNull(instance);
+        Assert.True(instance.EmCompensacao);
+        Assert.Contains("RestauranteCancelado", instance.PassosCompensados);
+    }
+
+    [Fact]
+    public async Task DeveCompensarTudoQuandoEntregadorFalhar()
+    {
+        // Similar ao teste acima, mas testando falha no entregador
+    }
+
+    [Fact]
+    public async Task DeveSerIdempotente_QuandoCompensarDuasVezes()
+    {
+        // Testar que compensação executada 2x não causa duplicidade
+    }
+}
+```
+
+##### 2. **Testes de Carga com NBomber**
+
+```csharp
+// Instalar: dotnet add package NBomber
+
+public class TesteCargaSaga
+{
+    [Fact]
+    public void DeveSuportarCargaAlta()
+    {
+        var scenario = Scenario.Create("saga-load-test", async context =>
+        {
+            var httpClient = new HttpClient();
+            var pedido = new
+            {
+                clienteId = "CLI001",
+                restauranteId = "REST001",
+                itens = new[]
+                {
+                    new { produtoId = "PROD001", nome = "Pizza", quantidade = 1, precoUnitario = 45.90 }
+                },
+                enderecoEntrega = "Rua Teste, 123",
+                formaPagamento = "CREDITO"
+            };
+
+            var response = await httpClient.PostAsJsonAsync(
+                "http://localhost:5000/api/pedidos",
+                pedido
+            );
+
+            return response.IsSuccessStatusCode
+                ? Response.Ok()
+                : Response.Fail();
+        })
+        .WithLoadSimulations(
+            Simulation.Inject(
+                rate: 100,  // 100 requisições por segundo
+                interval: TimeSpan.FromSeconds(1),
+                during: TimeSpan.FromMinutes(5)
+            )
+        );
+
+        var stats = NBomberRunner
+            .RegisterScenarios(scenario)
+            .Run();
+
+        Assert.True(stats.AllRequestCount > 0);
+        Assert.True(stats.FailCount < stats.AllRequestCount * 0.01); // Menos de 1% de falha
+    }
+}
+```
+
+##### 3. **Testes de Chaos Engineering**
+
+```csharp
+public class TesteChaos
+{
+    [Fact]
+    public async Task DeveContinuarQuandoOrquestradorReiniciar()
+    {
+        // 1. Iniciar SAGA
+        // 2. Parar orquestrador no meio
+        // 3. Reiniciar orquestrador
+        // 4. Verificar se SAGA recupera estado e continua
+    }
+
+    [Fact]
+    public async Task DeveUsarCircuitBreakerQuandoServicoFalhar()
+    {
+        // Simular falha repetida em serviço e verificar se circuit breaker abre
+    }
+}
+```
+
+#### 3.13.3 Critérios de Aceitação
+- [ ] Testes de integração cobrem cenários principais
+- [ ] Testes de compensação validam ordem reversa
+- [ ] Testes de carga validam throughput
+- [ ] Testes de caos validam recuperação
+
+---
+
+### **FASE 14: Documentação e Refinamento Final**
+
+#### 3.14.1 Objetivos
+- Criar diagramas de fluxo detalhados
+- Documentar runbooks de troubleshooting
+- Criar guia de boas práticas
+- Adicionar exemplos de uso avançados
+
+#### 3.14.2 Entregas
+
+##### 1. **Diagrama de Compensação em Cascata (Mermaid)**
+
+```markdown
+# docs/diagramas-compensacao.md
+
+### Fluxo de Compensação - Falha no Pagamento
+
+```mermaid
+sequenceDiagram
+    participant API
+    participant SAGA
+    participant Restaurante
+    participant Pagamento
+
+    API->>SAGA: IniciarPedido
+    SAGA->>Restaurante: ValidarPedido
+    Restaurante-->>SAGA: Validado ✅
+
+    SAGA->>Pagamento: ProcessarPagamento
+    Pagamento-->>SAGA: Falha ❌
+
+    Note over SAGA: Iniciando Compensação
+
+    SAGA->>Restaurante: CancelarPedido
+    Restaurante-->>SAGA: Cancelado ✅
+
+    Note over SAGA: Compensação Concluída
+```
+
+### Fluxo de Compensação - Falha no Entregador (Total)
+
+```mermaid
+sequenceDiagram
+    participant SAGA
+    participant Restaurante
+    participant Pagamento
+    participant Entregador
+
+    SAGA->>Restaurante: ValidarPedido
+    Restaurante-->>SAGA: Validado ✅
+
+    SAGA->>Pagamento: ProcessarPagamento
+    Pagamento-->>SAGA: Aprovado ✅
+
+    SAGA->>Entregador: AlocarEntregador
+    Entregador-->>SAGA: Indisponível ❌
+
+    Note over SAGA: Compensação Total
+
+    par Compensar em Paralelo
+        SAGA->>Pagamento: EstornarPagamento
+        SAGA->>Restaurante: CancelarPedido
+    end
+
+    Pagamento-->>SAGA: Estornado ✅
+    Restaurante-->>SAGA: Cancelado ✅
+```
+\`\`\`
+
+##### 2. **Runbook de Troubleshooting**
+
+```markdown
+# docs/runbook-troubleshooting.md
+
+## Runbook: SAGA Travada
+
+### Sintomas
+- SAGA não progride há mais de 10 minutos
+- Estado da SAGA não muda
+- Mensagens presas na fila
+
+### Diagnóstico
+
+#### 1. Verificar Estado da SAGA
+```csharp
+// Query no repositório (se SQL)
+SELECT * FROM EstadoPedido
+WHERE CorrelationId = '{id}'
+ORDER BY DataInicio DESC;
+```
+
+#### 2. Verificar Filas do Azure Service Bus
+```bash
+# Azure CLI
+az servicebus queue show \
+  --resource-group rg-saga-poc \
+  --namespace-name sb-saga-poc-dotnet \
+  --name fila-restaurante \
+  --query "messageCount"
+```
+
+#### 3. Verificar Dead Letter Queue
+```bash
+az servicebus queue show \
+  --resource-group rg-saga-poc \
+  --namespace-name sb-saga-poc-dotnet \
+  --name fila-pagamento \
+  --query "deadLetterMessageCount"
+```
+
+### Ações Corretivas
+
+#### Caso 1: Timeout em Serviço
+- Verificar health check do serviço: `GET /health`
+- Reiniciar serviço se necessário
+- Re-enviar mensagem manualmente
+
+#### Caso 2: Erro de Validação
+- Verificar logs: `grep "{correlacaoId}" logs/*.log`
+- Corrigir dados se necessário
+- Executar compensação manual
+
+#### Caso 3: Circuit Breaker Aberto
+- Aguardar reset interval (5 minutos)
+- Verificar saúde do serviço downstream
+- Reiniciar se necessário
+
+### Scripts de Compensação Manual
+
+```csharp
+// Executar compensação manual via API
+POST /api/pedidos/{id}/compensar
+{
+  "motivo": "Timeout após 10 minutos",
+  "executarEstorno": true
+}
+```
+```
+
+##### 3. **Guia de Boas Práticas**
+
+```markdown
+# docs/boas-praticas.md
+
+## Boas Práticas - SAGA Pattern
+
+### 1. Idempotência
+- ✅ **SEMPRE** verificar idempotência antes de processar
+- ✅ Usar chaves únicas (MessageId, TransacaoId, etc)
+- ✅ Armazenar em cache/banco com TTL de 24-48h
+
+### 2. Compensações
+- ✅ Compensar em **ordem reversa**
+- ✅ Compensações devem ser **idempotentes**
+- ✅ Não lançar exceções em compensações
+- ✅ Logar todas as compensações executadas
+
+### 3. Timeouts
+- ✅ Definir timeout para TODAS as operações
+- ✅ Usar CancellationToken
+- ✅ Timeout maior no orquestrador que nos serviços
+
+### 4. Logs
+- ✅ Incluir CorrelationId em TODOS os logs
+- ✅ Usar log estruturado (Serilog, NLog)
+- ✅ Log de início/fim de cada passo
+
+### 5. Métricas
+- ✅ Taxa de sucesso/falha por tipo de erro
+- ✅ Duração de cada passo da SAGA
+- ✅ Contagem de compensações
+- ✅ Taxa de retry
+
+### 6. Testes
+- ✅ Testar TODOS os cenários de falha
+- ✅ Testar compensação parcial e total
+- ✅ Testar idempotência
+- ✅ Testes de carga
+```
+
+#### 3.14.3 Critérios de Aceitação
+- [ ] Diagramas de compensação documentados
+- [ ] Runbook de troubleshooting completo
+- [ ] Guia de boas práticas criado
+- [ ] README.md atualizado com novas funcionalidades
+
+---
+
+## Resumo das Fases 9-14
+
+| Fase | Foco Principal | Entregas Chave | Complexidade |
+|------|----------------|----------------|--------------|
+| **Fase 9** | Result Pattern no Delivery | Refatoração de serviços, validações estruturadas | ⭐⭐⭐ |
+| **Fase 10** | Resiliência | Retry, Circuit Breaker, Timeout, DLQ | ⭐⭐⭐⭐ |
+| **Fase 11** | Compensação Completa | Rollback em cascata, idempotência | ⭐⭐⭐⭐⭐ |
+| **Fase 12** | Observabilidade | Logs estruturados, métricas, dashboards | ⭐⭐⭐ |
+| **Fase 13** | Testes Complexos | Testes de integração, carga, chaos | ⭐⭐⭐⭐ |
+| **Fase 14** | Documentação | Diagramas, runbooks, boas práticas | ⭐⭐ |
+
+---
+
+## Cronograma Sugerido (Fases 9-14)
+
+| Fase | Tempo Estimado | Dependências |
+|------|----------------|--------------|
+| Fase 9  | 6-8 horas | Fases 1-8 concluídas |
+| Fase 10 | 8-10 horas | Fase 9 |
+| Fase 11 | 10-12 horas | Fase 10 |
+| Fase 12 | 4-6 horas | Fase 11 |
+| Fase 13 | 8-10 horas | Fase 12 |
+| Fase 14 | 4-6 horas | Fase 13 |
+| **TOTAL** | **40-52 horas** | - |
+
+---
+
 **Documento criado em**: 2026-01-06
-**Versão**: 3.1 (Contexto: Sistema de Delivery de Comida)
+**Versão**: 4.0 (Adicionadas Fases 9-14 - Implementação Completa)
 **Idioma**: Português (BR)
-**Última atualização**: Adicionados passos opcionais para produção
+**Última atualização**: 2026-01-07 - Fases de delivery, resiliência e compensação completa

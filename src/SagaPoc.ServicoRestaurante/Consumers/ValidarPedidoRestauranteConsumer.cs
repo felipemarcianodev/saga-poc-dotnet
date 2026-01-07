@@ -42,6 +42,32 @@ public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestauran
                 mensagem.Itens
             );
 
+            // Usar Match() para tratar sucesso/falha de forma elegante (Result Pattern)
+            resultado.Match(
+                sucesso: dados =>
+                {
+                    _logger.LogInformation(
+                        "[Restaurante] Pedido {CorrelacaoId} validado com sucesso - " +
+                        "Valor: R$ {Valor:F2}, Tempo: {Tempo}min, PedidoId: {PedidoId}",
+                        mensagem.CorrelacaoId,
+                        dados.ValorTotal,
+                        dados.TempoPreparoMinutos,
+                        dados.PedidoId
+                    );
+                },
+                falha: erro =>
+                {
+                    _logger.LogWarning(
+                        "[Restaurante] Pedido {CorrelacaoId} rejeitado - " +
+                        "TipoErro: {TipoErro}, Codigo: {Codigo}, Motivo: {Motivo}",
+                        mensagem.CorrelacaoId,
+                        erro.Tipo,
+                        erro.Codigo,
+                        erro.Mensagem
+                    );
+                }
+            );
+
             // Preparar resposta baseada no resultado
             var resposta = resultado.Match(
                 sucesso: dados => new PedidoRestauranteValidado(
@@ -58,7 +84,7 @@ public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestauran
                     ValorTotal: 0,
                     TempoPreparoMinutos: 0,
                     PedidoId: null,
-                    MotivoRejeicao: erro.Mensagem
+                    MotivoRejeicao: $"[{erro.Codigo}] {erro.Mensagem}"
                 )
             );
 
