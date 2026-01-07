@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SagaPoc.ServicoEntregador",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SagaPoc.Shared", "src\SagaPoc.Shared\SagaPoc.Shared.csproj", "{63373055-55A4-4D77-BEAF-BAF02408DE35}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebHost", "src\WebHost\WebHost.csproj", "{E19AE605-41AD-DBE2-91EB-6DB0883495F6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -113,6 +115,18 @@ Global
 		{63373055-55A4-4D77-BEAF-BAF02408DE35}.Release|x64.Build.0 = Release|Any CPU
 		{63373055-55A4-4D77-BEAF-BAF02408DE35}.Release|x86.ActiveCfg = Release|Any CPU
 		{63373055-55A4-4D77-BEAF-BAF02408DE35}.Release|x86.Build.0 = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|x64.Build.0 = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Debug|x86.Build.0 = Debug|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x64.ActiveCfg = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x64.Build.0 = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x86.ActiveCfg = Release|Any CPU
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -125,5 +139,9 @@ Global
 		{84489B50-75E3-4C4E-A99A-51CBC1807A77} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{7E48CC3C-C271-4CA3-945E-6E2EFBC5689A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{63373055-55A4-4D77-BEAF-BAF02408DE35} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{E19AE605-41AD-DBE2-91EB-6DB0883495F6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0DA73E8C-EC3E-4359-9A48-560D9128CB3F}
 	EndGlobalSection
 EndGlobal

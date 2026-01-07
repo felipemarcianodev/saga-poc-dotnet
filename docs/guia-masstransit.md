@@ -4,7 +4,7 @@ Este documento explica como o MassTransit funciona nesta POC, desde a configura�
 
 ---
 
-## 📚 O que é MassTransit?
+## O que é MassTransit?
 
 **MassTransit** é um framework open-source para .NET que abstrai a complexidade de mensageria distribuída.
 
@@ -21,7 +21,7 @@ Este documento explica como o MassTransit funciona nesta POC, desde a configura�
 
 ---
 
-## 🚀 Instalação e Configuração
+## Instalação e Configuração
 
 ### 1. Pacotes NuGet
 
@@ -113,7 +113,7 @@ services.AddMassTransit(x =>
 
 ---
 
-## 🎯 Consumers (Consumidores de Mensagens)
+## Consumers (Consumidores de Mensagens)
 
 ### O que é um Consumer?
 
@@ -197,7 +197,7 @@ Você pode injetar qualquer serviço registrado no DI:
 
 ---
 
-## 🤖 State Machine (SAGA)
+## State Machine (SAGA)
 
 ### O que é uma State Machine?
 
@@ -307,7 +307,7 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
                         )),
                     // SE FALHA: COMPENSAR
                     falha => falha
-                        // ⬅️ COMPENSAÇÃO: Cancelar pedido no restaurante
+                        // COMPENSAÇÃO: Cancelar pedido no restaurante
                         .Publish(context => new CancelarPedidoRestaurante(
                             context.Saga.CorrelationId,
                             context.Saga.RestauranteId,
@@ -410,7 +410,7 @@ public class EstadoPedido : SagaStateMachineInstance
 
 ---
 
-## 🔄 Padrões de Comunicação
+## Padrões de Comunicação
 
 ### 1. **Publish (Fire-and-Forget)**
 
@@ -476,7 +476,7 @@ public async Task Consume(ConsumeContext<ValidarPedidoRestaurante> context)
 
 ---
 
-## 🔁 Correlação de Mensagens
+## Correlação de Mensagens
 
 ### O que é Correlação?
 
@@ -513,7 +513,7 @@ Event(() => PedidoValidado, x => x.CorrelateById(m => m.Message.CorrelacaoId));
 
 ---
 
-## 📊 Persistência da SAGA
+## Persistência da SAGA
 
 ### InMemory (POC)
 
@@ -523,12 +523,12 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 ```
 
 **Prós**:
-- ✅ Zero configuração
-- ✅ Rápido para testes
+- Zero configuração
+- Rápido para testes
 
 **Contras**:
-- ❌ Perde estado ao reiniciar
-- ❌ Não escala (single instance)
+- Perde estado ao reiniciar
+- Não escala (single instance)
 
 ### Entity Framework (Produção)
 
@@ -573,7 +573,7 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 
 ---
 
-## 🛡️ Resiliência
+## Resiliência
 
 ### 1. Retry Policy
 
@@ -621,7 +621,7 @@ cfg.UseRateLimit(1000, TimeSpan.FromSeconds(1)); // 1000 msg/s
 
 ---
 
-## 📈 Observabilidade
+## Observabilidade
 
 ### Logging
 
@@ -772,9 +772,9 @@ az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$D
 
 ---
 
-## 📚 Boas Práticas
+## Boas Práticas
 
-### ✅ DO (Faça)
+### DO (Faça)
 
 1. **Sempre use CorrelationId**
    ```csharp
@@ -802,7 +802,7 @@ az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$D
    e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
    ```
 
-### ❌ DON'T (Não Faça)
+### DON'T (Não Faça)
 
 1. ❌ Não use exceções para controle de fluxo
 2. ❌ Não compartilhe estado entre Consumers (use SAGA)
@@ -812,7 +812,7 @@ az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$D
 
 ---
 
-## 📖 Referências
+## Referências
 
 - **[Documentação Oficial](https://masstransit.io/)** - MassTransit Docs
 - **[State Machine](https://masstransit.io/documentation/patterns/saga/state-machine)** - SAGA Pattern

@@ -4,36 +4,23 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 
 ---
 
-## 📋 Tabela de Resumo
+## Tabela de Resumo
 
-| # | Caso de Uso | Restaurante | Pagamento | Entregador | Resultado | Compensação |
-|---|-------------|-------------|-----------|------------|-----------|-------------|
-| 1 | **Pedido Normal** | `REST001` | ✅ Aprovado | ✅ Disponível | ✅ **Sucesso** | - |
-| 2 | **Restaurante Fechado** | `REST_FECHADO` | - | - | ❌ **Cancelado** | - |
-| 3 | **Item Indisponível** | `REST002` | - | - | ❌ **Cancelado** | - |
-| 4 | **Pagamento Recusado** | `REST001` | ❌ Recusado | - | ❌ **Cancelado** | ⬅️ Cancelar no restaurante |
-| 5 | **Sem Entregador** | `REST001` | ✅ Aprovado | ❌ Indisponível | ❌ **Cancelado** | ⬅️ Estornar pagamento |
-| 6 | **Timeout Pagamento** | `REST001` | ⏱️ Timeout | - | ❌ **Cancelado** | ⬅️ Cancelar no restaurante |
-| 7 | **Pedido Premium** | `REST_VIP` | ✅ Aprovado | ⚡ Prioritário | ✅ **Sucesso** | - |
-| 8 | **Múltiplos Itens** | `REST001` | ✅ Aprovado | ✅ Disponível | ✅ **Sucesso** | - |
-| 9 | **Endereço Longe** | `REST001` | ✅ Aprovado | 🚗 Motorizado | ⚠️ **Taxa Alta** | - |
-| 10 | **Falha Notificação** | `REST001` | ✅ Aprovado | ✅ Disponível | ⚠️ **Pedido OK** | - |
-| 11 | **Pedido Agendado** | `REST001` | ✅ Aprovado | 📅 Agendado | ✅ **Sucesso** | - |
-| 12 | **Compensação Total** | `REST001` | ✅ Aprovado | ❌ Falha Total | ❌ **Rollback** | ⬅️ **Todas** |
+![Tabela de resumo de caso de uso](./images/tabela-resumo-caso-uso.png)
 
 ---
 
-## 📖 Detalhamento dos Casos de Uso
+## Detalhamento dos Casos de Uso
 
 ### **Caso 1: Pedido Normal (Happy Path)**
 
 **Descrição**: Pedido processado com sucesso em todas as etapas.
 
 **Fluxo**:
-1. ✅ Restaurante valida o pedido
-2. ✅ Pagamento aprovado
-3. ✅ Entregador alocado
-4. ✅ Cliente notificado
+1. Restaurante valida o pedido
+2. Pagamento aprovado
+3. Entregador alocado
+4. Cliente notificado
 
 **Payload**:
 ```json
@@ -80,8 +67,8 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Pedido rejeitado porque o restaurante está fechado.
 
 **Fluxo**:
-1. ❌ Restaurante rejeita (fechado)
-2. 🔔 Cliente notificado sobre cancelamento
+1. Restaurante rejeita (fechado)
+2. Cliente notificado sobre cancelamento
 
 **Payload**:
 ```json
@@ -126,8 +113,8 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Pedido rejeitado porque um ou mais itens não estão disponíveis.
 
 **Fluxo**:
-1. ❌ Restaurante rejeita (item indisponível)
-2. 🔔 Cliente notificado
+1. Restaurante rejeita (item indisponível)
+2. Cliente notificado
 
 **Payload**:
 ```json
@@ -160,10 +147,10 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Restaurante aceita, mas pagamento é recusado pela operadora.
 
 **Fluxo**:
-1. ✅ Restaurante valida o pedido
-2. ❌ Pagamento recusado
-3. ⬅️ **COMPENSAÇÃO**: Cancelar pedido no restaurante
-4. 🔔 Cliente notificado
+1. Restaurante valida o pedido
+2. Pagamento recusado
+3. **COMPENSAÇÃO**: Cancelar pedido no restaurante
+4. Cliente notificado
 
 **Payload**:
 ```json
@@ -192,7 +179,7 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 [INFO] Notificação enviada: Pedido cancelado (pagamento recusado)
 ```
 
-**Compensação Executada**: ✅ Cancelamento do pedido no restaurante
+**Compensação Executada**: Cancelamento do pedido no restaurante
 
 ---
 
@@ -201,12 +188,12 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Restaurante e pagamento OK, mas não há entregadores disponíveis.
 
 **Fluxo**:
-1. ✅ Restaurante valida o pedido
-2. ✅ Pagamento aprovado
-3. ❌ Nenhum entregador disponível
-4. ⬅️ **COMPENSAÇÃO**: Estornar pagamento
-5. ⬅️ **COMPENSAÇÃO**: Cancelar pedido no restaurante
-6. 🔔 Cliente notificado
+1. Restaurante valida o pedido
+2. Pagamento aprovado
+3. Nenhum entregador disponível
+4. **COMPENSAÇÃO**: Estornar pagamento
+5. **COMPENSAÇÃO**: Cancelar pedido no restaurante
+6. Cliente notificado
 
 **Payload**:
 ```json
@@ -240,8 +227,8 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 ```
 
 **Compensações Executadas**:
-- ✅ Estorno do pagamento
-- ✅ Cancelamento do pedido no restaurante
+- Estorno do pagamento
+- Cancelamento do pedido no restaurante
 
 ---
 
@@ -250,10 +237,10 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Gateway de pagamento não responde (timeout).
 
 **Fluxo**:
-1. ✅ Restaurante valida o pedido
-2. ⏱️ Timeout no gateway de pagamento
-3. ⬅️ **COMPENSAÇÃO**: Cancelar pedido no restaurante
-4. 🔔 Cliente notificado
+1. Restaurante valida o pedido
+2. Timeout no gateway de pagamento
+3. **COMPENSAÇÃO**: Cancelar pedido no restaurante
+4. Cliente notificado
 
 **Payload**:
 ```json
@@ -288,10 +275,10 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Pedido em restaurante VIP com priorização em todas as etapas.
 
 **Fluxo**:
-1. ✅ Restaurante valida (tempo de preparo reduzido)
-2. ✅ Pagamento aprovado
-3. ✅ Entregador prioritário alocado (tempo reduzido)
-4. 🔔 Cliente notificado
+1. Restaurante valida (tempo de preparo reduzido)
+2. Pagamento aprovado
+3. Entregador prioritário alocado (tempo reduzido)
+4. Cliente notificado
 
 **Payload**:
 ```json
@@ -320,8 +307,8 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 ```
 
 **Diferencial**:
-- ⚡ Tempo de preparo 50% menor
-- 🚀 Tempo de entrega 30% menor
+- Tempo de preparo 50% menor
+- Tempo de entrega 30% menor
 
 ---
 
@@ -376,10 +363,10 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Pedido para endereço distante (pode ter dificuldade de achar entregador ou taxa elevada).
 
 **Fluxo**:
-1. ✅ Restaurante valida
-2. ✅ Pagamento aprovado (com taxa de entrega 15%)
-3. ⚠️ Entregador alocado (ou indisponível se muito longe)
-4. 🔔 Cliente notificado
+1. Restaurante valida
+2. Pagamento aprovado (com taxa de entrega 15%)
+3. Entregador alocado (ou indisponível se muito longe)
+4. Cliente notificado
 
 **Payload (Distante, mas com entregador)**:
 ```json
@@ -415,11 +402,11 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Pedido processado com sucesso, mas notificação falha (não crítico).
 
 **Fluxo**:
-1. ✅ Restaurante valida
-2. ✅ Pagamento aprovado
-3. ✅ Entregador alocado
-4. ⚠️ Falha ao enviar notificação (5% de probabilidade aleatória)
-5. ✅ **Pedido confirmado mesmo assim** (notificação não é crítica)
+1. Restaurante valida
+2. Pagamento aprovado
+3. Entregador alocado
+4. Falha ao enviar notificação (5% de probabilidade aleatória)
+5. **Pedido confirmado mesmo assim** (notificação não é crítica)
 
 **Payload**:
 ```json
@@ -494,11 +481,11 @@ Este documento detalha os **12 casos de uso** implementados na POC, com cenário
 **Descrição**: Teste de todas as compensações em cascata.
 
 **Cenário Forçado**:
-1. ✅ Restaurante valida
-2. ✅ Pagamento aprovado
-3. ❌ Entregador falha (forçado)
-4. ⬅️ Estornar pagamento
-5. ⬅️ Cancelar pedido no restaurante
+1. Restaurante valida
+2. Pagamento aprovado
+3. Entregador falha (forçado)
+4. Estornar pagamento
+5. Cancelar pedido no restaurante
 
 **Como Testar**:
 Use endereço com "LONGE" para forçar falha de entregador após pagamento aprovado.
@@ -535,12 +522,12 @@ Use endereço com "LONGE" para forçar falha de entregador após pagamento aprov
 ```
 
 **Compensações Executadas**:
-1. ✅ Estorno do pagamento
-2. ✅ Cancelamento do pedido no restaurante
+1. Estorno do pagamento
+2. Cancelamento do pedido no restaurante
 
 ---
 
-## 🧪 Como Testar os Casos de Uso
+## Como Testar os Casos de Uso
 
 ### **1. Via Swagger UI**
 
@@ -584,7 +571,7 @@ Importe a collection (se disponível) ou crie uma nova request:
 
 ---
 
-## 📊 Observando os Logs
+## Observando os Logs
 
 ### **Logs dos Serviços**
 
@@ -616,7 +603,7 @@ Cada serviço (Orquestrador, Restaurante, Pagamento, Entregador, Notificação) 
 
 ---
 
-## 🔍 Rastreando uma SAGA
+## Rastreando uma SAGA
 
 Cada pedido tem um **CorrelationId** único que aparece em todos os logs:
 
@@ -632,7 +619,7 @@ Ou use ferramentas como:
 
 ---
 
-## ✅ Critérios de Aceitação
+## Critérios de Aceitação
 
 Para cada caso de uso, validar:
 
@@ -644,7 +631,7 @@ Para cada caso de uso, validar:
 
 ---
 
-## 📈 Métricas e Observabilidade
+## Métricas e Observabilidade
 
 ### **Métricas Importantes**
 
@@ -673,7 +660,7 @@ Para cada caso de uso, validar:
 
 ---
 
-## 🚀 Próximos Passos
+## Próximos Passos
 
 1. **Testes Automatizados**: Criar testes de integração para cada caso de uso
 2. **Collection Postman/Insomnia**: Exportar coleção com todos os 12 cenários
@@ -682,14 +669,13 @@ Para cada caso de uso, validar:
 
 ---
 
-## 📚 Referências
+## Referências
 
-- [PLANO-EXECUCAO.md](./PLANO-EXECUCAO.md) - Plano geral do projeto
-- [ARQUITETURA.md](./ARQUITETURA.md) - Detalhes da arquitetura
-- [MASSTRANSIT-GUIDE.md](./MASSTRANSIT-GUIDE.md) - Guia do MassTransit
+- [plano-execucao.md](./plano-execucao.md) - Plano geral do projeto
+- [arquitetura.md](./arquitetura.md) - Detalhes da arquitetura
+- [guia-masstransit.md](./guia-masstransit.md) - Guia do MassTransit
 
 ---
 
 **Documento criado em**: 2026-01-07
 **Versão**: 1.0
-**Status**: ✅ Completo (12 casos de uso implementados)

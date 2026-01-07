@@ -6,7 +6,7 @@
 Criar uma Proof of Concept (POC) demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **MassTransit** e **Azure Service Bus** para comunicação entre microsserviços, aplicando o **Result Pattern** para tratamento de resultados.
 
 ### 1.2 Escopo
-- **Domínio**: Sistema de Delivery de Comida (tipo iFood/Rappi)
+- **Domínio**: Sistema de Delivery de Comida
 - **Padrões**: SAGA Orquestrado + Result Pattern
 - **Arquitetura**: Microsserviços com mensageria
 - **Mensageria**: MassTransit + Azure Service Bus
@@ -77,9 +77,9 @@ Se FALHA em qualquer etapa → Compensações em ordem reversa
 ### **FASE 1: Fundação - Result Pattern e Estrutura Base**
 
 #### 3.1.1 Objetivos
-- ✅ Criar estrutura de pastas e solution
-- ✅ Implementar Result Pattern em português
-- ✅ Definir contratos de mensagens
+- Criar estrutura de pastas e solution
+- Implementar Result Pattern em português
+- Definir contratos de mensagens
 
 #### 3.1.2 Entregas
 
@@ -235,9 +235,9 @@ public enum StatusPedido
 ### **FASE 2: Configuração MassTransit + Azure Service Bus**
 
 #### 3.2.1 Objetivos
-- ✅ Configurar MassTransit em todos os serviços
-- ✅ Configurar Azure Service Bus (connection string em appsettings)
-- ✅ Implementar health checks
+- Configurar MassTransit em todos os serviços
+- Configurar Azure Service Bus (connection string em appsettings)
+- Implementar health checks
 
 #### 3.2.2 Entregas
 
@@ -297,9 +297,9 @@ services.AddScoped<IRequestClient<IniciarPedido>>();
 ### **FASE 3: Implementação da SAGA State Machine**
 
 #### 3.3.1 Objetivos
-- ✅ Criar State Machine no projeto Orquestrador
-- ✅ Definir estados e eventos da SAGA
-- ✅ Implementar fluxo de compensação
+- Criar State Machine no projeto Orquestrador
+- Definir estados e eventos da SAGA
+- Implementar fluxo de compensação
 
 #### 3.3.2 Entregas
 
@@ -475,9 +475,9 @@ services.AddMassTransit(x =>
 ### **FASE 4: Implementação dos Serviços (Consumers)**
 
 #### 3.4.1 Objetivos
-- ✅ Implementar consumers em cada serviço
-- ✅ Aplicar Result Pattern em toda lógica de negócio
-- ✅ Simular operações (mock de banco/APIs externas)
+- Implementar consumers em cada serviço
+- Aplicar Result Pattern em toda lógica de negócio
+- Simular operações (mock de banco/APIs externas)
 
 #### 3.4.2 Entregas
 
@@ -623,9 +623,9 @@ public class NotificarClienteConsumer : IConsumer<NotificarCliente>
 ### **FASE 5: API REST (Ponto de Entrada)**
 
 #### 3.5.1 Objetivos
-- ✅ Criar API REST para iniciar SAGA
-- ✅ Endpoint para consultar status do pedido
-- ✅ Documentação OpenAPI/Swagger
+- Criar API REST para iniciar SAGA
+- Endpoint para consultar status do pedido
+- Documentação OpenAPI/Swagger
 
 #### 3.5.2 Entregas
 
@@ -698,17 +698,17 @@ public record CriarPedidoRequest(
 
 | # | Caso de Uso | Restaurante | Pagamento | Entregador | Resultado | Compensação |
 |---|-------------|-------------|-----------|------------|-----------|-------------|
-| 1 | **Pedido Normal** | `REST001` | Aprovado | Disponível | ✅ Sucesso | - |
+| 1 | **Pedido Normal** | `REST001` | Aprovado | Disponível | Sucesso | - |
 | 2 | **Restaurante Fechado** | `REST_FECHADO` | - | - | ❌ Cancelado | - |
 | 3 | **Item Indisponível** | `REST002` | - | - | ❌ Cancelado | - |
 | 4 | **Pagamento Recusado** | `REST001` | Recusado | - | ❌ Cancelado | Cancelar no restaurante |
 | 5 | **Sem Entregador** | `REST001` | Aprovado | Indisponível | ❌ Cancelado | ⬅️ Estornar pagamento |
 | 6 | **Timeout Pagamento** | `REST001` | Timeout | - | ❌ Cancelado | Retry + compensar |
-| 7 | **Pedido Premium** | `REST_VIP` | Aprovado | Prioritário | ✅ Sucesso | - |
-| 8 | **Múltiplos Itens** | `REST001` | Aprovado | Disponível | ✅ Sucesso | - |
-| 9 | **Endereço Longe** | `REST001` | Aprovado | Motorizado | ✅ Taxa alta | - |
+| 7 | **Pedido Premium** | `REST_VIP` | Aprovado | Prioritário | Sucesso | - |
+| 8 | **Múltiplos Itens** | `REST001` | Aprovado | Disponível | Sucesso | - |
+| 9 | **Endereço Longe** | `REST001` | Aprovado | Motorizado | Taxa alta | - |
 | 10 | **Falha Notificação** | `REST001` | Aprovado | Disponível | ⚠️ Pedido OK | - |
-| 11 | **Pedido Agendado** | `REST001` | Aprovado | Agendado | ✅ Sucesso | - |
+| 11 | **Pedido Agendado** | `REST001` | Aprovado | Agendado | Sucesso | - |
 | 12 | **Compensação Total** | `REST001` | Aprovado | Falha total | ❌ Rollback | ⬅️ Todas |
 
 #### 3.6.2 Critérios de Aceitação
@@ -722,10 +722,10 @@ public record CriarPedidoRequest(
 ### **FASE 7: Documentação Completa**
 
 #### 3.7.1 Objetivos
-- ✅ README.md detalhado em português
-- ✅ Documentação de arquitetura
-- ✅ Guia de configuração do Azure Service Bus
-- ✅ Diagramas de fluxo
+- README.md detalhado em português
+- Documentação de arquitetura
+- Guia de configuração do Azure Service Bus
+- Diagramas de fluxo
 
 #### 3.7.2 Entregas
 
@@ -894,28 +894,28 @@ saga-poc-dotnet/
 ## 7. Definição de Pronto (DoD)
 
 ### 7.1 Código
-- ✅ Compila sem warnings
-- ✅ Null safety habilitado
-- ✅ Tudo em português (classes, variáveis, métodos)
-- ✅ XML documentation completo
-- ✅ Serilog configurado
+- Compila sem warnings
+- Null safety habilitado
+- Tudo em português (classes, variáveis, métodos)
+- XML documentation completo
+- Serilog configurado
 
 ### 7.2 Funcional
-- ✅ SAGA orquestrada funcionando end-to-end
-- ✅ 12 casos de uso implementados
-- ✅ Compensações executando corretamente
-- ✅ API REST funcional
+- SAGA orquestrada funcionando end-to-end
+- 12 casos de uso implementados
+- Compensações executando corretamente
+- API REST funcional
 
 ### 7.3 Documentação
-- ✅ README.md completo em português
-- ✅ Arquitetura documentada
-- ✅ Guia de configuração do Azure SB
-- ✅ Comentários XML em APIs públicas
+- README.md completo em português
+- Arquitetura documentada
+- Guia de configuração do Azure SB
+- Comentários XML em APIs públicas
 
 ### 7.4 Repositório
-- ✅ .gitignore configurado
-- ✅ Licença MIT
-- ✅ Pronto para GitHub público
+- .gitignore configurado
+- Licença MIT
+- Pronto para GitHub público
 
 ---
 

@@ -4,7 +4,7 @@ Este diretório contém scripts para facilitar o teste dos 12 casos de uso da PO
 
 ---
 
-## 📁 Arquivos Disponíveis
+## Arquivos Disponíveis
 
 | Arquivo | Descrição | Plataforma |
 |---------|-----------|------------|
@@ -13,7 +13,7 @@ Este diretório contém scripts para facilitar o teste dos 12 casos de uso da PO
 
 ---
 
-## 🚀 Como Usar
+## Como Usar
 
 ### **Windows (PowerShell)**
 
@@ -62,28 +62,9 @@ cd /c/Projetos/saga-poc-dotnet/docs/scripts
 BASE_URL="http://localhost:8080" ./testar-casos-de-uso.sh
 ```
 
----
+![Lista de Casos de Uso](../images/lista-casos-uso.png)
 
-## 📋 Lista de Casos de Uso
-
-| # | Nome | Cenário |
-|---|------|---------|
-| 1 | Pedido Normal | Happy Path - tudo funciona |
-| 2 | Restaurante Fechado | Falha na validação do restaurante |
-| 3 | Item Indisponível | Produto não está disponível |
-| 4 | Pagamento Recusado | Cartão recusado + compensação |
-| 5 | Sem Entregador | Entregador indisponível + compensação |
-| 6 | Timeout Pagamento | Gateway timeout + compensação |
-| 7 | Pedido Premium | Restaurante VIP com priorização |
-| 8 | Múltiplos Itens | Pedido com vários produtos |
-| 9 | Endereço Longe | Entrega para local distante |
-| 10 | Falha Notificação | Notificação falha, pedido OK |
-| 11 | Pedido Agendado | Entrega agendada |
-| 12 | Compensação Total | Rollback completo de todas etapas |
-
----
-
-## ⚙️ Pré-requisitos
+## Pré-requisitos
 
 ### Antes de executar os scripts:
 
@@ -119,26 +100,26 @@ BASE_URL="http://localhost:8080" ./testar-casos-de-uso.sh
    curl http://localhost:5000/health
    ```
 
-3. **Configure o Azure Service Bus** (veja [PLANO-EXECUCAO.md](../PLANO-EXECUCAO.md))
+3. **Configure o Azure Service Bus** (veja [plano-execucao.md](../plano-execucao.md))
 
 ---
 
-## 📊 Observando os Resultados
+## Observando os Resultados
 
 ### Nos Scripts
 
 Os scripts mostram:
-- ✅ Payload enviado
-- ✅ Resposta da API (PedidoId, Status)
-- ✅ HTTP Status Code
+- Payload enviado
+- Resposta da API (PedidoId, Status)
+- HTTP Status Code
 
 ### Nos Logs dos Serviços
 
 Observe os terminais onde os serviços estão rodando para ver:
-- 📝 Transições de estado da SAGA
-- 🔄 Mensagens sendo processadas
-- ⚠️ Compensações sendo executadas
-- ✅ Estado final do pedido
+- Transições de estado da SAGA
+- Mensagens sendo processadas
+- Compensações sendo executadas
+- Estado final do pedido
 
 **Exemplo de log (caso de sucesso)**:
 ```
@@ -164,7 +145,7 @@ Observe os terminais onde os serviços estão rodando para ver:
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Erro: "Invoke-WebRequest não reconhecido" (PowerShell)
 
@@ -216,11 +197,11 @@ brew install jq
 
 ---
 
-## 📚 Mais Informações
+## Mais Informações
 
-- **Casos de Uso Detalhados**: [CASOS-DE-USO.md](../CASOS-DE-USO.md)
-- **Arquitetura da POC**: [ARQUITETURA.md](../ARQUITETURA.md)
-- **Plano de Execução**: [PLANO-EXECUCAO.md](../PLANO-EXECUCAO.md)
+- **Casos de Uso Detalhados**: [casos-uso.md](../casos-uso.md)
+- **Arquitetura da POC**: [arquitetura.md](../arquitetura.md)
+- **Plano de Execução**: [plano-execucao.md](../plano-execucao.md)
 
 ---
 

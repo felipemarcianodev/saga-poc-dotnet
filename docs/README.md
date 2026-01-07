@@ -9,100 +9,46 @@
 
 ---
 
-## 📖 Sobre o Projeto
+## Sobre o Projeto
 
 ### Domínio
-Sistema de **Delivery de Comida** (similar a iFood/Rappi) simulando um fluxo completo de processamento de pedidos.
+Sistema de **Delivery de Comida** simulando um fluxo completo de processamento de pedidos.
 
 ### Objetivo
 Demonstrar como implementar:
-- ✅ **SAGA Orquestrado** com MassTransit State Machine
-- ✅ **Compensações automáticas** em caso de falha
-- ✅ **Result Pattern** para tratamento de erros sem exceções
-- ✅ **Mensageria assíncrona** com Azure Service Bus
-- ✅ **Idempotência** nas operações de compensação
+- **SAGA Orquestrado** com MassTransit State Machine
+- **Compensações automáticas** em caso de falha
+- **Result Pattern** para tratamento de erros sem exceções
+- **Mensageria assíncrona** com Azure Service Bus
+- **Idempotência** nas operações de compensação
 
 ---
 
-## 🏗️ Arquitetura
+## Arquitetura
 
 ### Fluxo da SAGA
 
-```
-┌─────────────┐
-│   API REST  │ ← Ponto de entrada (POST /api/pedidos)
-└──────┬──────┘
-       │
-       ↓
-┌──────────────────────────────────────────────────────┐
-│           SAGA Orquestrador (State Machine)          │
-│                                                      │
-│  Estados:                                            │
-│  • ValidandoRestaurante                              │
-│  • ProcessandoPagamento                              │
-│  • AlocandoEntregador                                │
-│  • NotificandoCliente                                │
-│  • PedidoConfirmado ✅ / PedidoCancelado ❌          │
-└──────────────────────────────────────────────────────┘
-       │
-       ├──→ Azure Service Bus ──→ [Serviço Restaurante]
-       ├──→ Azure Service Bus ──→ [Serviço Pagamento]
-       ├──→ Azure Service Bus ──→ [Serviço Entregador]
-       └──→ Azure Service Bus ──→ [Serviço Notificação]
-```
+![Diagrama Visual do Fluxo](./images/diagrama-visual-fluxo.png)
 
 ### Compensações em Cascata
 
 Quando ocorre uma falha em qualquer etapa, as compensações são executadas **em ordem reversa**:
 
-```
-❌ Falha na Alocação de Entregador
-   ↓
-⬅️ Estornar Pagamento
-   ↓
-⬅️ Cancelar Pedido no Restaurante
-   ↓
-✅ SAGA Cancelada
-```
-
+![Diagrama de compensação em cascata](./images/diagrama-compensacao-saga-cascata.png)
 ---
 
-## 📦 Estrutura do Projeto
+## Estrutura do Projeto
 
-```
-saga-poc-dotnet/
-├── docs/
-│   ├── PLANO-EXECUCAO.md         # Plano completo das fases
-│   ├── ARQUITETURA.md            # Detalhes da arquitetura
-│   ├── MASSTRANSIT-GUIDE.md      # Guia do MassTransit
-│   ├── CASOS-DE-USO.md           # 12 cenários implementados ⭐
-│   └── scripts/
-│       ├── testar-casos-de-uso.ps1   # Script PowerShell
-│       ├── testar-casos-de-uso.sh    # Script Bash
-│       └── README.md
-│
-├── src/
-│   ├── SagaPoc.Shared/           # Result Pattern, Mensagens, DTOs
-│   ├── SagaPoc.Orquestrador/     # SAGA State Machine (MassTransit)
-│   ├── SagaPoc.ServicoRestaurante/
-│   ├── SagaPoc.ServicoPagamento/
-│   ├── SagaPoc.ServicoEntregador/
-│   ├── SagaPoc.ServicoNotificacao/
-│   └── SagaPoc.Api/              # API REST (ponto de entrada)
-│
-├── README.md
-└── SagaPoc.sln
-```
-
+![Diagrama da Estrutura do Projeto](./images/diagrama-estrutura-projeto.png)
 ---
 
-## 🚀 Como Executar
+## Como Executar
 
 ### Pré-requisitos
 
-- ✅ **.NET 8 SDK** ou superior
-- ✅ **Azure Service Bus** (namespace configurado)
-- ✅ **Git**
+- **.NET 8 SDK** ou superior
+- **Azure Service Bus** (namespace configurado)
+- **Git**
 
 ### 1. Clonar o Repositório
 
@@ -192,24 +138,12 @@ docker-compose up
 
 ---
 
-## 🧪 Testando os Casos de Uso
+## Testando os Casos de Uso
 
-### 📋 12 Cenários Implementados
+### 12 Cenários Implementados
 
-| # | Caso de Uso | Resultado Esperado |
-|---|-------------|-------------------|
-| 1 | Pedido Normal | ✅ Sucesso completo |
-| 2 | Restaurante Fechado | ❌ Cancelado (validação) |
-| 3 | Item Indisponível | ❌ Cancelado (validação) |
-| 4 | Pagamento Recusado | ❌ Cancelado + compensação |
-| 5 | Sem Entregador | ❌ Cancelado + compensação |
-| 6 | Timeout Pagamento | ❌ Cancelado + compensação |
-| 7 | Pedido Premium (VIP) | ✅ Sucesso prioritário |
-| 8 | Múltiplos Itens | ✅ Sucesso |
-| 9 | Endereço Longe | ⚠️ Taxa alta ou falha |
-| 10 | Falha Notificação | ✅ Pedido OK (notificação não crítica) |
-| 11 | Pedido Agendado | ✅ Sucesso com agendamento |
-| 12 | Compensação Total | ❌ Rollback completo |
+![12 Cenários implementados](./images/12-cenarios-implementados.png)
+---
 
 ### Via Scripts Automatizados
 
@@ -274,68 +208,60 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 
 ---
 
-## 📚 Documentação Completa
+## Documentação Completa
 
 ### Documentos Principais
 
-- **[CASOS-DE-USO.md](docs/CASOS-DE-USO.md)** ⭐ - Detalhamento completo dos 12 cenários com payloads
-- **[PLANO-EXECUCAO.md](docs/PLANO-EXECUCAO.md)** - Plano de execução em 7 fases
-- **[ARQUITETURA.md](docs/ARQUITETURA.md)** - Detalhes da arquitetura e decisões técnicas
-- **[MASSTRANSIT-GUIDE.md](docs/MASSTRANSIT-GUIDE.md)** - Guia de uso do MassTransit
+- **[casos-uso.md](docs/casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
+- **[plano-execucao.md](docs/plano-execucao.md)** - Plano de execução em 7 fases
+- **[arquitetura.md](docs/arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
+- **[guia-masstransit.md](docs/guia-masstransit.md)** - Guia de uso do MassTransit
 
 ### Scripts de Teste
 
-- **[docs/scripts/README.md](docs/scripts/README.md)** - Como usar os scripts de teste
+- **[docs/scripts/readme-script.md](docs/scripts/readme-script.md)** - Como usar os scripts de teste
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
-| Tecnologia | Versão | Propósito |
-|------------|--------|-----------|
-| **.NET** | 8.0 | Framework base |
-| **C#** | 12 | Linguagem |
-| **MassTransit** | 8.1.3 | Framework de mensageria + State Machine |
-| **Azure Service Bus** | - | Transport layer (filas e tópicos) |
-| **Serilog** | 8.0.0 | Logging estruturado |
-| **ASP.NET Core** | 8.0 | API REST |
-| **Swagger/OpenAPI** | - | Documentação da API |
+![Tech Stack](./images/tech-stack.png)  
 
 ---
 
-## 🧩 Conceitos Demonstrados
+## Conceitos Demonstrados
 
 ### 1. SAGA Orquestrado
-- ✅ State Machine centralizada (MassTransit)
-- ✅ Controle de fluxo e transições de estado
-- ✅ Persistência do estado (InMemory para POC)
+- State Machine centralizada (MassTransit)
+- Controle de fluxo e transições de estado
+- Persistência do estado (InMemory para POC)
 
 ### 2. Compensações Automáticas
-- ✅ Rollback em ordem reversa
-- ✅ Idempotência (executar 2x não causa problema)
-- ✅ Tratamento de erros estruturado
+- Rollback em ordem reversa
+- Idempotência (executar 2x não causa problema)
+- Tratamento de erros estruturado
 
 ### 3. Result Pattern
-- ✅ Encapsulamento de sucesso/falha
-- ✅ Sem exceções para controle de fluxo
-- ✅ Propagação de erros estruturados
+- Encapsulamento de sucesso/falha
+- Sem exceções para controle de fluxo
+- Propagação de erros estruturados
 
 ### 4. Mensageria Assíncrona
-- ✅ Request/Response via MassTransit
-- ✅ Publish/Subscribe para eventos
-- ✅ Dead Letter Queue automática
+- Request/Response via MassTransit
+- Publish/Subscribe para eventos
+- Dead Letter Queue automática
 
 ---
 
-## 📊 Observabilidade
+## Observabilidade
 
 ### Logs Estruturados (Serilog)
 
 Cada operação gera logs com:
-- ✅ **CorrelationId** (rastreamento end-to-end)
-- ✅ **Transições de estado** da SAGA
-- ✅ **Compensações executadas**
-- ✅ **Timestamps** e métricas
+- **CorrelationId** (rastreamento end-to-end)
+- **Transições de estado** da SAGA
+- **Compensações executadas**
+- **Timestamps** e métricas
 
 ### Rastreamento de SAGA
 
@@ -352,7 +278,7 @@ grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
 
 ---
 
-## 🚧 Próximos Passos (Para Produção)
+## Próximos Passos (Para Produção)
 
 Esta POC é **educacional**. Para produção, considere:
 
@@ -385,13 +311,13 @@ Veja mais detalhes em [PLANO-EXECUCAO.md - Seção 9](docs/PLANO-EXECUCAO.md#9-p
 
 ---
 
-## 📝 Licença
+## Licença
 
 Este projeto é licenciado sob a [MIT License](LICENSE).
 
 ---
 
-## 🤝 Contribuindo
+## Contribuindo
 
 Contribuições são bem-vindas! Sinta-se à vontade para:
 - Reportar bugs
@@ -401,13 +327,13 @@ Contribuições são bem-vindas! Sinta-se à vontade para:
 
 ---
 
-## 📧 Contato
+## Contato
 
 Criado como material educacional sobre padrões de microsserviços.
 
 ---
 
-## 🌟 Agradecimentos
+## Agradecimentos
 
 - [MassTransit](https://masstransit.io/) - Excelente framework de mensageria
 - [Microsoft Azure](https://azure.microsoft.com/) - Azure Service Bus
@@ -416,4 +342,3 @@ Criado como material educacional sobre padrões de microsserviços.
 ---
 
 **Última atualização**: 2026-01-07
-**Status do Projeto**: ✅ Fase 6 Concluída (12 casos de uso implementados)

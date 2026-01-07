@@ -131,8 +131,9 @@ appsettings.*.json
 
 # Mas permite arquivos de documentação
 !/docs/README.md
-!/docs/PLANO-EXECUCAO.md
-!/docs/ARQUITETURA.md
-!/docs/MASSTRANSIT-GUIDE.md
-!/docs/CASOS-DE-USO.md
+!/docs/plano-execucao.md
+!/docs/arquitetura.md
+!/docs/guia-masstransit.md
+!/docs/casos-uso.md
+!/docs/images/
 !/docs/scripts/

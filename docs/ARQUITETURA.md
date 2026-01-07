@@ -4,78 +4,14 @@ Este documento detalha a arquitetura da POC, decisões técnicas, padrões utili
 
 ---
 
-## 📐 Visão Geral da Arquitetura
+## Visão Geral da Arquitetura
 
 ### Arquitetura de Alto Nível
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          CAMADA DE ENTRADA                           │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                        SagaPoc.Api                              │ │
-│  │                     (ASP.NET Core Web API)                      │ │
-│  │                                                                 │ │
-│  │  • POST /api/pedidos         (Criar pedido)                    │ │
-│  │  • GET  /api/pedidos/{id}    (Consultar status)                │ │
-│  │  • GET  /health              (Health check)                    │ │
-│  │  • GET  /swagger             (Documentação OpenAPI)            │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────┬──────────────────────────────────┘
-                                    │
-                                    │ Publish: IniciarPedido
-                                    ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│                      CAMADA DE ORQUESTRAÇÃO                          │
-│                                                                      │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                   SagaPoc.Orquestrador                          │ │
-│  │                  (MassTransit State Machine)                    │ │
-│  │                                                                 │ │
-│  │  ┌─────────────────────────────────────────────────────────┐  │ │
-│  │  │              PedidoSaga State Machine                    │  │ │
-│  │  │                                                          │  │ │
-│  │  │  Estados:                                                │  │ │
-│  │  │  • [Initial] → ValidandoRestaurante                      │  │ │
-│  │  │  • ValidandoRestaurante → ProcessandoPagamento           │  │ │
-│  │  │  • ProcessandoPagamento → AlocandoEntregador             │  │ │
-│  │  │  • AlocandoEntregador → NotificandoCliente               │  │ │
-│  │  │  • NotificandoCliente → [Final: PedidoConfirmado]        │  │ │
-│  │  │  • Qualquer Estado → [Final: PedidoCancelado]            │  │ │
-│  │  │                                                          │  │ │
-│  │  │  Compensações (Ordem Reversa):                           │  │ │
-│  │  │  • LiberarEntregador → EstornarPagamento →               │  │ │
-│  │  │    CancelarPedidoRestaurante                             │  │ │
-│  │  └─────────────────────────────────────────────────────────┘  │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────┬──────────────────────────────────┘
-                                    │
-                    ┌───────────────┼───────────────┬──────────────────┐
-                    │               │               │                  │
-          Azure Service Bus    Azure Service    Azure Service    Azure Service
-            (Transport)         Bus Queue        Bus Queue        Bus Queue
-                    │               │               │                  │
-                    ↓               ↓               ↓                  ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│                       CAMADA DE SERVIÇOS                             │
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────┐ │
-│  │  Serviço     │  │  Serviço     │  │  Serviço     │  │ Serviço │ │
-│  │ Restaurante  │  │  Pagamento   │  │ Entregador   │  │Notific. │ │
-│  │              │  │              │  │              │  │         │ │
-│  │ • Validar    │  │ • Processar  │  │ • Alocar     │  │ • Enviar│ │
-│  │   pedido     │  │   pagamento  │  │   entregador │  │   noti- │ │
-│  │ • Cancelar   │  │ • Estornar   │  │ • Liberar    │  │   ficação│ │
-│  │   pedido     │  │   pagamento  │  │   entregador │  │         │ │
-│  │              │  │              │  │              │  │         │ │
-│  │ (Consumers)  │  │ (Consumers)  │  │ (Consumers)  │  │(Consumer)│ │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └─────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
+![Diagrama da arquitetura](./images/diagrama-arquitetura.png)
 ---
 
-## 🏗️ Componentes Principais
+## Componentes Principais
 
 ### 1. **SagaPoc.Api** (Camada de Entrada)
 
@@ -101,9 +37,9 @@ GET    /health                   # Health check
 5. Retorna **202 Accepted** com o `PedidoId`
 
 **Características**:
-- ✅ Stateless (não mantém estado do pedido)
-- ✅ Assíncrono (fire-and-forget)
-- ✅ Idempotente (aceita múltiplas requisições com mesmo payload)
+- Stateless (não mantém estado do pedido)
+- Assíncrono (fire-and-forget)
+- Idempotente (aceita múltiplas requisições com mesmo payload)
 
 ---
 
@@ -121,19 +57,8 @@ GET    /health                   # Health check
 - `EstadoPedido` - Estado da SAGA (dados persistidos)
 
 **Estados da SAGA**:
-```
-Initial
-   ↓
-ValidandoRestaurante
-   ↓
-ProcessandoPagamento
-   ↓
-AlocandoEntregador
-   ↓
-NotificandoCliente
-   ↓
-[Final] PedidoConfirmado / PedidoCancelado
-```
+
+![Diagrama de estados do SAGA](./images/diagrama-estados-saga.png)
 
 **Eventos Tratados**:
 - `IniciarPedido` → Inicia a SAGA
@@ -151,7 +76,7 @@ NotificandoCliente
 2. **Por que InMemory para POC?**
    - Simplicidade (sem setup de banco)
    - Rápido para testes
-   - ⚠️ **Não usar em produção** (perde estado ao reiniciar)
+   - **Não usar em produção** (perde estado ao reiniciar)
 
 ---
 
@@ -168,17 +93,8 @@ Cada serviço é um **Worker Service** independente que consome mensagens do Azu
 - `CancelarPedidoRestauranteConsumer` → Cancela o pedido (compensação)
 
 **Lógica de Validação**:
-```csharp
-// Casos de rejeição:
-- Restaurante fechado (RestauranteId == "REST_FECHADO")
-- Item indisponível (ProdutoId == "INDISPONIVEL")
-- Restaurante não existe (simulado)
 
-// Casos de sucesso:
-- Calcula ValorTotal (soma dos itens)
-- Calcula TempoPreparo (10min por item)
-- Retorna: PedidoRestauranteValidado
-```
+![Fluxo de validacao](./images/fluxo-validacao.png)
 
 **Compensação**:
 ```csharp
@@ -217,7 +133,7 @@ EstornarPagamento
 Valida TransacaoId
 Processa estorno no gateway de pagamento
 Gera comprovante de estorno
-⚠️ Idempotente: Executar 2x não duplica estorno
+Idempotente: Executar 2x não duplica estorno
 ```
 
 **Idempotência**:
@@ -285,10 +201,10 @@ enum TipoNotificacao
 ```
 
 **Canais de Notificação** (simulados):
-- 📧 Email
-- 📱 SMS
-- 🔔 Push Notification
-- 📲 WhatsApp
+- Email
+- SMS
+- Push Notification
+- WhatsApp
 
 **Tratamento de Falha**:
 ```csharp
@@ -299,7 +215,6 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
     return Resultado.Sucesso(); // ✅ Não cancela o pedido
 }
 ```
-
 ---
 
 ### 4. **SagaPoc.Shared** (Camada Compartilhada)
@@ -307,33 +222,8 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
 **Responsabilidade**: Contratos, modelos e utilitários compartilhados.
 
 **Estrutura**:
-```
-SagaPoc.Shared/
-├── ResultPattern/
-│   ├── Resultado.cs
-│   ├── Erro.cs
-│   └── ResultadoExtensions.cs
-├── Mensagens/
-│   ├── Comandos/
-│   │   ├── IniciarPedido.cs
-│   │   ├── ValidarPedidoRestaurante.cs
-│   │   ├── ProcessarPagamento.cs
-│   │   ├── AlocarEntregador.cs
-│   │   └── NotificarCliente.cs
-│   ├── Respostas/
-│   │   ├── PedidoRestauranteValidado.cs
-│   │   ├── PagamentoProcessado.cs
-│   │   ├── EntregadorAlocado.cs
-│   │   └── NotificacaoEnviada.cs
-│   └── Compensacoes/
-│       ├── CancelarPedidoRestaurante.cs
-│       ├── EstornarPagamento.cs
-│       └── LiberarEntregador.cs
-└── Modelos/
-    ├── ItemPedido.cs
-    ├── StatusPedido.cs
-    └── TipoNotificacao.cs
-```
+
+![Diagrama de estrutura](./images//diagrama-estrutura.png)
 
 ---
 
@@ -383,7 +273,7 @@ public class Resultado<T>
 
 **Por que Result Pattern?**
 
-❌ **Sem Result Pattern** (exceções):
+**Sem Result Pattern** (exceções):
 ```csharp
 try
 {
@@ -397,7 +287,7 @@ catch (PagamentoException ex)
 }
 ```
 
-✅ **Com Result Pattern**:
+**Com Result Pattern**:
 ```csharp
 var resultadoPagamento = await ProcessarPagamento();
 if (resultadoPagamento.EhFalha)
@@ -411,10 +301,10 @@ var resultadoEntregador = await AlocarEntregador();
 ```
 
 **Benefícios**:
-- ✅ Sem try/catch (código mais limpo)
-- ✅ Erros explícitos no tipo de retorno
-- ✅ Composição fluente (`Map`, `Bind`)
-- ✅ Performance (sem overhead de exceções)
+- Sem try/catch (código mais limpo)
+- Erros explícitos no tipo de retorno
+- Composição fluente (`Map`, `Bind`)
+- Performance (sem overhead de exceções)
 
 ---
 
@@ -457,13 +347,13 @@ Desfazer operações já executadas quando ocorre falha.
 
 **Exemplo (Caso 5 - Sem Entregador)**:
 ```
-1. ✅ Restaurante validou → Pedido criado
-2. ✅ Pagamento aprovado → Cobrança feita
-3. ❌ Entregador indisponível → FALHA
+1. Restaurante validou → Pedido criado
+2. Pagamento aprovado → Cobrança feita
+3. Entregador indisponível → FALHA
 
 Compensações (ordem reversa):
-   ⬅️ 2. Estornar pagamento
-   ⬅️ 1. Cancelar pedido no restaurante
+   2. Estornar pagamento
+   1. Cancelar pedido no restaurante
 ```
 
 **Implementação no State Machine**:
@@ -486,9 +376,9 @@ During(AlocandoEntregador,
 ```
 
 **Características das Compensações**:
-- ✅ **Idempotente**: Rodar 2x não causa efeitos colaterais
-- ✅ **Best-effort**: Tenta executar, mas pode falhar
-- ✅ **Logged**: Todas as compensações são logadas
+- **Idempotente**: Rodar 2x não causa efeitos colaterais
+- **Best-effort**: Tenta executar, mas pode falhar
+- **Logged**: Todas as compensações são logadas
 
 ---
 
@@ -547,14 +437,14 @@ public record PedidoRestauranteValidado(
 ```
 
 **Por que Records?**
-- ✅ Imutáveis por padrão
-- ✅ Equality by value (útil para testes)
-- ✅ Sintaxe concisa
-- ✅ Serialização JSON automática
+- Imutáveis por padrão
+- Equality by value (útil para testes)
+- Sintaxe concisa
+- Serialização JSON automática
 
 ---
 
-## 📊 Persistência e Estado
+## Persistência e Estado
 
 ### Estado da SAGA
 
@@ -605,7 +495,7 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 
 ---
 
-## 🛡️ Confiabilidade e Resiliência
+## Confiabilidade e Resiliência
 
 ### 1. **Retry Policy**
 
@@ -673,7 +563,7 @@ cfg.UseCircuitBreaker(cb =>
 
 ---
 
-## 📈 Observabilidade
+## Observabilidade
 
 ### Logging Estruturado (Serilog)
 
@@ -732,7 +622,7 @@ Total: 975ms
 
 ---
 
-## 🎯 Decisões Arquiteturais
+## Decisões Arquiteturais
 
 ### Por que MassTransit (e não outros)?
 
@@ -755,7 +645,7 @@ Total: 975ms
 
 ---
 
-## 🔐 Segurança (Produção)
+## Segurança (Produção)
 
 ### 1. **Managed Identity**
 
@@ -777,11 +667,11 @@ HTTPS/TLS para API, AMQP over TLS para Service Bus.
 
 ---
 
-## 📚 Referências
+## Referências
 
-- **[PLANO-EXECUCAO.md](./PLANO-EXECUCAO.md)** - Plano completo do projeto
-- **[MASSTRANSIT-GUIDE.md](./MASSTRANSIT-GUIDE.md)** - Guia do MassTransit
-- **[CASOS-DE-USO.md](./CASOS-DE-USO.md)** - 12 cenários implementados
+- **[plano-execucao.md](./plano-execucao.md)** - Plano completo do projeto
+- **[guia-masstransit.md](./guia-masstransit.md)** - Guia do MassTransit
+- **[casos-uso.md](./casos-uso.md)** - 12 cenários implementados
 - **[MassTransit Documentation](https://masstransit.io/)** - Documentação oficial
 - **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
 
@@ -789,4 +679,4 @@ HTTPS/TLS para API, AMQP over TLS para Service Bus.
 
 **Documento criado em**: 2026-01-07
 **Versão**: 1.0
-**Status**: ✅ Completo
+**Status**: Completo
