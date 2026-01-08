@@ -613,9 +613,10 @@ grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
 ```
 
 Ou use ferramentas como:
-- **Seq** (recomendado para Serilog)
+- **Seq** (recomendado para Serilog - open source)
 - **ELK Stack** (Elasticsearch + Logstash + Kibana)
-- **Application Insights** (Azure)
+- **Grafana Loki** (open source, integra com Grafana)
+- **Jaeger** (distributed tracing - open source)
 
 ---
 

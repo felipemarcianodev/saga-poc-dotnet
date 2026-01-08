@@ -27,7 +27,7 @@ try
         c.SwaggerDoc("v1", new() {
             Title = "SAGA POC - Sistema de Delivery",
             Version = "v1",
-            Description = "POC de SAGA Pattern com MassTransit e Azure Service Bus para sistema de delivery de comida"
+            Description = "POC de SAGA Pattern com MassTransit e RabbitMQ para sistema de delivery de comida"
         });
 
         // Incluir comentários XML na documentação
@@ -39,29 +39,20 @@ try
         }
     });
 
-    // Configurar MassTransit com Azure Service Bus (somente se connection string válida)
-    var azureServiceBusConnectionString = builder.Configuration["AzureServiceBus:ConnectionString"];
-    var isValidConnectionString = !string.IsNullOrWhiteSpace(azureServiceBusConnectionString)
-                                   && !azureServiceBusConnectionString.Contains("[seu-namespace]")
-                                   && !azureServiceBusConnectionString.Contains("[sua-chave]");
-
-    if (isValidConnectionString)
+    // ==================== MASSTRANSIT COM RABBITMQ ====================
+    builder.Services.AddMassTransit(x =>
     {
-        builder.Services.AddMassTransit(x =>
+        x.UsingRabbitMq((context, cfg) =>
         {
-            x.UsingAzureServiceBus((context, cfg) =>
+            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
             {
-                cfg.Host(azureServiceBusConnectionString);
-
-                // A API não precisa de receive endpoints, apenas publica mensagens
+                h.Username(builder.Configuration["RabbitMQ:Username"]!);
+                h.Password(builder.Configuration["RabbitMQ:Password"]!);
             });
+
+            // A API não precisa de receive endpoints, apenas publica mensagens
         });
-    }
-    else
-    {
-        // Modo demo: MassTransit desabilitado
-        Log.Warning("Azure Service Bus não configurado. API rodando em modo DEMO (sem publicação de mensagens).");
-    }
+    });
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()

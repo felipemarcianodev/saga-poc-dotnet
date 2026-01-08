@@ -69,7 +69,7 @@ public class PedidosController : ControllerBase
             else
             {
                 _logger.LogWarning(
-                    "Pedido {PedidoId} criado em modo DEMO - mensagem NÃO foi publicada (Azure Service Bus não configurado)",
+                    "Pedido {PedidoId} criado em modo DEMO - mensagem NÃO foi publicada (RabbitMQ não configurado)",
                     correlacaoId);
             }
 

@@ -18,7 +18,7 @@ Este documento detalha a arquitetura da POC, decisões técnicas, padrões utili
 **Responsabilidade**: Ponto de entrada HTTP para os clientes.
 
 **Tecnologias**:
-- ASP.NET Core 8.0
+- ASP.NET Core 9.0
 - Swagger/OpenAPI
 - MassTransit (IPublishEndpoint)
 
@@ -33,7 +33,7 @@ GET    /health                   # Health check
 1. Recebe requisição HTTP (POST /api/pedidos)
 2. Valida o payload (DataAnnotations)
 3. Gera um `CorrelationId` único (Guid)
-4. Publica mensagem `IniciarPedido` no Azure Service Bus
+4. Publica mensagem `IniciarPedido` no RabbitMQ
 5. Retorna **202 Accepted** com o `PedidoId`
 
 **Características**:
@@ -49,7 +49,7 @@ GET    /health                   # Health check
 
 **Tecnologias**:
 - MassTransit State Machine
-- Azure Service Bus
+- RabbitMQ
 - In-Memory Saga Repository (POC) - **Para produção: SQL Server ou Redis**
 
 **Componentes**:
@@ -82,7 +82,7 @@ GET    /health                   # Health check
 
 ### 3. **Serviços de Domínio** (Camada de Serviços)
 
-Cada serviço é um **Worker Service** independente que consome mensagens do Azure Service Bus.
+Cada serviço é um **Worker Service** independente que consome mensagens do RabbitMQ.
 
 #### 3.1 **SagaPoc.ServicoRestaurante**
 
@@ -317,7 +317,7 @@ Comunicação síncrona sobre infraestrutura assíncrona.
 ```
 [Orquestrador]
     ↓ Request: ValidarPedidoRestaurante
-    ↓ (via Azure Service Bus)
+    ↓ (via RabbitMQ)
 [Serviço Restaurante]
     ↓ Processa validação
     ↓ Response: PedidoRestauranteValidado
@@ -384,23 +384,27 @@ During(AlocandoEntregador,
 
 ## 🔌 Comunicação e Mensageria
 
-### Azure Service Bus (Transport Layer)
+### RabbitMQ (Transport Layer)
 
 **Configuração**:
 ```csharp
 services.AddMassTransit(x =>
 {
-    x.UsingAzureServiceBus((context, cfg) =>
+    x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
+        {
+            h.Username(configuration["RabbitMQ:Username"]);
+            h.Password(configuration["RabbitMQ:Password"]);
+        });
         cfg.ConfigureEndpoints(context); // Cria filas automaticamente
     });
 });
 ```
 
-**Filas Criadas Automaticamente**:
+**Filas Criadas Automaticamente no RabbitMQ**:
 ```
-saga-poc-dotnet.servicebus.windows.net/
+RabbitMQ (localhost:5672)
 ├── fila-restaurante              (Comandos para Serviço Restaurante)
 ├── fila-pagamento                (Comandos para Serviço Pagamento)
 ├── fila-entregador               (Comandos para Serviço Entregador)
@@ -410,7 +414,7 @@ saga-poc-dotnet.servicebus.windows.net/
 
 **Dead Letter Queue (DLQ)**:
 - Mensagens que falharam após N tentativas vão para DLQ
-- Azure Service Bus gerencia automaticamente
+- RabbitMQ gerencia automaticamente
 
 ---
 
@@ -635,11 +639,11 @@ Total: 975ms
 
 ---
 
-### Por que Azure Service Bus (e não RabbitMQ/Kafka)?
+### Por que RabbitMQ (e não RabbitMQ/Kafka)?
 
 | Transport | Prós | Contras | Quando usar |
 |-----------|------|---------|-------------|
-| **Azure Service Bus** | Gerenciado, Dead Letter Queue, garantia de ordem | Custo | ✅ Cloud Azure, POC rápida |
+| **RabbitMQ** | Gerenciado, Dead Letter Queue, garantia de ordem | Custo | ✅ Cloud Docker, POC rápida |
 | **RabbitMQ** | Open-source, flexível | Gerenciar infraestrutura | On-premise |
 | **Kafka** | Alta vazão, log distribuído | Overkill para SAGA | Event Sourcing, analytics |
 
@@ -647,23 +651,27 @@ Total: 975ms
 
 ## Segurança (Produção)
 
-### 1. **Managed Identity**
+### 1. **Autenticação RabbitMQ**
 
-Eliminar connection strings hardcoded:
+Usar usuários específicos por serviço com permissões limitadas:
 ```csharp
-cfg.Host(new Uri("sb://namespace.servicebus.windows.net"), h =>
+cfg.Host("rabbitmq.production.com", "/", h =>
 {
-    h.TokenCredential = new DefaultAzureCredential();
+    h.Username(configuration["RabbitMQ:Username"]);
+    h.Password(configuration["RabbitMQ:Password"]);
+    // Ou usar certificados client-side TLS
 });
 ```
 
 ### 2. **Encryption at Rest**
 
-Azure Service Bus criptografa mensagens automaticamente.
+Configurar RabbitMQ com persistência criptografada usando plugins.
 
 ### 3. **Encryption in Transit**
 
-HTTPS/TLS para API, AMQP over TLS para Service Bus.
+- HTTPS/TLS para API REST
+- AMQPS (AMQP over TLS) para RabbitMQ
+- Certificados SSL/TLS válidos
 
 ---
 
@@ -673,7 +681,7 @@ HTTPS/TLS para API, AMQP over TLS para Service Bus.
 - **[guia-masstransit.md](./guia-masstransit.md)** - Guia do MassTransit
 - **[casos-uso.md](./casos-uso.md)** - 12 cenários implementados
 - **[MassTransit Documentation](https://masstransit.io/)** - Documentação oficial
-- **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
+- **[SAGA Pattern - Microsoft](https://docs.microsoft.com/Docker/architecture/reference-architectures/saga/saga)**
 
 ---
 

@@ -13,7 +13,7 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Iniciando Orquestrador SAGA");
+    Log.Information("Iniciando Orquestrador SAGA com RabbitMQ");
 
     var builder = Host.CreateApplicationBuilder(args);
 
@@ -22,39 +22,28 @@ try
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
-        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy())
-        .AddAzureServiceBusQueue(
-            builder.Configuration["AzureServiceBus:ConnectionString"]!,
-            queueName: "fila-restaurante",
-            name: "azure-servicebus-restaurante"
-        )
-        .AddAzureServiceBusQueue(
-            builder.Configuration["AzureServiceBus:ConnectionString"]!,
-            queueName: "fila-pagamento",
-            name: "azure-servicebus-pagamento"
-        )
-        .AddAzureServiceBusQueue(
-            builder.Configuration["AzureServiceBus:ConnectionString"]!,
-            queueName: "fila-entregador",
-            name: "azure-servicebus-entregador"
-        );
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // Configurar MassTransit com Azure Service Bus
+    // ==================== MASSTRANSIT COM RABBITMQ ====================
     builder.Services.AddMassTransit(x =>
     {
-        // Configurar SAGA State Machine para orquestração de pedidos
+        // Configurar SAGA State Machine
         x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-            .InMemoryRepository(); // Para POC - usar Redis/SQL em produção
+            .InMemoryRepository(); // Para POC - usar MongoDB/Redis em produção
 
         // Configurar Dead Letter Queue Consumer
         x.AddConsumer<DeadLetterQueueConsumer>();
 
-        x.UsingAzureServiceBus((context, cfg) =>
+        // ==================== RABBITMQ CONFIGURATION ====================
+        x.UsingRabbitMq((context, cfg) =>
         {
-            cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
+            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
+            {
+                h.Username(builder.Configuration["RabbitMQ:Username"]!);
+                h.Password(builder.Configuration["RabbitMQ:Password"]!);
+            });
 
             // ============ RETRY POLICY ============
-            // Configuração de retry com exponential backoff
             cfg.UseMessageRetry(retry =>
             {
                 retry.Exponential(
@@ -72,14 +61,15 @@ try
             // ============ CIRCUIT BREAKER ============
             cfg.UseCircuitBreaker(cb =>
             {
-                // Abrir circuito após 15 falhas em 1 minuto
                 cb.TrackingPeriod = TimeSpan.FromMinutes(1);
                 cb.TripThreshold = 15;
                 cb.ActiveThreshold = 10;
-
-                // Fechar circuito após 5 minutos sem falhas
                 cb.ResetInterval = TimeSpan.FromMinutes(5);
             });
+
+            // ============ PREFETCH COUNT ============
+            // Limita quantas mensagens cada worker consome simultaneamente
+            cfg.PrefetchCount = 16;
 
             // ============ DEAD LETTER QUEUE ============
             cfg.ReceiveEndpoint("fila-dead-letter", e =>

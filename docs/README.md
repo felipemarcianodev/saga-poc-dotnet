@@ -1,11 +1,12 @@
-# POC SAGA Pattern com MassTransit e Azure Service Bus
+# POC SAGA Pattern com MassTransit e RabbitMQ
 
-![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)
-![C#](https://img.shields.io/badge/C%23-12-239120?logo=csharp)
-![MassTransit](https://img.shields.io/badge/MassTransit-8.1.3-orange)
-![Azure Service Bus](https://img.shields.io/badge/Azure-Service%20Bus-0078D4?logo=microsoftazure)
+![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)
+![C#](https://img.shields.io/badge/C%23-13-239120?logo=csharp)
+![MassTransit](https://img.shields.io/badge/MassTransit-9.0-orange)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 
-**Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **MassTransit** e **Azure Service Bus** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
+**Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **MassTransit** e **RabbitMQ** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
 
 ---
 
@@ -19,8 +20,9 @@ Demonstrar como implementar:
 - **SAGA Orquestrado** com MassTransit State Machine
 - **Compensações automáticas** em caso de falha
 - **Result Pattern** para tratamento de erros sem exceções
-- **Mensageria assíncrona** com Azure Service Bus
+- **Mensageria assíncrona** com RabbitMQ
 - **Idempotência** nas operações de compensação
+- **Stack 100% Open Source** - Sem dependências de cloud
 
 ---
 
@@ -46,8 +48,8 @@ Quando ocorre uma falha em qualquer etapa, as compensações são executadas **e
 
 ### Pré-requisitos
 
-- **.NET 8 SDK** ou superior
-- **Azure Service Bus** (namespace configurado)
+- **.NET 9 SDK** ou superior ([Download](https://dotnet.microsoft.com/download/dotnet/9.0))
+- **Docker Desktop** ([Download](https://www.docker.com/products/docker-desktop))
 - **Git**
 
 ### 1. Clonar o Repositório
@@ -57,43 +59,36 @@ git clone https://github.com/seu-usuario/saga-poc-dotnet.git
 cd saga-poc-dotnet
 ```
 
-### 2. Configurar Azure Service Bus
+### 2. Subir o RabbitMQ com Docker
 
-#### Criar namespace no Azure:
+Na raiz do projeto, execute:
 
 ```bash
-# Login
-az login
-
-# Criar Resource Group
-az group create --name rg-saga-poc --location brazilsouth
-
-# Criar Service Bus Namespace
-az servicebus namespace create \
-  --name sb-saga-poc-dotnet \
-  --resource-group rg-saga-poc \
-  --location brazilsouth \
-  --sku Standard
-
-# Obter Connection String
-az servicebus namespace authorization-rule keys list \
-  --resource-group rg-saga-poc \
-  --namespace-name sb-saga-poc-dotnet \
-  --name RootManageSharedAccessKey \
-  --query primaryConnectionString --output tsv
+docker-compose up -d
 ```
 
-### 3. Configurar appsettings.json
+Isso irá:
+- Baixar a imagem do **RabbitMQ 3.13** com Management UI
+- Iniciar o RabbitMQ na porta **5672** (AMQP)
+- Disponibilizar a interface web na porta **15672**
 
-Em **cada projeto** de serviço (`SagaPoc.Api`, `SagaPoc.Orquestrador`, etc), adicione:
+### 3. Acessar o RabbitMQ Management UI
 
-```json
-{
-  "AzureServiceBus": {
-    "ConnectionString": "Endpoint=sb://sb-saga-poc-dotnet.servicebus.windows.net/;SharedAccessKeyName=..."
-  }
-}
+Abra seu navegador e acesse:
+
 ```
+http://localhost:15672
+```
+
+**Credenciais:**
+- **Usuário**: `saga`
+- **Senha**: `saga123`
+
+Você verá a interface de gerenciamento onde poderá monitorar:
+- **Queues** (filas de mensagens)
+- **Exchanges** (roteadores de mensagens)
+- **Connections** (conexões ativas)
+- **Channels** (canais de comunicação)
 
 ### 4. Executar os Serviços
 
@@ -125,16 +120,42 @@ cd src/SagaPoc.ServicoNotificacao
 dotnet run
 ```
 
-#### Opção 2: Docker Compose (TODO)
-
-```bash
-docker-compose up
-```
-
 ### 5. Acessar a API
 
-- **Swagger UI**: http://localhost:5000/swagger
+- **Swagger UI**: http://localhost:5000 ou http://localhost:5000/swagger
 - **Health Check**: http://localhost:5000/health
+
+### 6. Monitorar as Filas no RabbitMQ
+
+Acesse o **RabbitMQ Management UI** em http://localhost:15672 e clique na aba **Queues**.
+
+Você verá as seguintes filas sendo criadas automaticamente pelo MassTransit:
+
+- **`fila-restaurante`** - Mensagens para validação de pedidos no restaurante
+- **`fila-pagamento`** - Mensagens para processamento de pagamentos
+- **`fila-entregador`** - Mensagens para alocação de entregadores
+- **`fila-notificacao`** - Mensagens para notificações aos clientes
+- **`fila-dead-letter`** - Mensagens que falharam após todas as tentativas de retry
+
+Ao fazer requisições à API, você poderá ver em tempo real:
+- **Ready**: Mensagens aguardando processamento
+- **Unacked**: Mensagens sendo processadas no momento
+- **Total**: Total de mensagens que passaram pela fila
+
+### 7. Parar os Serviços
+
+#### Parar os serviços .NET
+Pressione `Ctrl+C` em cada terminal.
+
+#### Parar o RabbitMQ
+```bash
+docker-compose down
+```
+
+#### Limpar volumes do Docker (opcional)
+```bash
+docker-compose down -v
+```
 
 ---
 
@@ -213,9 +234,15 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ### Documentos Principais
 
 - **[casos-uso.md](docs/casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
-- **[plano-execucao.md](docs/plano-execucao.md)** - Plano de execução em 7 fases
+- **[plano-execucao.md](docs/plano-execucao.md)** - Plano de execução em 15 fases
 - **[arquitetura.md](docs/arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
 - **[guia-masstransit.md](docs/guia-masstransit.md)** - Guia de uso do MassTransit
+
+### Documentação Operacional (Fase 14)
+
+- **[diagramas-compensacao.md](docs/diagramas-compensacao.md)** - Diagramas detalhados dos fluxos de compensação e estados da SAGA
+- **[runbook-troubleshooting.md](docs/runbook-troubleshooting.md)** - Guia de diagnóstico e resolução de problemas comuns
+- **[boas-praticas.md](docs/boas-praticas.md)** - Guia de boas práticas para implementação e operação de SAGAs
 
 ### Scripts de Teste
 
@@ -235,11 +262,13 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 - State Machine centralizada (MassTransit)
 - Controle de fluxo e transições de estado
 - Persistência do estado (InMemory para POC)
+- Veja **[Diagramas de Compensação](docs/diagramas-compensacao.md)** para detalhes visuais
 
 ### 2. Compensações Automáticas
 - Rollback em ordem reversa
 - Idempotência (executar 2x não causa problema)
 - Tratamento de erros estruturado
+- Consulte **[Boas Práticas](docs/boas-praticas.md)** para implementação correta
 
 ### 3. Result Pattern
 - Encapsulamento de sucesso/falha
@@ -250,6 +279,12 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 - Request/Response via MassTransit
 - Publish/Subscribe para eventos
 - Dead Letter Queue automática
+
+### Aprenda Mais
+
+Para entender como implementar corretamente cada conceito, consulte:
+- **[Boas Práticas](docs/boas-praticas.md)** - Os 10 mandamentos da SAGA, com exemplos de código
+- **[Diagramas de Compensação](docs/diagramas-compensacao.md)** - Visualização completa dos fluxos
 
 ---
 
@@ -273,8 +308,20 @@ grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
 ### Ferramentas Recomendadas
 
 - **Seq** - Visualizador de logs estruturados (Serilog)
-- **Application Insights** - Observabilidade no Azure
 - **Jaeger** - Distributed tracing
+
+### Troubleshooting
+
+Para diagnosticar e resolver problemas comuns, consulte o **[Runbook de Troubleshooting](docs/runbook-troubleshooting.md)** que cobre:
+- SAGA travada
+- Mensagens em Dead Letter Queue
+- Compensação falhou
+- Alta latência nas SAGAs
+- Circuit breaker aberto
+- Perda de mensagens
+- Duplicação de pedidos
+
+E muitos outros cenários com diagnóstico passo a passo e ações corretivas.
 
 ---
 
@@ -336,9 +383,8 @@ Criado como material educacional sobre padrões de microsserviços.
 ## Agradecimentos
 
 - [MassTransit](https://masstransit.io/) - Excelente framework de mensageria
-- [Microsoft Azure](https://azure.microsoft.com/) - Azure Service Bus
+- [RabbitMQ](https://www.rabbitmq.com/) - Message broker open source confiável e battle-tested
 - [Chris Richardson](https://microservices.io/patterns/data/saga.html) - Padrão SAGA
+- [Docker](https://www.docker.com/) - Containerização e simplificação de deploy
 
----
-
-**Última atualização**: 2026-01-07
+**Última atualização**: 2026-01-07 - Fase 14 concluída (Documentação Operacional)

@@ -12,7 +12,7 @@ Este documento explica como o MassTransit funciona nesta POC, desde a configura�
 
 | Recurso | Descrição |
 |---------|-----------|
-| **Abstração de Transport** | Suporta RabbitMQ, Azure Service Bus, Kafka, Amazon SQS |
+| **Abstração de Transport** | Suporta RabbitMQ, Kafka, Amazon SQS, Azure Service Bus |
 | **State Machine (SAGA)** | Orquestração de transações distribuídas |
 | **Request/Response** | Comunicação síncrona sobre infraestrutura assíncrona |
 | **Retry/Circuit Breaker** | Resiliência embutida |
@@ -27,14 +27,14 @@ Este documento explica como o MassTransit funciona nesta POC, desde a configura�
 
 ```xml
 <!-- Todos os projetos -->
-<PackageReference Include="MassTransit" Version="8.1.3" />
-<PackageReference Include="MassTransit.Azure.ServiceBus.Core" Version="8.1.3" />
+<PackageReference Include="MassTransit" Version="9.0.0" />
+<PackageReference Include="MassTransit.RabbitMQ" Version="9.0.0" />
 
-<!-- Apenas Orquestrador (State Machine) -->
-<PackageReference Include="MassTransit.StateMachine" Version="8.1.3" />
+<!-- Apenas Orquestrador (State Machine + Health Check) -->
+<PackageReference Include="AspNetCore.HealthChecks.Rabbitmq" Version="9.0.0" />
 
-<!-- Apenas API (Request Client) -->
-<PackageReference Include="MassTransit.AspNetCore" Version="8.1.3" />
+<!-- Opcional: Serilog para logs estruturados -->
+<PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
 ```
 
 ### 2. Configuração Básica (Serviço)
@@ -57,16 +57,24 @@ var builder = Host.CreateDefaultBuilder(args)
             x.AddConsumer<ValidarPedidoRestauranteConsumer>();
             x.AddConsumer<CancelarPedidoRestauranteConsumer>();
 
-            // Configurar Azure Service Bus
-            x.UsingAzureServiceBus((context, cfg) =>
+            // Configurar RabbitMQ
+            x.UsingRabbitMq((context, cfg) =>
             {
-                cfg.Host(context.Configuration["AzureServiceBus:ConnectionString"]);
+                cfg.Host(context.Configuration["RabbitMQ:Host"], "/", h =>
+                {
+                    h.Username(context.Configuration["RabbitMQ:Username"]);
+                    h.Password(context.Configuration["RabbitMQ:Password"]);
+                });
 
                 // Configurar endpoint (fila) para este serviço
                 cfg.ReceiveEndpoint("fila-restaurante", e =>
                 {
                     e.ConfigureConsumer<ValidarPedidoRestauranteConsumer>(context);
                     e.ConfigureConsumer<CancelarPedidoRestauranteConsumer>(context);
+
+                    // Configurações de performance
+                    e.PrefetchCount = 16;
+                    e.UseConcurrencyLimit(10);
                 });
             });
         });
@@ -82,11 +90,19 @@ services.AddMassTransit(x =>
 {
     // Registrar State Machine e estado da SAGA
     x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-        .InMemoryRepository(); // ⚠️ POC apenas - usar SQL/Redis em produção
+        .InMemoryRepository(); // ⚠️ POC apenas - usar MongoDB/Redis em produção
 
-    x.UsingAzureServiceBus((context, cfg) =>
+    x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
+        {
+            h.Username(configuration["RabbitMQ:Username"]);
+            h.Password(configuration["RabbitMQ:Password"]);
+        });
+
+        // Retry e Circuit Breaker
+        cfg.UseMessageRetry(r => r.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2)));
+        cfg.UseCircuitBreaker(cb => { cb.TrackingPeriod = TimeSpan.FromMinutes(1); cb.TripThreshold = 15; });
 
         // ConfigureEndpoints cria automaticamente a fila da SAGA
         cfg.ConfigureEndpoints(context);
@@ -101,9 +117,13 @@ services.AddMassTransit(x =>
 ```csharp
 services.AddMassTransit(x =>
 {
-    x.UsingAzureServiceBus((context, cfg) =>
+    x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
+        {
+            h.Username(configuration["RabbitMQ:Username"]);
+            h.Password(configuration["RabbitMQ:Password"]);
+        });
     });
 });
 
@@ -578,9 +598,9 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 ### 1. Retry Policy
 
 ```csharp
-x.UsingAzureServiceBus((context, cfg) =>
+x.UsingRabbitMq((context, cfg) =>
 {
-    cfg.Host(connectionString);
+    cfg.Host("localhost");
 
     cfg.UseMessageRetry(r =>
     {
@@ -636,9 +656,9 @@ builder.Logging.AddFilter("MassTransit", LogLevel.Information);
 
 ```csharp
 // Instalar pacotes:
-// MassTransit.Extensions.DependencyInjection
 // OpenTelemetry.Instrumentation.AspNetCore
-// Azure.Monitor.OpenTelemetry.Exporter
+// OpenTelemetry.Exporter.Jaeger (distributed tracing)
+// OpenTelemetry.Exporter.Prometheus.AspNetCore (métricas)
 
 services.AddOpenTelemetry()
     .WithTracing(builder =>
@@ -646,11 +666,14 @@ services.AddOpenTelemetry()
         builder
             .AddAspNetCoreInstrumentation()
             .AddSource("MassTransit")
-            .AddAzureMonitorTraceExporter(options =>
+            .AddJaegerExporter(options =>
             {
-                options.ConnectionString = appInsightsConnectionString;
+                options.AgentHost = "localhost";
+                options.AgentPort = 6831;
             });
     });
+
+// Ou usar Grafana Tempo / Zipkin como alternativa ao Jaeger
 ```
 
 ---
@@ -725,18 +748,21 @@ public async Task DeveConfirmarPedido_QuandoTodasEtapasSucesso()
 ### Problema: Mensagens não são consumidas
 
 **Causas possíveis**:
-1. Fila não foi criada (verificar Azure Portal)
-2. Connection string inválida
+1. RabbitMQ não está rodando
+2. Credenciais incorretas (username/password)
 3. Consumer não registrado
 4. Endpoint name incorreto
 
 **Solução**:
 ```bash
-# Verificar filas no Azure:
-az servicebus queue list --namespace-name sb-saga-poc --resource-group rg-saga-poc
+# Verificar se RabbitMQ está rodando:
+docker ps | grep rabbitmq
+
+# Acessar Management UI:
+# http://localhost:15672 (saga/saga123)
 
 # Verificar logs:
-[MassTransit] Receive endpoint started: sb://namespace/fila-restaurante
+[MassTransit] Receive endpoint started: rabbitmq://localhost/fila-restaurante
 ```
 
 ### Problema: SAGA não recebe resposta
@@ -762,12 +788,15 @@ await context.RespondAsync(new PedidoRestauranteValidado(
 - Retry policy mal configurada
 
 **Solução**:
-```csharp
-// Ver mensagens na DLQ:
-az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$DeadLetterQueue
+```bash
+# Ver mensagens na DLQ via Management UI:
+# http://localhost:15672/#/queues/%2F/fila-dead-letter
 
-// Reprocessar mensagens da DLQ (manualmente):
-// No Azure Portal: Service Bus Explorer → Dead-letter → Resubmit
+# Ou via comando:
+docker exec saga-rabbitmq rabbitmqctl list_queues name messages
+
+# Reprocessar mensagens da DLQ:
+# No RabbitMQ Management UI: Queues → fila-dead-letter → Get Messages → Requeue
 ```
 
 ---
@@ -816,7 +845,8 @@ az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$D
 
 - **[Documentação Oficial](https://masstransit.io/)** - MassTransit Docs
 - **[State Machine](https://masstransit.io/documentation/patterns/saga/state-machine)** - SAGA Pattern
-- **[Azure Service Bus](https://masstransit.io/documentation/transports/azure-service-bus)** - Transport
+- **[RabbitMQ Transport](https://masstransit.io/documentation/transports/rabbitmq)** - RabbitMQ com MassTransit
+- **[RabbitMQ Docs](https://www.rabbitmq.com/documentation.html)** - Documentação RabbitMQ
 - **[Testing](https://masstransit.io/documentation/concepts/testing)** - Test Harness
 - **[CASOS-DE-USO.md](./CASOS-DE-USO.md)** - Exemplos práticos
 - **[ARQUITETURA.md](./ARQUITETURA.md)** - Visão geral da arquitetura
@@ -824,5 +854,6 @@ az servicebus queue show --namespace-name sb-saga-poc --name fila-restaurante/$D
 ---
 
 **Documento criado em**: 2026-01-07
-**Versão**: 1.0
+**Última atualização**: 2026-01-07 - Migração para RabbitMQ
+**Versão**: 2.0
 **Status**: ✅ Completo

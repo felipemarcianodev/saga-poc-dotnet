@@ -212,7 +212,6 @@ public enum StatusPedido
 ```xml
 <!-- Todos os projetos -->
 <PackageReference Include="MassTransit" Version="8.1.3" />
-<PackageReference Include="MassTransit.Azure.ServiceBus.Core" Version="8.1.3" />
 
 <!-- Orquestrador -->
 <PackageReference Include="MassTransit.StateMachine" Version="8.1.3" />
@@ -484,9 +483,9 @@ services.AddMassTransit(x =>
     x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
         .InMemoryRepository(); // Para POC - usar Redis/SQL em produção
 
-    x.UsingAzureServiceBus((context, cfg) =>
+    x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+        cfg.Host(configuration["RabbitMQ:Host"]);
         cfg.ConfigureEndpoints(context);
     });
 });
@@ -752,7 +751,7 @@ public record CriarPedidoRequest(
 #### 3.7.1 Objetivos
 - README.md detalhado em português
 - Documentação de arquitetura
-- Guia de configuração do Azure Service Bus
+- Guia de configuração do RabbitMQ
 - Diagramas de fluxo
 
 #### 3.7.2 Entregas
@@ -761,7 +760,7 @@ public record CriarPedidoRequest(
 - Visão geral do projeto
 - Tecnologias utilizadas
 - Como executar localmente
-- Configuração do Azure Service Bus
+- Configuração do RabbitMQ
 - Exemplos de uso
 - Casos de uso implementados
 
@@ -793,16 +792,16 @@ public record CriarPedidoRequest(
 ## 4. Tecnologias e Ferramentas
 
 ### 4.1 Stack Técnico
-- **.NET**: 8.0 LTS
-- **Linguagem**: C# 12
+- **.NET**: 9.0 LTS
+- **Linguagem**: C# 13
 - **Mensageria**: MassTransit 8.1.3
-- **Transport**: Azure Service Bus
+- **Transport**: RabbitMQ
 - **Logging**: Serilog
 - **API**: ASP.NET Core Web API
 - **Documentação**: Swagger/OpenAPI
 
-### 4.2 Serviços Azure (Necessários)
-- **Azure Service Bus**: Namespace Standard ou Premium
+### 4.2 Serviços Rabbit (Necessários)
+- **RabbitMQ**: Namespace Standard ou Premium
 - **Filas**:
   - `fila-restaurante`
   - `fila-pagamento`
@@ -816,44 +815,18 @@ public record CriarPedidoRequest(
 
 ### 5.1 Pré-requisitos
 ```bash
-# .NET 8 SDK
-dotnet --version  # >= 8.0
-
-# Azure CLI (para criar Service Bus)
-az --version
+# .NET 9 SDK
+dotnet --version  # >= 9.0
 
 # Git
 git --version
 ```
 
-### 5.2 Criar Azure Service Bus
-```bash
-# Login
-az login
-
-# Criar Resource Group
-az group create --name rg-saga-poc --location brazilsouth
-
-# Criar Service Bus Namespace
-az servicebus namespace create \
-  --name sb-saga-poc-dotnet \
-  --resource-group rg-saga-poc \
-  --location brazilsouth \
-  --sku Standard
-
-# Obter Connection String
-az servicebus namespace authorization-rule keys list \
-  --resource-group rg-saga-poc \
-  --namespace-name sb-saga-poc-dotnet \
-  --name RootManageSharedAccessKey \
-  --query primaryConnectionString --output tsv
-```
-
-### 5.3 Configurar appsettings.json
+### 5.2 Configurar appsettings.json
 ```json
 {
-  "AzureServiceBus": {
-    "ConnectionString": "Endpoint=sb://sb-saga-poc-dotnet.servicebus.windows.net/;SharedAccessKeyName=..."
+  "RabbitMQ": {
+    "ConnectionString": "Endpoint=rabbitmq://localhost/;SharedAccessKeyName=..."
   }
 }
 ```
@@ -937,7 +910,7 @@ saga-poc-dotnet/
 ### 7.3 Documentação
 - README.md completo em português
 - Arquitetura documentada
-- Guia de configuração do Azure SB
+- Guia de configuração do RabbitMQ
 - Comentários XML em APIs públicas
 
 ### 7.4 Repositório
@@ -1041,26 +1014,50 @@ services.AddMassTransit(x =>
 
 **Problema**: Debug de SAGA distribuída é um pesadelo sem tracing.
 
-**Solução**: Adicionar OpenTelemetry + Application Insights/Jaeger
+**Solução**: Adicionar OpenTelemetry + Jaeger (Open Source)
 
 ```csharp
+// Instalar: dotnet add package OpenTelemetry.Exporter.Jaeger
+// Instalar: dotnet add package OpenTelemetry.Instrumentation.AspNetCore
+// Instalar: dotnet add package OpenTelemetry.Extensions.Hosting
+
 services.AddOpenTelemetry()
     .WithTracing(builder =>
     {
         builder
             .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
             .AddSource("MassTransit")
-            .AddAzureMonitorTraceExporter(options =>
+            .AddJaegerExporter(options =>
             {
-                options.ConnectionString = appInsightsConnectionString;
-            });
+                options.AgentHost = "localhost";
+                options.AgentPort = 6831;
+                options.ExportProcessorType = ExportProcessorType.Batch;
+            })
+            // Alternativa: Console Exporter para desenvolvimento
+            .AddConsoleExporter();
     })
     .WithMetrics(builder =>
     {
         builder
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
             .AddMeter("MassTransit")
-            .AddAzureMonitorMetricExporter();
+            .AddPrometheusExporter(); // Para Grafana
     });
+```
+
+**Docker Compose para Jaeger**:
+
+```yaml
+# Adicionar ao docker-compose.yml
+jaeger:
+  image: jaegertracing/all-in-one:latest
+  ports:
+    - "16686:16686"  # UI
+    - "6831:6831/udp"  # Agent
+  environment:
+    - COLLECTOR_OTLP_ENABLED=true
 ```
 
 **O que rastrear**:
@@ -1068,6 +1065,7 @@ services.AddOpenTelemetry()
 - Taxa de sucesso/falha por tipo de erro
 - Compensações executadas
 - Dead letter queue (DLQ) metrics
+- Distributed tracing entre serviços
 
 **Estimativa**: 4-6 horas (setup + dashboards básicos)
 
@@ -1080,7 +1078,7 @@ services.AddOpenTelemetry()
 **Solução**: Configurar retry policy adequada
 
 ```csharp
-x.UsingAzureServiceBus((context, cfg) =>
+x.UsingRabbitMq((context, cfg) =>
 {
     cfg.Host(connectionString);
 
@@ -1166,7 +1164,7 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
    - Status esperado vs atual
 
 2. Verificar Dead Letter Queue:
-   - Acessar Azure Service Bus > fila > Dead Letter
+   - Acessar RabbitMQ > fila > Dead Letter
    - Identificar mensagens com erro
 
 3. Ações corretivas:
@@ -1215,7 +1213,7 @@ NBomberRunner.RegisterScenarios(scenario).Run();
 
 **Cenários de Caos**:
 1. Matar orquestrador no meio da SAGA (recovery funciona?)
-2. Azure Service Bus lento (timeout handling OK?)
+2. RabbitMQ lento (timeout handling OK?)
 3. Serviço de Pagamento retornando 500 (compensação executa?)
 
 **Estimativa**: 8-16 horas (setup + execução + análise)
@@ -1226,22 +1224,27 @@ NBomberRunner.RegisterScenarios(scenario).Run();
 
 **Problema**: Mensagens não autenticadas = vulnerabilidade.
 
-**Solução**: Managed Identity + Message Encryption
+**Solução**: Autenticação RabbitMQ + Message Encryption (SSL/TLS)
 
 ```csharp
-x.UsingAzureServiceBus((context, cfg) =>
+x.UsingRabbitMq((context, cfg) =>
 {
-    // Usar Managed Identity (sem connection string)
-    cfg.Host(new Uri("sb://sb-saga-poc.servicebus.windows.net"), h =>
+    cfg.Host("localhost", 5672, "/", h =>
     {
-        h.ConfigureOptions(options =>
+        h.Username("saga");
+        h.Password("saga123");
+
+        // Opcional: Usar SSL/TLS para produção
+        h.UseSsl(s =>
         {
-            options.TransportType = ServiceBusTransportType.AmqpWebSockets;
-            options.TokenCredential = new DefaultAzureCredential();
+            s.Protocol = System.Security.Authentication.SslProtocols.Tls12;
+            s.ServerName = "rabbitmq.empresa.com";
+            s.CertificatePath = "/path/to/certificate.pfx";
+            s.CertificatePassphrase = "certificatePassword";
         });
     });
 
-    // Encryption (opcional)
+    // Encryption (opcional) - criptografia em nível de aplicação
     cfg.UseEncryption(new AesEncryptionConfiguration
     {
         Key = encryptionKey
@@ -1257,7 +1260,7 @@ x.UsingAzureServiceBus((context, cfg) =>
 
 - [MassTransit Documentation](https://masstransit.io/)
 - [MassTransit Sagas](https://masstransit.io/documentation/patterns/saga)
-- [Azure Service Bus](https://docs.microsoft.com/azure/service-bus-messaging/)
+- [RabbitMQ](https://docs.microsoft.com/azure/service-bus-messaging/)
 - [Result Pattern - Vladimir Khorikov](https://enterprisecraftsmanship.com/posts/functional-c-handling-failures-input-errors/)
 - [SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)
 - [Outbox Pattern](https://microservices.io/patterns/data/transactional-outbox.html)
@@ -1690,9 +1693,9 @@ services.AddMassTransit(x =>
     // Configurar consumers
     x.AddConsumer<ValidarPedidoRestauranteConsumer>();
 
-    x.UsingAzureServiceBus((context, cfg) =>
+    x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(configuration["AzureServiceBus:ConnectionString"]);
+        cfg.Host(configuration["RabbitMQ:Host"]);
 
         // ============ RETRY POLICY ============
         cfg.UseMessageRetry(retry =>
@@ -1864,6 +1867,9 @@ cfg.ReceiveEndpoint("fila-dead-letter", e =>
 ##### 4. **Health Checks para Resiliência**
 
 ```csharp
+// Instalar: dotnet add package AspNetCore.HealthChecks.RabbitMQ
+// Instalar: dotnet add package AspNetCore.HealthChecks.UI
+
 // Program.cs
 builder.Services.AddHealthChecks()
     .AddCheck("masstransit-bus", () =>
@@ -1874,16 +1880,14 @@ builder.Services.AddHealthChecks()
             ? HealthCheckResult.Healthy("MassTransit bus está ativo")
             : HealthCheckResult.Unhealthy("MassTransit bus não está respondendo");
     })
-    .AddAzureServiceBusQueue(
-        configuration["AzureServiceBus:ConnectionString"]!,
-        queueName: "fila-restaurante",
-        name: "azure-servicebus-restaurante"
+    .AddRabbitMQ(
+        rabbitConnectionString: "amqp://saga:saga123@localhost:5672",
+        name: "rabbitmq-connection",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: new[] { "rabbitmq", "messaging" }
     )
-    .AddAzureServiceBusQueue(
-        configuration["AzureServiceBus:ConnectionString"]!,
-        queueName: "fila-pagamento",
-        name: "azure-servicebus-pagamento"
-    );
+    .AddCheck<MongoDbHealthCheck>("mongodb", tags: new[] { "database" })
+    .AddCheck<CustomSagaHealthCheck>("saga-state", tags: new[] { "saga" });
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
@@ -2927,25 +2931,6 @@ WHERE CorrelationId = '{id}'
 ORDER BY DataInicio DESC;
 ```
 
-#### 2. Verificar Filas do Azure Service Bus
-```bash
-# Azure CLI
-az servicebus queue show \
-  --resource-group rg-saga-poc \
-  --namespace-name sb-saga-poc-dotnet \
-  --name fila-restaurante \
-  --query "messageCount"
-```
-
-#### 3. Verificar Dead Letter Queue
-```bash
-az servicebus queue show \
-  --resource-group rg-saga-poc \
-  --namespace-name sb-saga-poc-dotnet \
-  --name fila-pagamento \
-  --query "deadLetterMessageCount"
-```
-
 ### Ações Corretivas
 
 #### Caso 1: Timeout em Serviço
@@ -3027,7 +3012,7 @@ POST /api/pedidos/{id}/compensar
 ### **FASE 15: Migração para RabbitMQ (Open Source)**
 
 #### 3.15.1 Objetivos
-- Substituir Azure Service Bus por RabbitMQ
+- Substituir RabbitMQ por RabbitMQ
 - Configurar RabbitMQ localmente (via Docker ou instalação)
 - Atualizar todos os serviços para usar RabbitMQ
 - Manter todas as políticas de resiliência (Retry, Circuit Breaker, DLQ)
@@ -3074,17 +3059,9 @@ docker-compose up -d
 # http://localhost:15672 (saga/saga123)
 ```
 
-##### 2. **Pacotes NuGet - Remover Azure e Adicionar RabbitMQ**
+##### 2. **Pacotes NuGet - Adicionar RabbitMQ**
 
 ```bash
-# Remover Azure Service Bus de TODOS os projetos
-dotnet remove src/SagaPoc.Orquestrador package MassTransit.Azure.ServiceBus.Core
-dotnet remove src/SagaPoc.Api package MassTransit.Azure.ServiceBus.Core
-dotnet remove src/SagaPoc.ServicoRestaurante package MassTransit.Azure.ServiceBus.Core
-dotnet remove src/SagaPoc.ServicoPagamento package MassTransit.Azure.ServiceBus.Core
-dotnet remove src/SagaPoc.ServicoEntregador package MassTransit.Azure.ServiceBus.Core
-dotnet remove src/SagaPoc.ServicoNotificacao package MassTransit.Azure.ServiceBus.Core
-
 # Adicionar RabbitMQ em TODOS os projetos
 dotnet add src/SagaPoc.Orquestrador package MassTransit.RabbitMQ
 dotnet add src/SagaPoc.Api package MassTransit.RabbitMQ
@@ -3092,9 +3069,6 @@ dotnet add src/SagaPoc.ServicoRestaurante package MassTransit.RabbitMQ
 dotnet add src/SagaPoc.ServicoPagamento package MassTransit.RabbitMQ
 dotnet add src/SagaPoc.ServicoEntregador package MassTransit.RabbitMQ
 dotnet add src/SagaPoc.ServicoNotificacao package MassTransit.RabbitMQ
-
-# Remover health check do Azure Service Bus
-dotnet remove src/SagaPoc.Orquestrador package AspNetCore.HealthChecks.AzureServiceBus
 
 # Adicionar health check do RabbitMQ
 dotnet add src/SagaPoc.Orquestrador package AspNetCore.HealthChecks.Rabbitmq
@@ -3375,7 +3349,7 @@ curl -X POST http://localhost:5000/api/pedidos \
 ```
 
 #### 3.15.3 Critérios de Aceitação
-- [ ] Pacotes Azure Service Bus removidos de todos os projetos
+- [ ] Pacotes RabbitMQ removidos de todos os projetos
 - [ ] Pacotes RabbitMQ instalados em todos os projetos
 - [ ] RabbitMQ rodando via Docker
 - [ ] Todos os serviços conectam ao RabbitMQ com sucesso
@@ -3385,15 +3359,6 @@ curl -X POST http://localhost:5000/api/pedidos \
 - [ ] Políticas de resiliência mantidas (Retry, Circuit Breaker, DLQ)
 - [ ] Mensagens fluindo entre serviços
 - [ ] Projeto roda 100% localmente sem dependências de cloud
-
-#### 3.15.4 Vantagens do RabbitMQ
-- ✅ **Zero custos** - Sem necessidade de conta Azure
-- ✅ **100% local** - Roda completamente offline
-- ✅ **Open source** - Qualquer pessoa pode usar
-- ✅ **Battle-tested** - Usado em produção por milhares de empresas
-- ✅ **UI de gerenciamento** - Interface web para debug
-- ✅ **Facilita demos** - `docker-compose up` e está pronto
-- ✅ **MassTransit nativo** - Excelente integração
 
 ---
 

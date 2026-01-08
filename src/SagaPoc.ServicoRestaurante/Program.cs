@@ -28,23 +28,37 @@ try
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // Configurar MassTransit com Azure Service Bus
+    // ==================== MASSTRANSIT COM RABBITMQ ====================
     builder.Services.AddMassTransit(x =>
     {
         // Registrar consumers
         x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>();
         x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>();
 
-        x.UsingAzureServiceBus((context, cfg) =>
+        x.UsingRabbitMq((context, cfg) =>
         {
-            cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
+            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
+            {
+                h.Username(builder.Configuration["RabbitMQ:Username"]!);
+                h.Password(builder.Configuration["RabbitMQ:Password"]!);
+            });
 
-            // Configurar endpoint para este serviço
+            // Retry policy
+            cfg.UseMessageRetry(retry =>
+            {
+                retry.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
+                retry.Handle<TimeoutException>();
+            });
+
+            // ============ FILA ESPECÍFICA DO RESTAURANTE ============
             cfg.ReceiveEndpoint("fila-restaurante", e =>
             {
-                // Configurar consumers neste endpoint
                 e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>(context);
                 e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>(context);
+
+                // Configurações de performance
+                e.PrefetchCount = 16;
+                e.UseConcurrencyLimit(10); // Máximo 10 mensagens processadas simultaneamente
             });
         });
     });

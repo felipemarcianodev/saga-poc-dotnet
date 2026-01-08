@@ -113,7 +113,7 @@ appsettings.*.json
 .env
 .env.local
 
-# Azure connection strings (IMPORTANTE: nunca commitar)
+# Connection strings (IMPORTANTE: nunca commitar)
 **/appsettings.Development.json
 **/appsettings.Local.json
 
@@ -137,3 +137,6 @@ appsettings.*.json
 !/docs/casos-uso.md
 !/docs/images/
 !/docs/scripts/
+!/docs/runbook-troubleshooting.md
+!/docs/boas-praticas.md
+!/docs/diagramas-compensacao.md

@@ -28,23 +28,37 @@ try
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // Configurar MassTransit com Azure Service Bus
+    // ==================== MASSTRANSIT COM RABBITMQ ====================
     builder.Services.AddMassTransit(x =>
     {
         // Registrar consumers
         x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>();
         x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>();
 
-        x.UsingAzureServiceBus((context, cfg) =>
+        x.UsingRabbitMq((context, cfg) =>
         {
-            cfg.Host(builder.Configuration["AzureServiceBus:ConnectionString"]);
+            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
+            {
+                h.Username(builder.Configuration["RabbitMQ:Username"]!);
+                h.Password(builder.Configuration["RabbitMQ:Password"]!);
+            });
 
-            // Configurar endpoint para este serviço
+            // Retry policy
+            cfg.UseMessageRetry(retry =>
+            {
+                retry.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
+                retry.Handle<TimeoutException>();
+            });
+
+            // ============ FILA ESPECÍFICA DO PAGAMENTO ============
             cfg.ReceiveEndpoint("fila-pagamento", e =>
             {
-                // Configurar consumers neste endpoint
                 e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>(context);
                 e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>(context);
+
+                // Configurações de performance
+                e.PrefetchCount = 16;
+                e.UseConcurrencyLimit(10); // Máximo 10 mensagens processadas simultaneamente
             });
         });
     });

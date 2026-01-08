@@ -100,7 +100,12 @@ BASE_URL="http://localhost:8080" ./testar-casos-de-uso.sh
    curl http://localhost:5000/health
    ```
 
-3. **Configure o Azure Service Bus** (veja [plano-execucao.md](../plano-execucao.md))
+3. **Inicie o RabbitMQ via Docker**
+   ```bash
+   docker-compose up -d
+   ```
+
+   Acesse o Management UI em http://localhost:15672 (saga/saga123)
 
 ---
 
