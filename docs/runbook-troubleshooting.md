@@ -35,9 +35,9 @@ curl http://localhost:5000/api/pedidos/{pedidoId}/estado
 ```
 
 ```csharp
-// Query direta no repositório (MongoDB)
-db.EstadoPedido.find({
-    CorrelationId: "{correlationId}"
+// Query direta no repositório (MongoDB - se usar persistência MongoDB)
+db.PedidoSagaData.find({
+    Id: "{correlationId}"
 }).sort({ DataInicio: -1 })
 ```
 
@@ -50,8 +50,8 @@ SELECT
     UltimaAtualizacao,
     EmCompensacao,
     PassosCompensados
-FROM EstadoPedido
-WHERE CorrelationId = '{id}'
+FROM PedidoSagaData
+WHERE Id = '{id}'
 ORDER BY DataInicio DESC;
 ```
 
@@ -163,15 +163,15 @@ Content-Type: application/json
 
 THRESHOLD_MINUTES=10
 
-# Query no MongoDB
+# Query no MongoDB (se usar persistência MongoDB)
 mongo saga-poc --eval "
-  db.EstadoPedido.find({
+  db.PedidoSagaData.find({
     EstadoAtual: { \$nin: ['Concluido', 'Compensado', 'Falhou'] },
     UltimaAtualizacao: {
       \$lt: new Date(Date.now() - $THRESHOLD_MINUTES * 60 * 1000)
     }
   }).forEach(saga => {
-    print('SAGA Travada: ' + saga.CorrelationId + ' - Estado: ' + saga.EstadoAtual);
+    print('SAGA Travada: ' + saga.Id + ' - Estado: ' + saga.EstadoAtual);
   })
 "
 ```
@@ -424,15 +424,15 @@ db.EstadoPedido.stats()
 
 **Ação**:
 ```csharp
-// Configurar limit de concorrência no MassTransit
-services.AddMassTransit(x =>
-{
-    x.UsingRabbitMq((context, cfg) =>
+// Configurar limit de concorrência no Rebus
+builder.Services.AddRebus((configure, provider) => configure
+    .Transport(t => t.UseRabbitMq(...))
+    .Options(o =>
     {
-        cfg.PrefetchCount = 50; // Reduzir de 100 para 50
-        cfg.ConcurrentMessageLimit = 50; // Limitar concorrência
-    });
-});
+        o.SetNumberOfWorkers(1);  // Manter 1 worker
+        o.SetMaxParallelism(50);  // Reduzir de 100 para 50
+    })
+);
 ```
 
 ---
@@ -546,18 +546,14 @@ grep "Publicando mensagem" logs/saga-*.log | \
 
 **Ação**:
 ```csharp
-// Recriar fila como durável
-services.AddMassTransit(x =>
-{
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.ConfigureEndpoints(context, new KebabCaseEndpointNameFormatter(false));
+// Rebus cria filas duráveis por padrão
+// Se necessário, verificar configuração do RabbitMQ
+// Filas criadas pelo Rebus são automaticamente:
+// - Durable: true
+// - AutoDelete: false
+// - Exclusive: false
 
-        // Garantir durabilidade
-        cfg.Durable = true;
-        cfg.AutoDelete = false;
-    });
-});
+// Recriar fila manualmente via RabbitMQ Management se necessário
 ```
 
 #### Caso 2: RabbitMQ Reiniciou
@@ -619,29 +615,25 @@ dotnet-dump analyze /dumps/heap.dmp
 
 #### Caso 1: Memory Leak em SAGA State
 
-**Diagnóstico**: Muitas instâncias de `EstadoPedido` na memória
+**Diagnóstico**: Muitas instâncias de `PedidoSagaData` na memória
 
 **Ação**:
 ```csharp
-// Configurar cleanup de SAGAs antigas
-services.AddMassTransit(x =>
-{
-    x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-        .MongoDbRepository(r =>
-        {
-            r.Connection = mongoConnection;
-            r.DatabaseName = "saga-poc";
+// Para POC com InMemory, não há persistência
+// Para produção com MongoDB:
+builder.Services.AddRebus((configure, provider) => configure
+    .Transport(t => t.UseRabbitMq(...))
+    .Sagas(s => s.UseMongoDb(connectionString, "sagas"))
+);
 
-            // Configurar TTL de 7 dias
-            r.CollectionName = "EstadoPedido";
-        });
-});
-
-// Criar índice TTL no MongoDB
-db.EstadoPedido.createIndex(
+// Criar índice TTL no MongoDB para cleanup automático
+db.PedidoSagaData.createIndex(
     { "DataConclusao": 1 },
     { expireAfterSeconds: 604800 } // 7 dias
 )
+
+// Ou usar SQL Server:
+// .Sagas(s => s.UseSqlServer(connectionString, "Sagas"))
 ```
 
 #### Caso 2: Muitas Conexões Abertas
@@ -683,8 +675,8 @@ curl http://localhost:5000/api/pedidos/duplicados
 ```
 
 ```javascript
-// Query no MongoDB
-db.EstadoPedido.aggregate([
+// Query no MongoDB (se usar persistência MongoDB)
+db.PedidoSagaData.aggregate([
     {
         $group: {
             _id: "$ClienteId",
@@ -712,30 +704,30 @@ grep "Mensagem duplicada detectada" logs/saga-*.log
 
 **Ação**:
 ```csharp
-// Implementar filtro de idempotência
-public class IdempotenciaFilter<T> : IFilter<ConsumeContext<T>>
-    where T : class
+// Implementar verificação de idempotência nos handlers
+public class ProcessarPagamentoHandler : IHandleMessages<ProcessarPagamento>
 {
-    private readonly IDistributedCache _cache;
+    private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly IBus _bus;
 
-    public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
+    public async Task Handle(ProcessarPagamento mensagem)
     {
-        var messageId = context.MessageId?.ToString();
-        var cacheKey = $"msg:{messageId}";
+        var chaveIdempotencia = $"pagamento:{mensagem.CorrelacaoId}";
 
-        var jaProcessado = await _cache.GetStringAsync(cacheKey);
-        if (jaProcessado != null)
+        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
         {
-            _logger.LogWarning("Mensagem duplicada detectada: {MessageId}", messageId);
+            _logger.LogWarning("Mensagem duplicada detectada: {CorrelacaoId}",
+                mensagem.CorrelacaoId);
             return; // Ignorar mensagem
         }
 
-        await _cache.SetStringAsync(cacheKey, "true", new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24)
-        });
+        // Processar pagamento...
+        var resultado = await _servicoPagamento.ProcessarAsync(mensagem);
 
-        await next.Send(context);
+        await _idempotencia.MarcarProcessadaAsync(chaveIdempotencia,
+            TimeSpan.FromHours(24));
+
+        await _bus.Reply(new PagamentoProcessado(...));
     }
 }
 ```
@@ -763,7 +755,7 @@ AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(48)
 DAYS_AGO=30
 
 mongo saga-poc --eval "
-  db.EstadoPedido.deleteMany({
+  db.PedidoSagaData.deleteMany({
     EstadoAtual: { \$in: ['Concluido', 'Compensado'] },
     DataConclusao: {
       \$lt: new Date(Date.now() - $DAYS_AGO * 24 * 60 * 60 * 1000)
@@ -807,6 +799,6 @@ done
 
 ---
 
-**Última atualização**: 2026-01-07
-**Versão**: 1.0
+**Última atualização**: 2026-01-08
+**Versão**: 2.0 - Atualizado para Rebus
 **Mantenedor**: Equipe Platform Engineering

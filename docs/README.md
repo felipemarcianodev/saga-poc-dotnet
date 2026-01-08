@@ -1,12 +1,12 @@
-# POC SAGA Pattern com MassTransit e RabbitMQ
+# POC SAGA Pattern com Rebus e RabbitMQ
 
 ![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)
 ![C#](https://img.shields.io/badge/C%23-13-239120?logo=csharp)
-![MassTransit](https://img.shields.io/badge/MassTransit-9.0-orange)
+![Rebus](https://img.shields.io/badge/Rebus-8.9-blue)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 
-**Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **MassTransit** e **RabbitMQ** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
+**Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **Rebus** e **RabbitMQ** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
 
 ---
 
@@ -17,8 +17,8 @@ Sistema de **Delivery de Comida** simulando um fluxo completo de processamento d
 
 ### Objetivo
 Demonstrar como implementar:
-- **SAGA Orquestrado** com MassTransit State Machine
-- **Compensações automáticas** em caso de falha
+- **SAGA Orquestrado** com Rebus Sagas
+- **Compensações explícitas** em caso de falha
 - **Result Pattern** para tratamento de erros sem exceções
 - **Mensageria assíncrona** com RabbitMQ
 - **Idempotência** nas operações de compensação
@@ -180,13 +180,14 @@ dotnet run
 
 Acesse o **RabbitMQ Management UI** em http://localhost:15672 e clique na aba **Queues**.
 
-Você verá as seguintes filas sendo criadas automaticamente pelo MassTransit:
+Você verá as seguintes filas sendo criadas automaticamente pelo Rebus:
 
+- **`fila-orquestrador`** - Mensagens para a SAGA (Orquestrador)
 - **`fila-restaurante`** - Mensagens para validação de pedidos no restaurante
 - **`fila-pagamento`** - Mensagens para processamento de pagamentos
 - **`fila-entregador`** - Mensagens para alocação de entregadores
 - **`fila-notificacao`** - Mensagens para notificações aos clientes
-- **`fila-dead-letter`** - Mensagens que falharam após todas as tentativas de retry
+- **`fila-error`** - Mensagens que falharam após todas as tentativas de retry (Dead Letter Queue)
 
 Ao fazer requisições à API, você poderá ver em tempo real:
 - **Ready**: Mensagens aguardando processamento
@@ -287,9 +288,10 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ### Documentos Principais
 
 - **[casos-uso.md](casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
-- **[plano-execucao.md](plano-execucao.md)** - Plano de execução em 15 fases
+- **[PLANO-EXECUCAO.md](PLANO-EXECUCAO.md)** - Plano de execução do projeto
 - **[arquitetura.md](arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
-- **[guia-masstransit.md](guia-masstransit.md)** - Guia de uso do MassTransit
+- **[guia-rebus.md](guia-rebus.md)** - Guia de uso do Rebus
+- **[MIGRACAO-MASSTRANSIT-PARA-REBUS.md](MIGRACAO-MASSTRANSIT-PARA-REBUS.md)** - Documento da migração de MassTransit para Rebus
 
 ### Documentação Operacional (Fase 14)
 
@@ -312,13 +314,14 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ## Conceitos Demonstrados
 
 ### 1. SAGA Orquestrado
-- State Machine centralizada (MassTransit)
-- Controle de fluxo e transições de estado
+- Saga centralizada com Rebus
+- Controle de fluxo via Message Handlers
 - Persistência do estado (InMemory para POC)
 - Veja **[Diagramas de Compensação](diagramas-compensacao.md)** para detalhes visuais
 
-### 2. Compensações Automáticas
+### 2. Compensações Explícitas
 - Rollback em ordem reversa
+- Compensações implementadas manualmente nos handlers
 - Idempotência (executar 2x não causa problema)
 - Tratamento de erros estruturado
 - Consulte **[Boas Práticas](boas-praticas.md)** para implementação correta
@@ -329,8 +332,8 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 - Propagação de erros estruturados
 
 ### 4. Mensageria Assíncrona
-- Request/Response via MassTransit
-- Publish/Subscribe para eventos
+- Request/Response via Rebus (Send/Reply)
+- Roteamento baseado em tipos
 - Dead Letter Queue automática
 
 ### Aprenda Mais
@@ -415,7 +418,7 @@ Todos os serviços incluem:
 - ✅ **AspNetCore Instrumentation** - Traces HTTP automáticos
 - ✅ **HttpClient Instrumentation** - Traces de chamadas externas
 - ✅ **EntityFramework Instrumentation** - Traces de queries SQL
-- ✅ **MassTransit Integration** - Propagação de contexto via mensageria
+- ✅ **Rebus Integration** - Propagação de contexto via mensageria
 - ✅ **Custom Spans** - Para operações de negócio críticas
 
 ### Troubleshooting
@@ -492,9 +495,9 @@ Criado como material educacional sobre padrões de microsserviços.
 
 ## Agradecimentos
 
-- [MassTransit](https://masstransit.io/) - Excelente framework de mensageria
+- [Rebus](https://github.com/rebus-org/Rebus) - Framework de mensageria simples e poderoso
 - [RabbitMQ](https://www.rabbitmq.com/) - Message broker open source confiável e battle-tested
 - [Chris Richardson](https://microservices.io/patterns/data/saga.html) - Padrão SAGA
 - [Docker](https://www.docker.com/) - Containerização e simplificação de deploy
 
-**Última atualização**: 2026-01-07 - Fase 12 concluída (Observabilidade com OpenTelemetry + Docker Compose completo)
+**Última atualização**: 2026-01-08 - Migração de MassTransit para Rebus concluída

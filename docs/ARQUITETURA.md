@@ -20,7 +20,7 @@ Este documento detalha a arquitetura da POC, decisões técnicas, padrões utili
 **Tecnologias**:
 - ASP.NET Core 9.0
 - Swagger/OpenAPI
-- MassTransit (IPublishEndpoint)
+- Rebus (IBus como One-Way Client)
 
 **Endpoints**:
 ```csharp
@@ -33,7 +33,7 @@ GET    /health                   # Health check
 1. Recebe requisição HTTP (POST /api/pedidos)
 2. Valida o payload (DataAnnotations)
 3. Gera um `CorrelationId` único (Guid)
-4. Publica mensagem `IniciarPedido` no RabbitMQ
+4. Envia mensagem `IniciarPedido` via Rebus para o RabbitMQ
 5. Retorna **202 Accepted** com o `PedidoId`
 
 **Características**:
@@ -48,13 +48,13 @@ GET    /health                   # Health check
 **Responsabilidade**: Coordenar o fluxo da SAGA e gerenciar o estado.
 
 **Tecnologias**:
-- MassTransit State Machine
+- Rebus Sagas
 - RabbitMQ
-- In-Memory Saga Repository (POC) - **Para produção: SQL Server ou Redis**
+- In-Memory Saga Repository (POC) - **Para produção: SQL Server ou MongoDB**
 
 **Componentes**:
-- `PedidoSaga` - State Machine (lógica de transições)
-- `EstadoPedido` - Estado da SAGA (dados persistidos)
+- `PedidoSaga` - Saga com Message Handlers (lógica de transições)
+- `PedidoSagaData` - Estado da SAGA (dados persistidos, implementa ISagaData)
 
 **Estados da SAGA**:
 
@@ -68,10 +68,11 @@ GET    /health                   # Health check
 - `NotificacaoEnviada` → Confirmação de notificação
 
 **Decisões Arquiteturais**:
-1. **Por que State Machine?**
-   - Controle centralizado do fluxo
-   - Fácil visualização dos estados
-   - Compensações automáticas
+1. **Por que Rebus Sagas?**
+   - Controle centralizado do fluxo via handlers
+   - Implementação explícita e clara
+   - Suporte nativo a correlação de mensagens
+   - Compensações manuais porém explícitas
 
 2. **Por que InMemory para POC?**
    - Simplicidade (sem setup de banco)
@@ -88,9 +89,9 @@ Cada serviço é um **Worker Service** independente que consome mensagens do Rab
 
 **Responsabilidade**: Validar disponibilidade do restaurante e dos itens.
 
-**Consumers**:
-- `ValidarPedidoRestauranteConsumer` → Valida o pedido
-- `CancelarPedidoRestauranteConsumer` → Cancela o pedido (compensação)
+**Handlers**:
+- `ValidarPedidoRestauranteHandler` → Valida o pedido
+- `CancelarPedidoRestauranteHandler` → Cancela o pedido (compensação)
 
 **Lógica de Validação**:
 
@@ -110,9 +111,9 @@ Libera o estoque reservado (se aplicável)
 
 **Responsabilidade**: Processar pagamentos e estornos.
 
-**Consumers**:
-- `ProcessarPagamentoConsumer` → Processa o pagamento
-- `EstornarPagamentoConsumer` → Estorna o pagamento (compensação)
+**Handlers**:
+- `ProcessarPagamentoHandler` → Processa o pagamento
+- `EstornarPagamentoHandler` → Estorna o pagamento (compensação)
 
 **Lógica de Processamento**:
 ```csharp
@@ -152,9 +153,9 @@ if (await _repositorio.JaEstornadoAsync(transacaoId))
 
 **Responsabilidade**: Alocar entregadores disponíveis.
 
-**Consumers**:
-- `AlocarEntregadorConsumer` → Aloca entregador
-- `LiberarEntregadorConsumer` → Libera o entregador (compensação)
+**Handlers**:
+- `AlocarEntregadorHandler` → Aloca entregador
+- `LiberarEntregadorHandler` → Libera o entregador (compensação)
 
 **Lógica de Alocação**:
 ```csharp
@@ -184,8 +185,8 @@ Cancela a rota alocada
 
 **Responsabilidade**: Notificar o cliente sobre o status do pedido.
 
-**Consumers**:
-- `NotificarClienteConsumer` → Envia notificação
+**Handlers**:
+- `NotificarClienteHandler` → Envia notificação
 
 **Tipos de Notificação**:
 ```csharp
@@ -308,34 +309,35 @@ var resultadoEntregador = await AlocarEntregador();
 
 ---
 
-### 3. **Request/Response Pattern** (MassTransit)
+### 3. **Request/Response Pattern** (Rebus)
 
 **O que é?**
-Comunicação síncrona sobre infraestrutura assíncrona.
+Comunicação síncrona sobre infraestrutura assíncrona usando Reply.
 
 **Fluxo**:
 ```
 [Orquestrador]
-    ↓ Request: ValidarPedidoRestaurante
+    ↓ Send: ValidarPedidoRestaurante
     ↓ (via RabbitMQ)
 [Serviço Restaurante]
     ↓ Processa validação
-    ↓ Response: PedidoRestauranteValidado
+    ↓ Reply: PedidoRestauranteValidado
 [Orquestrador]
     ↓ Recebe resposta e continua SAGA
 ```
 
-**Configuração (MassTransit)**:
+**Configuração (Rebus)**:
 ```csharp
-// No Orquestrador (State Machine):
-.Publish(context => new ValidarPedidoRestaurante(...))
+// No Orquestrador (Saga):
+await _bus.Send(new ValidarPedidoRestaurante(...));
 
-// No Serviço:
-await context.RespondAsync(new PedidoRestauranteValidado(...));
+// No Serviço (Handler):
+await _bus.Reply(new PedidoRestauranteValidado(...));
 ```
 
 **Por que Request/Response?**
-- State Machine precisa esperar resposta para decidir próximo estado
+- Saga precisa esperar resposta para decidir próximo passo
+- Rebus gerencia automaticamente o roteamento da resposta
 - Alternativa seria Publish/Subscribe (assíncrono completo)
 
 ---
@@ -356,23 +358,27 @@ Compensações (ordem reversa):
    1. Cancelar pedido no restaurante
 ```
 
-**Implementação no State Machine**:
+**Implementação na Saga (Rebus)**:
 ```csharp
-During(AlocandoEntregador,
-    When(EntregadorAlocado)
-        .IfElse(context => context.Message.Alocado,
-            alocado => alocado
-                .TransitionTo(NotificandoCliente)
-                .Publish(...),
-            semEntregador => semEntregador
-                // COMPENSAÇÃO: Estornar pagamento
-                .Publish(context => new EstornarPagamento(
-                    context.Saga.CorrelationId,
-                    context.Saga.TransacaoId!
-                ))
-                .TransitionTo(PedidoCancelado)
-        )
-);
+public async Task Handle(EntregadorAlocado mensagem)
+{
+    if (mensagem.Alocado)
+    {
+        // Sucesso: continua para notificação
+        Data.EntregadorId = mensagem.EntregadorId;
+        Data.EstadoAtual = "NotificandoCliente";
+        await _bus.Send(new NotificarCliente(...));
+    }
+    else
+    {
+        // COMPENSAÇÃO: Estornar pagamento
+        IniciarCompensacao();
+        await _bus.Send(new EstornarPagamento(
+            CorrelacaoId: Data.Id,
+            TransacaoId: Data.TransacaoId!
+        ));
+    }
+}
 ```
 
 **Características das Compensações**:
@@ -386,20 +392,24 @@ During(AlocandoEntregador,
 
 ### RabbitMQ (Transport Layer)
 
-**Configuração**:
+**Configuração (Rebus)**:
 ```csharp
-services.AddMassTransit(x =>
-{
-    x.UsingRabbitMq((context, cfg) =>
+builder.Services.AddRebus((configure, provider) => configure
+    .Logging(l => l.Serilog())
+    .Transport(t => t.UseRabbitMq(
+        $"amqp://{username}:{password}@{host}",
+        "nome-da-fila"))
+    .Routing(r => r.TypeBased()
+        .Map<ValidarPedidoRestaurante>("fila-restaurante")
+        .Map<ProcessarPagamento>("fila-pagamento"))
+    .Options(o =>
     {
-        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
-        {
-            h.Username(configuration["RabbitMQ:Username"]);
-            h.Password(configuration["RabbitMQ:Password"]);
-        });
-        cfg.ConfigureEndpoints(context); // Cria filas automaticamente
-    });
-});
+        o.SetNumberOfWorkers(1);
+        o.SetMaxParallelism(10);
+    })
+);
+
+builder.Services.AutoRegisterHandlersFromAssemblyOf<PrimeiroHandler>();
 ```
 
 **Filas Criadas Automaticamente no RabbitMQ**:
@@ -409,12 +419,13 @@ RabbitMQ (localhost:5672)
 ├── fila-pagamento                (Comandos para Serviço Pagamento)
 ├── fila-entregador               (Comandos para Serviço Entregador)
 ├── fila-notificacao              (Comandos para Serviço Notificação)
-└── fila-orquestrador-saga        (Eventos da SAGA)
+└── fila-orquestrador             (Mensagens para a SAGA)
 ```
 
 **Dead Letter Queue (DLQ)**:
 - Mensagens que falharam após N tentativas vão para DLQ
 - RabbitMQ gerencia automaticamente
+- Rebus suporta configuração de retry policy e error handling
 
 ---
 
@@ -452,12 +463,15 @@ public record PedidoRestauranteValidado(
 
 ### Estado da SAGA
 
-**Modelo**:
+**Modelo (Rebus)**:
 ```csharp
-public class EstadoPedido : SagaStateMachineInstance
+public class PedidoSagaData : ISagaData
 {
-    public Guid CorrelationId { get; set; }      // Chave primária
-    public string EstadoAtual { get; set; }       // Estado atual da State Machine
+    // Propriedades obrigatórias do Rebus
+    public Guid Id { get; set; }                  // Chave primária (CorrelationId)
+    public int Revision { get; set; }             // Controle de concorrência
+
+    public string EstadoAtual { get; set; }       // Estado atual da SAGA
 
     // Dados do Pedido
     public string ClienteId { get; set; }
@@ -468,7 +482,8 @@ public class EstadoPedido : SagaStateMachineInstance
     // Controle de Compensação
     public string? TransacaoId { get; set; }      // Para estorno
     public string? EntregadorId { get; set; }     // Para liberação
-    public Guid? PedidoRestauranteId { get; set; } // Para cancelamento
+    public bool EmCompensacao { get; set; }       // Flag de compensação
+    public List<string> PassosCompensados { get; set; } // Tracking
 
     // Timestamps
     public DateTime DataInicio { get; set; }
@@ -484,17 +499,16 @@ public class EstadoPedido : SagaStateMachineInstance
 | **Produção** | EntityFramework + SQL | Banco relacional | Auditoria, consistência ACID |
 | **Produção** | Redis | Cache distribuído | Alta performance |
 
-**Configuração SQL (Produção)**:
+**Configuração SQL (Produção com Rebus)**:
 ```csharp
-x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-    .EntityFrameworkRepository(r =>
-    {
-        r.ConcurrencyMode = ConcurrencyMode.Optimistic;
-        r.AddDbContext<DbContext, SagaDbContext>((provider, builder) =>
-        {
-            builder.UseSqlServer(connectionString);
-        });
-    });
+// No Program.cs do Orquestrador
+builder.Services.AddRebus((configure, provider) => configure
+    .Logging(l => l.Serilog())
+    .Transport(t => t.UseRabbitMq(...))
+    .Sagas(s => s.UseSqlServer(connectionString, "Sagas"))
+    // Ou MongoDB:
+    // .Sagas(s => s.UseMongoDb(connectionString, "sagas"))
+);
 ```
 
 ---
@@ -503,18 +517,20 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 
 ### 1. **Retry Policy**
 
-**Configuração (Produção)**:
+**Configuração com Rebus (Produção)**:
 ```csharp
-cfg.UseMessageRetry(r =>
-{
-    r.Exponential(
-        retryLimit: 5,
-        minInterval: TimeSpan.FromSeconds(1),
-        maxInterval: TimeSpan.FromSeconds(30),
-        intervalDelta: TimeSpan.FromSeconds(5)
-    );
-    r.Ignore<ValidationException>(); // Não retry erros de validação
-});
+builder.Services.AddRebus((configure, provider) => configure
+    .Transport(t => t.UseRabbitMq(...))
+    .Options(o =>
+    {
+        o.SimpleRetryStrategy(maxDeliveryAttempts: 5);
+        // Ou estratégia customizada:
+        o.RetryStrategy(
+            secondLevelRetriesEnabled: true,
+            errorDetailsHeaderMaxLength: 500
+        );
+    })
+);
 ```
 
 **Estratégia**:
@@ -534,11 +550,11 @@ cfg.UseMessageRetry(r =>
 **Solução**: Verificar se já foi processado.
 
 ```csharp
-public async Task Consume(ConsumeContext<EstornarPagamento> context)
+public async Task Handle(EstornarPagamento mensagem)
 {
-    var messageId = context.MessageId.ToString();
+    var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
 
-    if (await _idempotencia.JaProcessadoAsync(messageId))
+    if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
     {
         _logger.LogWarning("Estorno já processado (duplicado)");
         return; // Ignorar
@@ -546,7 +562,8 @@ public async Task Consume(ConsumeContext<EstornarPagamento> context)
 
     // Processar estorno...
 
-    await _idempotencia.MarcarProcessadaAsync(messageId);
+    await _idempotencia.MarcarProcessadaAsync(chaveIdempotencia);
+    await _bus.Reply(new PagamentoEstornado(...));
 }
 ```
 
@@ -554,14 +571,23 @@ public async Task Consume(ConsumeContext<EstornarPagamento> context)
 
 ### 3. **Circuit Breaker** (Produção)
 
-**Configuração**:
+**Observação**: Rebus não possui Circuit Breaker nativo. Para implementar, use:
+- **Polly**: Biblioteca de resiliência .NET
+- **Integração**: Aplicar políticas Polly nos handlers
+
 ```csharp
-cfg.UseCircuitBreaker(cb =>
+// Exemplo com Polly
+var circuitBreakerPolicy = Policy
+    .Handle<Exception>()
+    .CircuitBreakerAsync(
+        exceptionsAllowedBeforeBreaking: 15,
+        durationOfBreak: TimeSpan.FromMinutes(5)
+    );
+
+// Aplicar no handler
+await circuitBreakerPolicy.ExecuteAsync(async () =>
 {
-    cb.TrackingPeriod = TimeSpan.FromMinutes(1);
-    cb.TripThreshold = 15;  // Abre após 15 falhas em 1min
-    cb.ActiveThreshold = 10; // Fecha após 10 sucessos
-    cb.ResetInterval = TimeSpan.FromMinutes(5);
+    await ProcessarPagamentoAsync();
 });
 ```
 
@@ -628,7 +654,7 @@ services.AddOpenTelemetry()
             .AddHttpClientInstrumentation()
             .AddEntityFrameworkCoreInstrumentation()
             .AddSource("SagaPoc.*")
-            .AddSource("MassTransit")
+            .AddSource("Rebus")
             .AddJaegerExporter();
     })
     .WithMetrics(metrics => metrics
@@ -664,9 +690,10 @@ Total Trace Duration: 1075ms
 ```
 
 **Propagação de Contexto**:
-- Propagação automática através do RabbitMQ via MassTransit
+- Propagação automática através do RabbitMQ via Rebus
 - Header `traceparent` incluído em todas as mensagens
 - W3C Trace Context padrão
+- Rebus suporta activity propagation nativamente
 
 ---
 
@@ -714,17 +741,17 @@ rate(dotnet_collection_count_total[5m])
 dotnet_threadpool_num_threads
 ```
 
-#### Custom Metrics (MassTransit):
+#### Custom Metrics (Rebus):
 ```promql
-# Mensagens publicadas/consumidas
-rate(mt_publish_total[5m])
-rate(mt_consume_total[5m])
+# Mensagens enviadas/recebidas
+rate(rebus_messages_sent_total[5m])
+rate(rebus_messages_received_total[5m])
 
-# Falhas de consumo
-rate(mt_consume_fault_total[5m])
+# Falhas de processamento
+rate(rebus_messages_failed_total[5m])
 
 # Duração de processamento de mensagens
-histogram_quantile(0.95, rate(mt_consume_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(rebus_message_duration_seconds_bucket[5m]))
 ```
 
 ---
@@ -891,24 +918,24 @@ docker-compose up -d
 
 ## Decisões Arquiteturais
 
-### Por que MassTransit (e não outros)?
+### Por que Rebus (e não outros)?
 
 | Alternativa | Prós | Contras | Quando usar |
 |-------------|------|---------|-------------|
-| **MassTransit** | State Machine integrada, Retry/CB embutidos, Abstração sobre transportes | Curva de aprendizado | ✅ SAGA complexas, múltiplos transportes |
+| **Rebus** | ✅ Leve, simples, flexível, Sagas com handlers explícitos | Sem State Machine visual, menos recursos prontos | ✅ POC, projetos médios, controle explícito |
+| **MassTransit** | State Machine integrada, Retry/CB embutidos | Curva de aprendizado, mais complexo | SAGA complexas, múltiplos transportes |
 | **NServiceBus** | Mais maduro, suporte enterprise | Pago | Enterprise |
-| **Rebus** | Leve, simples | Sem State Machine | Mensageria simples |
 | **RabbitMQ direto** | Controle total | Muito boilerplate | Necessita customização extrema |
 
 ---
 
-### Por que RabbitMQ (e não RabbitMQ/Kafka)?
+### Por que RabbitMQ (e não Kafka)?
 
 | Transport | Prós | Contras | Quando usar |
 |-----------|------|---------|-------------|
-| **RabbitMQ** | Gerenciado, Dead Letter Queue, garantia de ordem | Custo | ✅ Cloud Docker, POC rápida |
-| **RabbitMQ** | Open-source, flexível | Gerenciar infraestrutura | On-premise |
-| **Kafka** | Alta vazão, log distribuído | Overkill para SAGA | Event Sourcing, analytics |
+| **RabbitMQ** | ✅ Dead Letter Queue, garantia de ordem, Request/Reply nativo | Menor vazão que Kafka | ✅ SAGA, POC, Request/Response |
+| **Kafka** | Alta vazão, log distribuído, retenção longa | Overkill para SAGA, sem Request/Reply | Event Sourcing, analytics, streaming |
+| **Azure Service Bus** | Gerenciado, integração Azure | Custo, vendor lock-in | Cloud Azure |
 
 ---
 
@@ -918,12 +945,13 @@ docker-compose up -d
 
 Usar usuários específicos por serviço com permissões limitadas:
 ```csharp
-cfg.Host("rabbitmq.production.com", "/", h =>
-{
-    h.Username(configuration["RabbitMQ:Username"]);
-    h.Password(configuration["RabbitMQ:Password"]);
-    // Ou usar certificados client-side TLS
-});
+// Configuração Rebus com autenticação
+.Transport(t => t.UseRabbitMq(
+    $"amqp://{username}:{password}@rabbitmq.production.com",
+    "fila-servico"
+))
+// Ou usar AMQPS (AMQP over TLS):
+// amqps://username:password@rabbitmq.production.com
 ```
 
 ### 2. **Encryption at Rest**
@@ -940,15 +968,16 @@ Configurar RabbitMQ com persistência criptografada usando plugins.
 
 ## Referências
 
-- **[plano-execucao.md](./plano-execucao.md)** - Plano completo do projeto
-- **[guia-masstransit.md](./guia-masstransit.md)** - Guia do MassTransit
+- **[plano-execucao.md](./PLANO-EXECUCAO.md)** - Plano completo do projeto
+- **[guia-rebus.md](./guia-rebus.md)** - Guia do Rebus
 - **[casos-uso.md](./casos-uso.md)** - 12 cenários implementados
-- **[MassTransit Documentation](https://masstransit.io/)** - Documentação oficial
-- **[SAGA Pattern - Microsoft](https://docs.microsoft.com/Docker/architecture/reference-architectures/saga/saga)**
+- **[MIGRACAO-MASSTRANSIT-PARA-REBUS.md](./MIGRACAO-MASSTRANSIT-PARA-REBUS.md)** - Documento da migração
+- **[Rebus Documentation](https://github.com/rebus-org/Rebus)** - Documentação oficial
+- **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
 
 ---
 
 **Documento criado em**: 2026-01-07
-**Versão**: 1.1
-**Última atualização**: 2026-01-07 - Fase 12 concluída (Observabilidade)
+**Versão**: 2.0
+**Última atualização**: 2026-01-08 - Atualizado para Rebus (migração do MassTransit concluída)
 **Status**: Completo
