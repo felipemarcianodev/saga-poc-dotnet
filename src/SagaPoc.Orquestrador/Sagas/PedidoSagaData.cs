@@ -1,22 +1,27 @@
-using MassTransit;
+using Rebus.Sagas;
 
 namespace SagaPoc.Orquestrador.Sagas;
 
 /// <summary>
-/// Representa o estado de um pedido durante a execução da SAGA.
-/// Implementa SagaStateMachineInstance para persistência do estado.
+/// Representa o estado de um pedido durante a execução da SAGA com Rebus.
+/// Implementa ISagaData para persistência do estado.
 /// </summary>
-public class EstadoPedido : SagaStateMachineInstance
+public class PedidoSagaData : ISagaData
 {
     /// <summary>
-    /// ID de correlação único para rastreamento da SAGA.
+    /// ID único da instância da SAGA (requerido pelo Rebus).
     /// </summary>
-    public Guid CorrelationId { get; set; }
+    public Guid Id { get; set; }
 
     /// <summary>
-    /// Estado atual da máquina de estados.
+    /// Número de revisão para controle de concorrência (requerido pelo Rebus).
     /// </summary>
-    public string EstadoAtual { get; set; } = string.Empty;
+    public int Revision { get; set; }
+
+    /// <summary>
+    /// Estado atual da SAGA.
+    /// </summary>
+    public string EstadoAtual { get; set; } = "Iniciado";
 
     // ==================== Dados do Pedido ====================
 

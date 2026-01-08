@@ -1,31 +1,33 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoEntregador.Servicos;
 
-namespace SagaPoc.ServicoEntregador.Consumers;
+namespace SagaPoc.ServicoEntregador.Handlers;
 
 /// <summary>
-/// Consumer responsável por alocar entregadores.
+/// Handler responsável por alocar entregadores.
 /// Recebe comando AlocarEntregador e responde com EntregadorAlocado.
 /// </summary>
-public class AlocarEntregadorConsumer : IConsumer<AlocarEntregador>
+public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
 {
     private readonly IServicoEntregador _servico;
-    private readonly ILogger<AlocarEntregadorConsumer> _logger;
+    private readonly IBus _bus;
+    private readonly ILogger<AlocarEntregadorHandler> _logger;
 
-    public AlocarEntregadorConsumer(
+    public AlocarEntregadorHandler(
         IServicoEntregador servico,
-        ILogger<AlocarEntregadorConsumer> logger)
+        IBus bus,
+        ILogger<AlocarEntregadorHandler> logger)
     {
         _servico = servico;
+        _bus = bus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<AlocarEntregador> context)
+    public async Task Handle(AlocarEntregador mensagem)
     {
-        var mensagem = context.Message;
-
         _logger.LogInformation(
             "Recebido comando AlocarEntregador. CorrelacaoId: {CorrelacaoId}, " +
             "RestauranteId: {RestauranteId}, Endereco: {Endereco}, Taxa: {Taxa:C}",
@@ -62,8 +64,8 @@ public class AlocarEntregadorConsumer : IConsumer<AlocarEntregador>
                 )
             );
 
-            // Enviar resposta
-            await context.RespondAsync(resposta);
+            // Enviar resposta usando Rebus
+            await _bus.Reply(resposta);
 
             _logger.LogInformation(
                 "Resposta enviada. CorrelacaoId: {CorrelacaoId}, Alocado: {Alocado}, " +
@@ -82,7 +84,7 @@ public class AlocarEntregadorConsumer : IConsumer<AlocarEntregador>
             );
 
             // Enviar resposta de falha em caso de exceção inesperada
-            await context.RespondAsync(new EntregadorAlocado(
+            await _bus.Reply(new EntregadorAlocado(
                 CorrelacaoId: mensagem.CorrelacaoId,
                 Alocado: false,
                 EntregadorId: null,
@@ -90,7 +92,7 @@ public class AlocarEntregadorConsumer : IConsumer<AlocarEntregador>
                 MotivoFalha: "Erro interno ao alocar entregador"
             ));
 
-            throw; // Re-throw para MassTransit lidar com retry policy
+            throw; // Re-throw para Rebus lidar com retry policy
         }
     }
 }

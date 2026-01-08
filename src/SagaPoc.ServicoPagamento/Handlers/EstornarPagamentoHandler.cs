@@ -1,38 +1,41 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
 using SagaPoc.Shared.Infraestrutura;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoPagamento.Servicos;
 
-namespace SagaPoc.ServicoPagamento.Consumers;
+namespace SagaPoc.ServicoPagamento.Handlers;
 
 /// <summary>
-/// Consumer responsável por estornar pagamentos (compensação).
+/// Handler responsável por estornar pagamentos (compensação).
 /// Recebe comando EstornarPagamento como parte do fluxo de compensação da SAGA.
 /// </summary>
-public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
+public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
 {
     private readonly IServicoPagamento _servico;
     private readonly IRepositorioIdempotencia _idempotencia;
-    private readonly ILogger<EstornarPagamentoConsumer> _logger;
+    private readonly IBus _bus;
+    private readonly ILogger<EstornarPagamentoHandler> _logger;
 
-    public EstornarPagamentoConsumer(
+    public EstornarPagamentoHandler(
         IServicoPagamento servico,
         IRepositorioIdempotencia idempotencia,
-        ILogger<EstornarPagamentoConsumer> logger)
+        IBus bus,
+        ILogger<EstornarPagamentoHandler> logger)
     {
         _servico = servico;
         _idempotencia = idempotencia;
+        _bus = bus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<EstornarPagamento> context)
+    public async Task Handle(EstornarPagamento mensagem)
     {
-        var mensagem = context.Message;
         var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
 
         _logger.LogWarning(
-            "COMPENSAÇÃO: Recebido comando EstornarPagamento. " +
+            "[COMPENSAÇÃO] Recebido comando EstornarPagamento. " +
             "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
             mensagem.CorrelacaoId,
             mensagem.TransacaoId
@@ -43,12 +46,12 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
         if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
         {
             _logger.LogWarning(
-                "COMPENSAÇÃO: Estorno já processado anteriormente - TransacaoId: {TransacaoId}",
+                "[COMPENSAÇÃO] Estorno já processado anteriormente - TransacaoId: {TransacaoId}",
                 mensagem.TransacaoId
             );
 
             // Responder com sucesso mesmo assim (idempotência)
-            await context.Publish(new PagamentoEstornado(
+            await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: true,
                 TransacaoId: mensagem.TransacaoId
@@ -64,7 +67,7 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
             if (resultado.EhSucesso)
             {
                 _logger.LogInformation(
-                    "COMPENSAÇÃO: Pagamento estornado com sucesso. " +
+                    "[COMPENSAÇÃO] Pagamento estornado com sucesso. " +
                     "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
                     mensagem.CorrelacaoId,
                     mensagem.TransacaoId
@@ -79,7 +82,7 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
             else
             {
                 _logger.LogError(
-                    "COMPENSAÇÃO: Falha ao estornar pagamento. " +
+                    "[COMPENSAÇÃO] Falha ao estornar pagamento. " +
                     "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}, Erro: {Erro}",
                     mensagem.CorrelacaoId,
                     mensagem.TransacaoId,
@@ -87,8 +90,8 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
                 );
             }
 
-            // Publicar resposta
-            await context.Publish(new PagamentoEstornado(
+            // Enviar resposta usando Rebus
+            await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: resultado.EhSucesso,
                 TransacaoId: mensagem.TransacaoId
@@ -98,18 +101,20 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
         {
             _logger.LogError(
                 ex,
-                "COMPENSAÇÃO: Erro crítico ao estornar pagamento. " +
+                "[COMPENSAÇÃO] Erro crítico ao estornar pagamento. " +
                 "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
                 mensagem.CorrelacaoId,
                 mensagem.TransacaoId
             );
 
-            // Publicar resposta de falha
-            await context.Publish(new PagamentoEstornado(
+            // Enviar resposta de falha usando Rebus
+            await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: false,
                 TransacaoId: mensagem.TransacaoId
             ));
+
+            throw; // Re-throw para Rebus lidar com retry policy
         }
     }
 }

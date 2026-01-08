@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SagaPoc.Shared", "src\SagaP
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebHost", "src\WebHost\WebHost.csproj", "{E19AE605-41AD-DBE2-91EB-6DB0883495F6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SagaPoc.Observability", "src\SagaPoc.Observability\SagaPoc.Observability.csproj", "{61426DED-78B2-4073-9D2C-2CDB168F222C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -127,6 +129,18 @@ Global
 		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x64.Build.0 = Release|Any CPU
 		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x86.ActiveCfg = Release|Any CPU
 		{E19AE605-41AD-DBE2-91EB-6DB0883495F6}.Release|x86.Build.0 = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|x64.Build.0 = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Debug|x86.Build.0 = Debug|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|x64.ActiveCfg = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|x64.Build.0 = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|x86.ActiveCfg = Release|Any CPU
+		{61426DED-78B2-4073-9D2C-2CDB168F222C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -140,6 +154,7 @@ Global
 		{7E48CC3C-C271-4CA3-945E-6E2EFBC5689A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{63373055-55A4-4D77-BEAF-BAF02408DE35} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{E19AE605-41AD-DBE2-91EB-6DB0883495F6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{61426DED-78B2-4073-9D2C-2CDB168F222C} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {0DA73E8C-EC3E-4359-9A48-560D9128CB3F}

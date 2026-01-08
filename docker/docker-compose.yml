@@ -1,0 +1,276 @@
+name: saga-poc
+
+networks:
+  saga-network:
+    driver: bridge
+
+services:
+  # ===================================
+  # MESSAGE BROKER (RabbitMQ)
+  # ===================================
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: saga-rabbitmq
+    hostname: saga-rabbitmq
+    networks:
+      - saga-network
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: saga
+      RABBITMQ_DEFAULT_PASS: saga123
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - TRACING (Jaeger)
+  # ===================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: saga-jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - saga-network
+    ports:
+      - "5775:5775/udp"   # Jaeger Agent (Thrift Compact)
+      - "6831:6831/udp"   # Jaeger Agent (Thrift Binary)
+      - "6832:6832/udp"   # Jaeger Agent (Thrift HTTP)
+      - "5778:5778"       # Jaeger Agent Config
+      - "16686:16686"     # Jaeger UI
+      - "14250:14250"     # Jaeger Collector gRPC
+      - "14268:14268"     # Jaeger Collector HTTP (Thrift)
+      - "14269:14269"     # Jaeger Collector Health
+      - "9411:9411"       # Zipkin Compatible
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - METRICS (Prometheus)
+  # ===================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: saga-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - saga-network
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - DASHBOARDS (Grafana)
+  # ===================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: saga-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    networks:
+      - saga-network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - NODE EXPORTER (Opcional)
+  # ===================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: saga-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - saga-network
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  # ===================================
+  # .NET SERVICES
+  # ===================================
+
+  # API - Ponto de entrada da aplicação
+  saga-api:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.Api/Dockerfile
+    container_name: saga-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    ports:
+      - "5000:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Orquestrador - SAGA State Machine
+  saga-orquestrador:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.Orquestrador/Dockerfile
+    container_name: saga-orquestrador
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Serviço de Restaurante
+  saga-servico-restaurante:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoRestaurante/Dockerfile
+    container_name: saga-servico-restaurante
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Serviço de Pagamento
+  saga-servico-pagamento:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoPagamento/Dockerfile
+    container_name: saga-servico-pagamento
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Serviço de Entregador
+  saga-servico-entregador:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoEntregador/Dockerfile
+    container_name: saga-servico-entregador
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+  # Serviço de Notificação
+  saga-servico-notificacao:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoNotificacao/Dockerfile
+    container_name: saga-servico-notificacao
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+    networks:
+      - saga-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

@@ -1,31 +1,33 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoRestaurante.Servicos;
 
-namespace SagaPoc.ServicoRestaurante.Consumers;
+namespace SagaPoc.ServicoRestaurante.Handlers;
 
 /// <summary>
-/// Consumer responsável por validar pedidos de restaurante.
+/// Handler responsável por validar pedidos de restaurante.
 /// Recebe comando ValidarPedidoRestaurante e responde com PedidoRestauranteValidado.
 /// </summary>
-public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestaurante>
+public class ValidarPedidoRestauranteHandler : IHandleMessages<ValidarPedidoRestaurante>
 {
     private readonly IServicoRestaurante _servico;
-    private readonly ILogger<ValidarPedidoRestauranteConsumer> _logger;
+    private readonly IBus _bus;
+    private readonly ILogger<ValidarPedidoRestauranteHandler> _logger;
 
-    public ValidarPedidoRestauranteConsumer(
+    public ValidarPedidoRestauranteHandler(
         IServicoRestaurante servico,
-        ILogger<ValidarPedidoRestauranteConsumer> logger)
+        IBus bus,
+        ILogger<ValidarPedidoRestauranteHandler> logger)
     {
         _servico = servico;
+        _bus = bus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<ValidarPedidoRestaurante> context)
+    public async Task Handle(ValidarPedidoRestaurante mensagem)
     {
-        var mensagem = context.Message;
-
         _logger.LogInformation(
             "Recebido comando ValidarPedidoRestaurante. CorrelacaoId: {CorrelacaoId}, " +
             "RestauranteId: {RestauranteId}, QuantidadeItens: {QuantidadeItens}",
@@ -88,8 +90,8 @@ public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestauran
                 )
             );
 
-            // Enviar resposta
-            await context.RespondAsync(resposta);
+            // Enviar resposta de volta para o orquestrador
+            await _bus.Reply(resposta);
 
             _logger.LogInformation(
                 "Resposta enviada. CorrelacaoId: {CorrelacaoId}, Valido: {Valido}",
@@ -106,7 +108,7 @@ public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestauran
             );
 
             // Enviar resposta de falha em caso de exceção inesperada
-            await context.RespondAsync(new PedidoRestauranteValidado(
+            await _bus.Reply(new PedidoRestauranteValidado(
                 CorrelacaoId: mensagem.CorrelacaoId,
                 Valido: false,
                 ValorTotal: 0,
@@ -115,7 +117,7 @@ public class ValidarPedidoRestauranteConsumer : IConsumer<ValidarPedidoRestauran
                 MotivoRejeicao: "Erro interno ao validar pedido no restaurante"
             ));
 
-            throw; // Re-throw para MassTransit lidar com retry policy
+            throw; // Re-throw para Rebus lidar com retry policy
         }
     }
 }

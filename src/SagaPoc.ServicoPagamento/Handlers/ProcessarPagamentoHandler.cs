@@ -1,37 +1,35 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoPagamento.Servicos;
 
-namespace SagaPoc.ServicoPagamento.Consumers;
+namespace SagaPoc.ServicoPagamento.Handlers;
 
 /// <summary>
-/// Consumer responsável por processar pagamentos.
+/// Handler responsável por processar pagamentos.
 /// Recebe comando ProcessarPagamento e responde com PagamentoProcessado.
 /// </summary>
-public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
+public class ProcessarPagamentoHandler : IHandleMessages<ProcessarPagamento>
 {
     private readonly IServicoPagamento _servico;
-    private readonly ILogger<ProcessarPagamentoConsumer> _logger;
+    private readonly IBus _bus;
+    private readonly ILogger<ProcessarPagamentoHandler> _logger;
 
-    public ProcessarPagamentoConsumer(
+    public ProcessarPagamentoHandler(
         IServicoPagamento servico,
-        ILogger<ProcessarPagamentoConsumer> logger)
+        IBus bus,
+        ILogger<ProcessarPagamentoHandler> logger)
     {
         _servico = servico;
+        _bus = bus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<ProcessarPagamento> context)
+    public async Task Handle(ProcessarPagamento mensagem)
     {
-        var mensagem = context.Message;
-
         // ============ TIMEOUT POLICY ============
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // Timeout de 10s
-        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            context.CancellationToken,
-            cts.Token
-        );
 
         _logger.LogInformation(
             "Recebido comando ProcessarPagamento. CorrelacaoId: {CorrelacaoId}, " +
@@ -49,7 +47,7 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
                 mensagem.ClienteId,
                 mensagem.ValorTotal,
                 mensagem.FormaPagamento,
-                linkedCts.Token
+                cts.Token
             );
 
             // Preparar resposta baseada no resultado
@@ -68,8 +66,8 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
                 )
             );
 
-            // Enviar resposta
-            await context.RespondAsync(resposta);
+            // Enviar resposta usando Rebus
+            await _bus.Reply(resposta);
 
             _logger.LogInformation(
                 "Resposta enviada. CorrelacaoId: {CorrelacaoId}, Sucesso: {Sucesso}, " +
@@ -87,7 +85,7 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
             );
 
             // Enviar resposta de falha por timeout
-            await context.RespondAsync(new PagamentoProcessado(
+            await _bus.Reply(new PagamentoProcessado(
                 CorrelacaoId: mensagem.CorrelacaoId,
                 Sucesso: false,
                 TransacaoId: null,
@@ -103,14 +101,14 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
             );
 
             // Enviar resposta de falha em caso de exceção inesperada
-            await context.RespondAsync(new PagamentoProcessado(
+            await _bus.Reply(new PagamentoProcessado(
                 CorrelacaoId: mensagem.CorrelacaoId,
                 Sucesso: false,
                 TransacaoId: null,
                 MotivoFalha: "Erro interno ao processar pagamento"
             ));
 
-            throw; // Re-throw para MassTransit lidar com retry policy
+            throw; // Re-throw para Rebus lidar com retry policy
         }
     }
 }

@@ -1,0 +1,50 @@
+# Diretórios de build e output
+**/bin/
+**/obj/
+**/out/
+
+# Diretórios do Visual Studio
+.vs/
+.vscode/
+
+# Arquivos de usuário do Visual Studio
+*.user
+*.suo
+*.userprefs
+
+# Arquivos temporários
+**/temp/
+**/tmp/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+**/Dockerfile*
+**/docker-compose*
+.dockerignore
+
+# Documentação
+README.md
+LICENSE
+docs/
+**/*.md
+
+# GitHub
+.github/
+
+# Node modules (se houver)
+**/node_modules/
+
+# Logs
+**/logs/
+**/*.log
+
+# Testes
+**/TestResults/
+
+# Nuget
+*.nupkg
+**/packages/

@@ -1,5 +1,11 @@
-using MassTransit;
+using Rebus.Config;
+using Rebus.Routing.TypeBased;
+using Rebus.Serilog;
+using Rebus.ServiceProvider;
+using SagaPoc.Observability;
 using SagaPoc.ServicoPagamento;
+using SagaPoc.ServicoPagamento.Handlers;
+using SagaPoc.Shared.Mensagens.Respostas;
 using Serilog;
 
 // Configurar Serilog
@@ -11,61 +17,55 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Iniciando Serviço de Pagamento");
+    Log.Information("Iniciando Serviço de Pagamento com Rebus");
 
     var builder = Host.CreateApplicationBuilder(args);
 
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Configurar OpenTelemetry
+    builder.AddSagaOpenTelemetryForHost(
+        serviceName: "SagaPoc.ServicoPagamento",
+        serviceVersion: "1.0.0"
+    );
+
     // Registrar serviços de negócio
-    builder.Services.AddScoped<SagaPoc.ServicoPagamento.Servicos.IServicoPagamento, SagaPoc.ServicoPagamento.Servicos.ServicoPagamento>();
+    builder.Services.AddScoped<SagaPoc.ServicoPagamento.Servicos.IServicoPagamento,
+        SagaPoc.ServicoPagamento.Servicos.ServicoPagamento>();
 
     // Registrar repositório de idempotência
-    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia, SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
+    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia,
+        SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // ==================== MASSTRANSIT COM RABBITMQ ====================
-    builder.Services.AddMassTransit(x =>
-    {
-        // Registrar consumers
-        x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>();
-        x.AddConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>();
-
-        x.UsingRabbitMq((context, cfg) =>
+    // ==================== REBUS COM RABBITMQ ====================
+    builder.Services.AddRebus((configure, provider) => configure
+        .Logging(l => l.Serilog())
+        .Transport(t => t.UseRabbitMq(
+            $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}",
+            "fila-pagamento"))
+        .Routing(r => r.TypeBased()
+            .Map<PagamentoProcessado>("fila-orquestrador")
+            .Map<PagamentoEstornado>("fila-orquestrador"))
+        .Options(o =>
         {
-            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
-            {
-                h.Username(builder.Configuration["RabbitMQ:Username"]!);
-                h.Password(builder.Configuration["RabbitMQ:Password"]!);
-            });
+            o.SetNumberOfWorkers(1);
+            o.SetMaxParallelism(10);
+        })
+    );
 
-            // Retry policy
-            cfg.UseMessageRetry(retry =>
-            {
-                retry.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
-                retry.Handle<TimeoutException>();
-            });
-
-            // ============ FILA ESPECÍFICA DO PAGAMENTO ============
-            cfg.ReceiveEndpoint("fila-pagamento", e =>
-            {
-                e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.ProcessarPagamentoConsumer>(context);
-                e.ConfigureConsumer<SagaPoc.ServicoPagamento.Consumers.EstornarPagamentoConsumer>(context);
-
-                // Configurações de performance
-                e.PrefetchCount = 16;
-                e.UseConcurrencyLimit(10); // Máximo 10 mensagens processadas simultaneamente
-            });
-        });
-    });
+    // Registrar handlers automaticamente
+    builder.Services.AutoRegisterHandlersFromAssemblyOf<ProcessarPagamentoHandler>();
 
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
+
+    Log.Information("Serviço de Pagamento iniciado com sucesso");
 
     host.Run();
 

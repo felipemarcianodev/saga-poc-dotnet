@@ -1,5 +1,11 @@
-using MassTransit;
+using Rebus.Config;
+using Rebus.Routing.TypeBased;
+using Rebus.Serilog;
+using Rebus.ServiceProvider;
+using SagaPoc.Observability;
 using SagaPoc.ServicoRestaurante;
+using SagaPoc.ServicoRestaurante.Handlers;
+using SagaPoc.Shared.Mensagens.Respostas;
 using Serilog;
 
 // Configurar Serilog
@@ -11,61 +17,57 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Iniciando Serviço de Restaurante");
+    Log.Information("Iniciando Serviço de Restaurante com Rebus");
 
     var builder = Host.CreateApplicationBuilder(args);
 
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Configurar OpenTelemetry
+    builder.AddSagaOpenTelemetryForHost(
+        serviceName: "SagaPoc.ServicoRestaurante",
+        serviceVersion: "1.0.0"
+    );
+
     // Registrar serviços de negócio
-    builder.Services.AddScoped<SagaPoc.ServicoRestaurante.Servicos.IServicoRestaurante, SagaPoc.ServicoRestaurante.Servicos.ServicoRestaurante>();
+    builder.Services.AddScoped<SagaPoc.ServicoRestaurante.Servicos.IServicoRestaurante,
+        SagaPoc.ServicoRestaurante.Servicos.ServicoRestaurante>();
 
     // Registrar repositório de idempotência
-    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia, SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
+    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia,
+        SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // ==================== MASSTRANSIT COM RABBITMQ ====================
-    builder.Services.AddMassTransit(x =>
-    {
-        // Registrar consumers
-        x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>();
-        x.AddConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>();
+    // ==================== REBUS COM RABBITMQ ====================
 
-        x.UsingRabbitMq((context, cfg) =>
+    builder.Services.AddRebus((configure, provider) => configure
+        .Logging(l => l.Serilog())
+        .Transport(t => t.UseRabbitMq(
+            $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}",
+            "fila-restaurante"))
+        .Routing(r => r.TypeBased()
+            // Rotas para respostas enviadas de volta ao orquestrador
+            .Map<PedidoRestauranteValidado>("fila-orquestrador")
+            .Map<PedidoRestauranteCancelado>("fila-orquestrador"))
+        .Options(o =>
         {
-            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
-            {
-                h.Username(builder.Configuration["RabbitMQ:Username"]!);
-                h.Password(builder.Configuration["RabbitMQ:Password"]!);
-            });
+            o.SetNumberOfWorkers(1);
+            o.SetMaxParallelism(10);
+        })
+    );
 
-            // Retry policy
-            cfg.UseMessageRetry(retry =>
-            {
-                retry.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
-                retry.Handle<TimeoutException>();
-            });
-
-            // ============ FILA ESPECÍFICA DO RESTAURANTE ============
-            cfg.ReceiveEndpoint("fila-restaurante", e =>
-            {
-                e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.ValidarPedidoRestauranteConsumer>(context);
-                e.ConfigureConsumer<SagaPoc.ServicoRestaurante.Consumers.CancelarPedidoRestauranteConsumer>(context);
-
-                // Configurações de performance
-                e.PrefetchCount = 16;
-                e.UseConcurrencyLimit(10); // Máximo 10 mensagens processadas simultaneamente
-            });
-        });
-    });
+    // Registrar handlers automaticamente
+    builder.Services.AutoRegisterHandlersFromAssemblyOf<ValidarPedidoRestauranteHandler>();
 
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
+
+    Log.Information("Serviço de Restaurante iniciado com sucesso");
 
     host.Run();
 

@@ -59,40 +59,91 @@ git clone https://github.com/seu-usuario/saga-poc-dotnet.git
 cd saga-poc-dotnet
 ```
 
-### 2. Subir o RabbitMQ com Docker
+### 2. Executar com Docker Compose (Recomendado)
 
-Na raiz do projeto, execute:
+Na pasta `docker/`, execute:
 
 ```bash
+cd docker
 docker-compose up -d
 ```
 
-Isso irá:
-- Baixar a imagem do **RabbitMQ 3.13** com Management UI
-- Iniciar o RabbitMQ na porta **5672** (AMQP)
-- Disponibilizar a interface web na porta **15672**
+Isso irá iniciar toda a stack:
+- **RabbitMQ 3.13** (Message Broker) - porta 5672 (AMQP) e 15672 (Management UI)
+- **Jaeger** (Distributed Tracing) - porta 16686 (UI)
+- **Prometheus** (Métricas) - porta 9090
+- **Grafana** (Dashboards) - porta 3000
+- **Node Exporter** (Métricas do sistema) - porta 9100
+- **Todos os 6 serviços .NET** (API + Orquestrador + 4 Workers)
 
-### 3. Acessar o RabbitMQ Management UI
+**OU** executar apenas o RabbitMQ (para rodar os serviços .NET manualmente):
 
-Abra seu navegador e acesse:
+```bash
+cd docker
+docker-compose up -d rabbitmq
+```
 
+### 3. Acessar as Interfaces Web
+
+Após executar o `docker-compose up -d`, acesse:
+
+#### RabbitMQ Management UI
 ```
 http://localhost:15672
 ```
+**Credenciais:** `saga` / `saga123`
 
-**Credenciais:**
-- **Usuário**: `saga`
-- **Senha**: `saga123`
-
-Você verá a interface de gerenciamento onde poderá monitorar:
+Monitore:
 - **Queues** (filas de mensagens)
 - **Exchanges** (roteadores de mensagens)
 - **Connections** (conexões ativas)
 - **Channels** (canais de comunicação)
 
+#### Jaeger UI (Distributed Tracing)
+```
+http://localhost:16686
+```
+Visualize traces distribuídos das SAGAs end-to-end:
+- Selecione o serviço (ex: `SagaPoc.Api`)
+- Veja a propagação através de todos os serviços
+- Analise latências e bottlenecks
+
+#### Prometheus (Métricas)
+```
+http://localhost:9090
+```
+Execute queries de métricas:
+- `rate(http_server_requests_total[5m])` - Taxa de requisições
+- `histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))` - P95 latência
+
+#### Grafana (Dashboards)
+```
+http://localhost:3000
+```
+**Credenciais:** `admin` / `admin123`
+
+Datasources já configurados:
+- **Prometheus** (métricas)
+- **Jaeger** (traces)
+
+#### API Swagger
+```
+http://localhost:5000
+```
+Documentação interativa da API REST
+
 ### 4. Executar os Serviços
 
-#### Opção 1: Manualmente (6 terminais)
+> **Nota**: Se você executou `docker-compose up -d` no passo 2, os serviços já estão rodando! Pule para a seção de testes.
+
+#### Opção 1: Via Docker Compose (Recomendado - Já configurado)
+
+```bash
+cd docker
+docker-compose up -d
+```
+
+#### Opção 2: Manualmente (6 terminais - Para desenvolvimento local)
 
 ```bash
 # Terminal 1: API
@@ -144,18 +195,20 @@ Ao fazer requisições à API, você poderá ver em tempo real:
 
 ### 7. Parar os Serviços
 
-#### Parar os serviços .NET
-Pressione `Ctrl+C` em cada terminal.
-
-#### Parar o RabbitMQ
+#### Parar toda a stack Docker
 ```bash
+cd docker
 docker-compose down
 ```
 
-#### Limpar volumes do Docker (opcional)
+#### Parar e limpar volumes (remove dados persistidos)
 ```bash
+cd docker
 docker-compose down -v
 ```
+
+#### Parar apenas serviços .NET (se rodando manualmente)
+Pressione `Ctrl+C` em cada terminal.
 
 ---
 
@@ -233,20 +286,20 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 
 ### Documentos Principais
 
-- **[casos-uso.md](docs/casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
-- **[plano-execucao.md](docs/plano-execucao.md)** - Plano de execução em 15 fases
-- **[arquitetura.md](docs/arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
-- **[guia-masstransit.md](docs/guia-masstransit.md)** - Guia de uso do MassTransit
+- **[casos-uso.md](casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
+- **[plano-execucao.md](plano-execucao.md)** - Plano de execução em 15 fases
+- **[arquitetura.md](arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
+- **[guia-masstransit.md](guia-masstransit.md)** - Guia de uso do MassTransit
 
 ### Documentação Operacional (Fase 14)
 
-- **[diagramas-compensacao.md](docs/diagramas-compensacao.md)** - Diagramas detalhados dos fluxos de compensação e estados da SAGA
-- **[runbook-troubleshooting.md](docs/runbook-troubleshooting.md)** - Guia de diagnóstico e resolução de problemas comuns
-- **[boas-praticas.md](docs/boas-praticas.md)** - Guia de boas práticas para implementação e operação de SAGAs
+- **[diagramas-compensacao.md](diagramas-compensacao.md)** - Diagramas detalhados dos fluxos de compensação e estados da SAGA
+- **[runbook-troubleshooting.md](runbook-troubleshooting.md)** - Guia de diagnóstico e resolução de problemas comuns
+- **[boas-praticas.md](boas-praticas.md)** - Guia de boas práticas para implementação e operação de SAGAs
 
 ### Scripts de Teste
 
-- **[docs/scripts/readme-script.md](docs/scripts/readme-script.md)** - Como usar os scripts de teste
+- **[docs/scripts/readme-script.md](scripts/readme-script.md)** - Como usar os scripts de teste
 
 ---
 
@@ -262,13 +315,13 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 - State Machine centralizada (MassTransit)
 - Controle de fluxo e transições de estado
 - Persistência do estado (InMemory para POC)
-- Veja **[Diagramas de Compensação](docs/diagramas-compensacao.md)** para detalhes visuais
+- Veja **[Diagramas de Compensação](diagramas-compensacao.md)** para detalhes visuais
 
 ### 2. Compensações Automáticas
 - Rollback em ordem reversa
 - Idempotência (executar 2x não causa problema)
 - Tratamento de erros estruturado
-- Consulte **[Boas Práticas](docs/boas-praticas.md)** para implementação correta
+- Consulte **[Boas Práticas](boas-praticas.md)** para implementação correta
 
 ### 3. Result Pattern
 - Encapsulamento de sucesso/falha
@@ -283,14 +336,18 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ### Aprenda Mais
 
 Para entender como implementar corretamente cada conceito, consulte:
-- **[Boas Práticas](docs/boas-praticas.md)** - Os 10 mandamentos da SAGA, com exemplos de código
-- **[Diagramas de Compensação](docs/diagramas-compensacao.md)** - Visualização completa dos fluxos
+- **[Boas Práticas](boas-praticas.md)** - Os 10 mandamentos da SAGA, com exemplos de código
+- **[Diagramas de Compensação](diagramas-compensacao.md)** - Visualização completa dos fluxos
 
 ---
 
 ## Observabilidade
 
-### Logs Estruturados (Serilog)
+### Stack Completa Implementada (Fase 12)
+
+A POC inclui observabilidade completa com **OpenTelemetry**, **Jaeger**, **Prometheus** e **Grafana**.
+
+#### 1. **Logs Estruturados (Serilog)**
 
 Cada operação gera logs com:
 - **CorrelationId** (rastreamento end-to-end)
@@ -298,21 +355,72 @@ Cada operação gera logs com:
 - **Compensações executadas**
 - **Timestamps** e métricas
 
-### Rastreamento de SAGA
-
 ```bash
 # Filtrar logs por PedidoId
 grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
 ```
 
-### Ferramentas Recomendadas
+#### 2. **Distributed Tracing (Jaeger + OpenTelemetry)**
 
-- **Seq** - Visualizador de logs estruturados (Serilog)
-- **Jaeger** - Distributed tracing
+- **URL**: http://localhost:16686
+- Rastreamento end-to-end de todas as requisições
+- Propagação de contexto através do RabbitMQ
+- Visualização de latências por serviço
+- Spans customizados para operações críticas
+
+**Exemplo de uso:**
+1. Acesse o Jaeger UI
+2. Selecione o serviço `SagaPoc.Api`
+3. Visualize o trace completo da SAGA
+4. Identifique bottlenecks e falhas
+
+#### 3. **Métricas (Prometheus)**
+
+- **URL**: http://localhost:9090
+- Coleta automática de métricas dos serviços .NET
+- Endpoint `/metrics` exposto em cada serviço
+- Métricas de HTTP, runtime e custom
+
+**Queries úteis:**
+```promql
+# Taxa de requisições por segundo
+rate(http_server_requests_total[5m])
+
+# Duração P95 das requisições
+histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))
+
+# Taxa de erro (status 5xx)
+rate(http_server_requests_total{status=~"5.."}[5m])
+```
+
+#### 4. **Dashboards (Grafana)**
+
+- **URL**: http://localhost:3000 (admin/admin123)
+- Datasources pré-configurados (Prometheus + Jaeger)
+- Crie dashboards personalizados para:
+  - Taxa de sucesso/falha de SAGAs
+  - Duração média das compensações
+  - Throughput do RabbitMQ
+  - Latência por serviço
+
+#### 5. **Métricas do Sistema (Node Exporter)**
+
+- **URL**: http://localhost:9100/metrics
+- CPU, memória, disco e rede do host
+- Integrado ao Prometheus
+
+### Instrumentação Implementada
+
+Todos os serviços incluem:
+- ✅ **AspNetCore Instrumentation** - Traces HTTP automáticos
+- ✅ **HttpClient Instrumentation** - Traces de chamadas externas
+- ✅ **EntityFramework Instrumentation** - Traces de queries SQL
+- ✅ **MassTransit Integration** - Propagação de contexto via mensageria
+- ✅ **Custom Spans** - Para operações de negócio críticas
 
 ### Troubleshooting
 
-Para diagnosticar e resolver problemas comuns, consulte o **[Runbook de Troubleshooting](docs/runbook-troubleshooting.md)** que cobre:
+Para diagnosticar e resolver problemas comuns, consulte o **[Runbook de Troubleshooting](runbook-troubleshooting.md)** que cobre:
 - SAGA travada
 - Mensagens em Dead Letter Queue
 - Compensação falhou
@@ -345,16 +453,18 @@ Esta POC é **educacional**. Para produção, considere:
 - Deduplicação de mensagens por MessageId
 - Armazenamento em Redis/SQL
 
-### 5. Observabilidade
-- OpenTelemetry + Application Insights
-- Métricas e dashboards
+### 5. Observabilidade ✅ **Implementado (Fase 12)**
+- ✅ OpenTelemetry + Jaeger (Distributed Tracing)
+- ✅ Prometheus (Métricas)
+- ✅ Grafana (Dashboards)
+- ⏳ Application Insights (Azure - opcional)
 
 ### 6. Testes
 - Testes de integração automatizados
 - Testes de carga (NBomber)
 - Chaos Engineering
 
-Veja mais detalhes em [plano-execucao.md - Seção 9](docs/plano-execucao.md#9-pr%C3%B3ximos-passos-opcionais---produ%C3%A7%C3%A3o).
+Veja mais detalhes em [plano-execucao.md - Seção 9](plano-execucao.md).
 
 ---
 
@@ -387,4 +497,4 @@ Criado como material educacional sobre padrões de microsserviços.
 - [Chris Richardson](https://microservices.io/patterns/data/saga.html) - Padrão SAGA
 - [Docker](https://www.docker.com/) - Containerização e simplificação de deploy
 
-**Última atualização**: 2026-01-07 - Fase 14 concluída (Documentação Operacional)
+**Última atualização**: 2026-01-07 - Fase 12 concluída (Observabilidade com OpenTelemetry + Docker Compose completo)

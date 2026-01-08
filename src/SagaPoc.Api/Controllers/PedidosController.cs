@@ -1,5 +1,5 @@
-using MassTransit;
 using Microsoft.AspNetCore.Mvc;
+using Rebus.Bus;
 using SagaPoc.Api.DTOs;
 using SagaPoc.Shared.Mensagens.Comandos;
 
@@ -13,7 +13,7 @@ namespace SagaPoc.Api.Controllers;
 [Produces("application/json")]
 public class PedidosController : ControllerBase
 {
-    private readonly IPublishEndpoint? _publishEndpoint;
+    private readonly IBus? _bus;
     private readonly ILogger<PedidosController> _logger;
 
     /// <summary>
@@ -21,9 +21,9 @@ public class PedidosController : ControllerBase
     /// </summary>
     public PedidosController(
         ILogger<PedidosController> logger,
-        IPublishEndpoint? publishEndpoint = null)
+        IBus? bus = null)
     {
-        _publishEndpoint = publishEndpoint;
+        _bus = bus;
         _logger = logger;
     }
 
@@ -50,10 +50,10 @@ public class PedidosController : ControllerBase
             // Gerar ID de correlação único para rastrear a SAGA
             var correlacaoId = Guid.NewGuid();
 
-            // Publicar comando para iniciar a SAGA (se MassTransit estiver configurado)
-            if (_publishEndpoint != null)
+            // Enviar comando para iniciar a SAGA (se Rebus estiver configurado)
+            if (_bus != null)
             {
-                await _publishEndpoint.Publish(new IniciarPedido(
+                await _bus.Send(new IniciarPedido(
                     correlacaoId,
                     request.ClienteId,
                     request.RestauranteId,
@@ -63,13 +63,13 @@ public class PedidosController : ControllerBase
                 ));
 
                 _logger.LogInformation(
-                    "Pedido {PedidoId} publicado com sucesso para processamento",
+                    "Pedido {PedidoId} enviado com sucesso para processamento",
                     correlacaoId);
             }
             else
             {
                 _logger.LogWarning(
-                    "Pedido {PedidoId} criado em modo DEMO - mensagem NÃO foi publicada (RabbitMQ não configurado)",
+                    "Pedido {PedidoId} criado em modo DEMO - mensagem NÃO foi enviada (RabbitMQ não configurado)",
                     correlacaoId);
             }
 

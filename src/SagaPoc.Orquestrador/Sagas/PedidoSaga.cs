@@ -1,4 +1,6 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
+using Rebus.Sagas;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.Shared.Modelos;
@@ -6,382 +8,375 @@ using SagaPoc.Shared.Modelos;
 namespace SagaPoc.Orquestrador.Sagas;
 
 /// <summary>
-/// Máquina de estados que orquestra o processo completo de um pedido de delivery.
-/// Implementa o padrão SAGA orquestrado usando MassTransit.
+/// SAGA que orquestra o processo completo de um pedido de delivery usando Rebus.
+/// Implementa o padrão SAGA orquestrado com compensações.
 /// </summary>
-public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
+public class PedidoSaga : Saga<PedidoSagaData>,
+    IAmInitiatedBy<IniciarPedido>,
+    IHandleMessages<PedidoRestauranteValidado>,
+    IHandleMessages<PagamentoProcessado>,
+    IHandleMessages<EntregadorAlocado>,
+    IHandleMessages<NotificacaoEnviada>,
+    IHandleMessages<PedidoRestauranteCancelado>,
+    IHandleMessages<PagamentoEstornado>,
+    IHandleMessages<EntregadorLiberado>
 {
-    // ==================== Estados ====================
+    private readonly IBus _bus;
+    private readonly ILogger<PedidoSaga> _logger;
 
-    /// <summary>
-    /// Estado: Validando pedido com o restaurante.
-    /// </summary>
-    public State ValidandoRestaurante { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Processando pagamento.
-    /// </summary>
-    public State ProcessandoPagamento { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Alocando entregador.
-    /// </summary>
-    public State AlocandoEntregador { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Notificando cliente.
-    /// </summary>
-    public State NotificandoCliente { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Pedido confirmado com sucesso.
-    /// </summary>
-    public State PedidoConfirmado { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Pedido cancelado (com ou sem compensação).
-    /// </summary>
-    public State PedidoCancelado { get; private set; } = null!;
-
-    /// <summary>
-    /// Estado: Executando compensações.
-    /// </summary>
-    public State ExecutandoCompensacao { get; private set; } = null!;
-
-    // ==================== Eventos ====================
-
-    /// <summary>
-    /// Evento: Iniciar processamento de um novo pedido.
-    /// </summary>
-    public Event<IniciarPedido> IniciarPedido { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Pedido validado pelo restaurante.
-    /// </summary>
-    public Event<PedidoRestauranteValidado> PedidoValidado { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Pagamento processado.
-    /// </summary>
-    public Event<PagamentoProcessado> PagamentoProcessado { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Entregador alocado.
-    /// </summary>
-    public Event<EntregadorAlocado> EntregadorAlocado { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Notificação enviada ao cliente.
-    /// </summary>
-    public Event<NotificacaoEnviada> NotificacaoEnviada { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Pedido cancelado no restaurante (compensação).
-    /// </summary>
-    public Event<PedidoRestauranteCancelado> PedidoCanceladoRestaurante { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Pagamento estornado (compensação).
-    /// </summary>
-    public Event<PagamentoEstornado> PagamentoEstornado { get; private set; } = null!;
-
-    /// <summary>
-    /// Evento: Entregador liberado (compensação).
-    /// </summary>
-    public Event<EntregadorLiberado> EntregadorLiberado { get; private set; } = null!;
-
-    /// <summary>
-    /// Construtor da SAGA. Define a máquina de estados e suas transições.
-    /// </summary>
-    public PedidoSaga()
+    public PedidoSaga(IBus bus, ILogger<PedidoSaga> logger)
     {
-        // Configurar qual propriedade armazena o estado atual
-        InstanceState(x => x.EstadoAtual);
+        _bus = bus;
+        _logger = logger;
+    }
 
-        // ==================== ESTADO INICIAL ====================
+    /// <summary>
+    /// Configura como correlacionar mensagens com instâncias da SAGA.
+    /// </summary>
+    protected override void CorrelateMessages(ICorrelationConfig<PedidoSagaData> config)
+    {
+        // Todas as mensagens são correlacionadas pelo CorrelacaoId
+        config.Correlate<IniciarPedido>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<PedidoRestauranteValidado>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<PagamentoProcessado>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<EntregadorAlocado>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<NotificacaoEnviada>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<PedidoRestauranteCancelado>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<PagamentoEstornado>(m => m.CorrelacaoId, d => d.Id);
+        config.Correlate<EntregadorLiberado>(m => m.CorrelacaoId, d => d.Id);
+    }
 
-        Initially(
-            When(IniciarPedido)
-                .Then(context =>
-                {
-                    // Armazenar dados do pedido no estado da SAGA
-                    context.Saga.ClienteId = context.Message.ClienteId;
-                    context.Saga.RestauranteId = context.Message.RestauranteId;
-                    context.Saga.EnderecoEntrega = context.Message.EnderecoEntrega;
-                    context.Saga.FormaPagamento = context.Message.FormaPagamento;
-                    context.Saga.DataInicio = DateTime.UtcNow;
+    // ==================== HANDLER INICIAL ====================
 
-                    Console.WriteLine($"[SAGA] Iniciando pedido {context.Saga.CorrelationId} - Cliente: {context.Message.ClienteId}");
-                })
-                .TransitionTo(ValidandoRestaurante)
-                .Publish(context => new ValidarPedidoRestaurante(
-                    context.Saga.CorrelationId,
-                    context.Message.RestauranteId,
-                    context.Message.Itens
-                ))
-        );
+    /// <summary>
+    /// Inicia a SAGA quando um novo pedido é criado.
+    /// </summary>
+    public async Task Handle(IniciarPedido message)
+    {
+        if (!IsNew) return; // Evitar duplicação
 
-        // ==================== VALIDAÇÃO DO RESTAURANTE ====================
+        Data.ClienteId = message.ClienteId;
+        Data.RestauranteId = message.RestauranteId;
+        Data.EnderecoEntrega = message.EnderecoEntrega;
+        Data.FormaPagamento = message.FormaPagamento;
+        Data.DataInicio = DateTime.UtcNow;
+        Data.EstadoAtual = "ValidandoRestaurante";
 
-        During(ValidandoRestaurante,
-            When(PedidoValidado)
-                .Then(context =>
-                {
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Validação restaurante: {(context.Message.Valido ? "APROVADO" : "REJEITADO")}");
-                })
-                .IfElse(
-                    context => context.Message.Valido,
-                    // FLUXO DE SUCESSO: Restaurante validou o pedido
-                    aprovado => aprovado
-                        .Then(context =>
-                        {
-                            context.Saga.ValorTotal = context.Message.ValorTotal;
-                            context.Saga.TempoPreparoMinutos = context.Message.TempoPreparoMinutos;
-                            context.Saga.TaxaEntrega = context.Saga.ValorTotal * 0.15m; // 15% de taxa
-                            context.Saga.RestauranteValidado = true; // Marcar para compensação
-                        })
-                        .TransitionTo(ProcessandoPagamento)
-                        .Publish(context => new ProcessarPagamento(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            context.Saga.ValorTotal + context.Saga.TaxaEntrega, // Total + taxa
-                            context.Saga.FormaPagamento
-                        )),
-                    // FLUXO DE FALHA: Restaurante rejeitou o pedido
-                    rejeitado => rejeitado
-                        .Then(context =>
-                        {
-                            context.Saga.MotivoRejeicao = context.Message.MotivoRejeicao;
-                            context.Saga.DataConclusao = DateTime.UtcNow;
+        _logger.LogInformation("[SAGA] Iniciando pedido {PedidoId} - Cliente: {ClienteId}",
+            Data.Id, message.ClienteId);
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Cancelado: {context.Message.MotivoRejeicao}");
-                        })
-                        .TransitionTo(PedidoCancelado)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido cancelado: {context.Message.MotivoRejeicao}",
-                            TipoNotificacao.PedidoCancelado
-                        ))
-                        .Finalize()
-                )
-        );
+        // Enviar comando para validar o pedido no restaurante
+        await _bus.Send(new ValidarPedidoRestaurante(
+            Data.Id,
+            message.RestauranteId,
+            message.Itens
+        ));
+    }
 
-        // ==================== PROCESSAMENTO DO PAGAMENTO ====================
+    // ==================== VALIDAÇÃO DO RESTAURANTE ====================
 
-        During(ProcessandoPagamento,
-            When(PagamentoProcessado)
-                .Then(context =>
-                {
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pagamento: {(context.Message.Sucesso ? "APROVADO" : "REJEITADO")}");
-                })
-                .IfElse(
-                    context => context.Message.Sucesso,
-                    // FLUXO DE SUCESSO: Pagamento aprovado
-                    aprovado => aprovado
-                        .Then(context =>
-                        {
-                            context.Saga.TransacaoId = context.Message.TransacaoId;
-                            context.Saga.PagamentoProcessado = true; // Marcar para compensação
-                        })
-                        .TransitionTo(AlocandoEntregador)
-                        .Publish(context => new AlocarEntregador(
-                            context.Saga.CorrelationId,
-                            context.Saga.RestauranteId,
-                            context.Saga.EnderecoEntrega,
-                            context.Saga.TaxaEntrega
-                        )),
-                    // FLUXO DE FALHA: Pagamento recusado - Compensar Restaurante
-                    recusado => recusado
-                        .Then(context =>
-                        {
-                            context.Saga.MensagemErro = context.Message.MotivoFalha;
-                            context.Saga.EmCompensacao = true;
-                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
+    /// <summary>
+    /// Processa a resposta da validação do restaurante.
+    /// </summary>
+    public async Task Handle(PedidoRestauranteValidado message)
+    {
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Validação restaurante: {Status}",
+            Data.Id, message.Valido ? "APROVADO" : "REJEITADO");
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO INICIADA");
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Motivo: {context.Message.MotivoFalha}");
-                        })
-                        .TransitionTo(ExecutandoCompensacao)
-                        .If(context => context.Saga.RestauranteValidado, // Só compensa se validou
-                            compensa => compensa
-                                .Publish(context => new CancelarPedidoRestaurante(
-                                    context.Saga.CorrelationId,
-                                    context.Saga.RestauranteId,
-                                    context.Saga.CorrelationId
-                                ))
-                        )
-                )
-        );
+        if (message.Valido)
+        {
+            // FLUXO DE SUCESSO: Restaurante validou o pedido
+            Data.ValorTotal = message.ValorTotal;
+            Data.TempoPreparoMinutos = message.TempoPreparoMinutos;
+            Data.TaxaEntrega = Data.ValorTotal * 0.15m; // 15% de taxa
+            Data.RestauranteValidado = true; // Marcar para possível compensação
+            Data.EstadoAtual = "ProcessandoPagamento";
 
-        // ==================== ALOCAÇÃO DO ENTREGADOR ====================
+            // Enviar comando para processar o pagamento
+            await _bus.Send(new ProcessarPagamento(
+                Data.Id,
+                Data.ClienteId,
+                Data.ValorTotal + Data.TaxaEntrega,
+                Data.FormaPagamento
+            ));
+        }
+        else
+        {
+            // FLUXO DE FALHA: Restaurante rejeitou o pedido
+            Data.MotivoRejeicao = message.MotivoRejeicao;
+            Data.DataConclusao = DateTime.UtcNow;
+            Data.EstadoAtual = "Cancelado";
 
-        During(AlocandoEntregador,
-            When(EntregadorAlocado)
-                .Then(context =>
-                {
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador: {(context.Message.Alocado ? "ALOCADO" : "INDISPONÍVEL")}");
-                })
-                .IfElse(
-                    context => context.Message.Alocado,
-                    // FLUXO DE SUCESSO: Entregador alocado
-                    alocado => alocado
-                        .Then(context =>
-                        {
-                            context.Saga.EntregadorId = context.Message.EntregadorId;
-                            context.Saga.TempoEntregaMinutos = context.Message.TempoEstimadoMinutos;
-                            context.Saga.EntregadorAlocado = true; // Marcar para compensação
+            _logger.LogWarning("[SAGA] Pedido {PedidoId} - Cancelado: {Motivo}",
+                Data.Id, message.MotivoRejeicao);
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador {context.Message.EntregadorId} alocado com sucesso!");
-                        })
-                        .TransitionTo(NotificandoCliente)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido confirmado! Entregador {context.Message.EntregadorId} a caminho. Tempo estimado: {context.Saga.TempoPreparoMinutos + context.Saga.TempoEntregaMinutos} minutos.",
-                            TipoNotificacao.PedidoConfirmado
-                        )),
-                    // FLUXO DE FALHA: Sem entregadores - Compensar TUDO (Pagamento + Restaurante)
-                    semEntregador => semEntregador
-                        .Then(context =>
-                        {
-                            context.Saga.MensagemErro = context.Message.MotivoFalha;
-                            context.Saga.EmCompensacao = true;
-                            context.Saga.DataInicioCompensacao = DateTime.UtcNow;
+            // Notificar cliente do cancelamento
+            await _bus.Send(new NotificarCliente(
+                Data.Id,
+                Data.ClienteId,
+                $"Pedido cancelado: {message.MotivoRejeicao}",
+                TipoNotificacao.PedidoCancelado
+            ));
 
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO TOTAL INICIADA");
-                            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Compensando: Pagamento + Restaurante");
-                        })
-                        .TransitionTo(ExecutandoCompensacao)
-                        // Compensação em ORDEM REVERSA
-                        // 1. Estornar pagamento
-                        .If(context => context.Saga.PagamentoProcessado,
-                            estorna => estorna
-                                .Publish(context => new EstornarPagamento(
-                                    context.Saga.CorrelationId,
-                                    context.Saga.TransacaoId!
-                                ))
-                        )
-                        // 2. Cancelar no restaurante
-                        .If(context => context.Saga.RestauranteValidado,
-                            cancela => cancela
-                                .Publish(context => new CancelarPedidoRestaurante(
-                                    context.Saga.CorrelationId,
-                                    context.Saga.RestauranteId,
-                                    context.Saga.CorrelationId
-                                ))
-                        )
-                )
-        );
+            // Marcar SAGA como completa
+            MarkAsComplete();
+        }
+    }
 
-        // ==================== NOTIFICAÇÃO AO CLIENTE ====================
+    // ==================== PROCESSAMENTO DO PAGAMENTO ====================
 
-        During(NotificandoCliente,
-            When(NotificacaoEnviada)
-                .Then(context =>
-                {
-                    context.Saga.DataConclusao = DateTime.UtcNow;
-                    var tempoTotal = (context.Saga.DataConclusao.Value - context.Saga.DataInicio).TotalSeconds;
+    /// <summary>
+    /// Processa a resposta do processamento de pagamento.
+    /// </summary>
+    public async Task Handle(PagamentoProcessado message)
+    {
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Pagamento: {Status}",
+            Data.Id, message.Sucesso ? "APROVADO" : "REJEITADO");
 
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - CONCLUÍDO COM SUCESSO!");
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Tempo total de processamento: {tempoTotal:F2}s");
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Tempo estimado de entrega: {context.Saga.TempoPreparoMinutos + context.Saga.TempoEntregaMinutos} minutos");
-                })
-                .TransitionTo(PedidoConfirmado)
-                .Finalize()
-        );
+        if (message.Sucesso)
+        {
+            // FLUXO DE SUCESSO: Pagamento aprovado
+            Data.TransacaoId = message.TransacaoId;
+            Data.PagamentoProcessado = true; // Marcar para possível compensação
+            Data.EstadoAtual = "AlocandoEntregador";
 
-        // ==================== TRATAMENTO DE EVENTOS DE COMPENSAÇÃO ====================
+            // Enviar comando para alocar entregador
+            await _bus.Send(new AlocarEntregador(
+                Data.Id,
+                Data.RestauranteId,
+                Data.EnderecoEntrega,
+                Data.TaxaEntrega
+            ));
+        }
+        else
+        {
+            // FLUXO DE FALHA: Pagamento recusado - Iniciar compensação
+            await IniciarCompensacao(message.MotivoFalha);
 
-        During(ExecutandoCompensacao,
-            When(PagamentoEstornado)
-                .Then(context =>
-                {
-                    context.Saga.PassosCompensados.Add($"PagamentoEstornado:{DateTime.UtcNow}");
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pagamento estornado com sucesso");
-                })
-                .ThenAsync(async context =>
-                {
-                    await FinalizarCompensacaoSeCompleta(context);
-                }),
+            // Compensar: Cancelar pedido no restaurante (se foi validado)
+            if (Data.RestauranteValidado)
+            {
+                await _bus.Send(new CancelarPedidoRestaurante(
+                    Data.Id,
+                    Data.RestauranteId,
+                    Data.Id
+                ));
+            }
+            else
+            {
+                // Se não houve nada para compensar, finalizar
+                await FinalizarCompensacao("Pagamento recusado");
+            }
+        }
+    }
 
-            When(PedidoCanceladoRestaurante)
-                .Then(context =>
-                {
-                    context.Saga.PassosCompensados.Add($"RestauranteCancelado:{DateTime.UtcNow}");
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Pedido cancelado no restaurante");
-                })
-                .ThenAsync(async context =>
-                {
-                    await FinalizarCompensacaoSeCompleta(context);
-                }),
+    // ==================== ALOCAÇÃO DO ENTREGADOR ====================
 
-            When(EntregadorLiberado)
-                .Then(context =>
-                {
-                    context.Saga.PassosCompensados.Add($"EntregadorLiberado:{DateTime.UtcNow}");
-                    Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Entregador liberado");
-                })
-                .ThenAsync(async context =>
-                {
-                    await FinalizarCompensacaoSeCompleta(context);
-                })
-        );
+    /// <summary>
+    /// Processa a resposta da alocação de entregador.
+    /// </summary>
+    public async Task Handle(EntregadorAlocado message)
+    {
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Entregador: {Status}",
+            Data.Id, message.Alocado ? "ALOCADO" : "INDISPONÍVEL");
 
-        // ==================== CONFIGURAÇÕES ADICIONAIS ====================
+        if (message.Alocado)
+        {
+            // FLUXO DE SUCESSO: Entregador alocado
+            Data.EntregadorId = message.EntregadorId;
+            Data.TempoEntregaMinutos = message.TempoEstimadoMinutos;
+            Data.EntregadorAlocado = true; // Marcar para possível compensação
+            Data.EstadoAtual = "NotificandoCliente";
 
-        // Configurar o que acontece quando a SAGA é finalizada
-        SetCompletedWhenFinalized();
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - Entregador {EntregadorId} alocado com sucesso!",
+                Data.Id, message.EntregadorId);
+
+            // Enviar notificação ao cliente
+            await _bus.Send(new NotificarCliente(
+                Data.Id,
+                Data.ClienteId,
+                $"Pedido confirmado! Entregador {message.EntregadorId} a caminho. Tempo estimado: {Data.TempoPreparoMinutos + Data.TempoEntregaMinutos} minutos.",
+                TipoNotificacao.PedidoConfirmado
+            ));
+        }
+        else
+        {
+            // FLUXO DE FALHA: Sem entregadores - Compensar TUDO (Pagamento + Restaurante)
+            await IniciarCompensacao(message.MotivoFalha);
+
+            // Compensações em ORDEM REVERSA
+
+            // 1. Estornar pagamento (se foi processado)
+            if (Data.PagamentoProcessado && !string.IsNullOrEmpty(Data.TransacaoId))
+            {
+                await _bus.Send(new EstornarPagamento(
+                    Data.Id,
+                    Data.TransacaoId
+                ));
+            }
+
+            // 2. Cancelar no restaurante (se foi validado)
+            if (Data.RestauranteValidado)
+            {
+                await _bus.Send(new CancelarPedidoRestaurante(
+                    Data.Id,
+                    Data.RestauranteId,
+                    Data.Id
+                ));
+            }
+
+            // Se não havia nada para compensar
+            if (!Data.PagamentoProcessado && !Data.RestauranteValidado)
+            {
+                await FinalizarCompensacao("Entregador indisponível");
+            }
+        }
+    }
+
+    // ==================== NOTIFICAÇÃO AO CLIENTE ====================
+
+    /// <summary>
+    /// Processa a confirmação de envio de notificação.
+    /// </summary>
+    public async Task Handle(NotificacaoEnviada message)
+    {
+        if (Data.EstadoAtual == "NotificandoCliente")
+        {
+            // Pedido concluído com sucesso!
+            Data.DataConclusao = DateTime.UtcNow;
+            Data.EstadoAtual = "Concluido";
+
+            var tempoTotal = (Data.DataConclusao.Value - Data.DataInicio).TotalSeconds;
+
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - CONCLUÍDO COM SUCESSO!", Data.Id);
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - Tempo total: {Tempo:F2}s", Data.Id, tempoTotal);
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - Tempo estimado entrega: {Minutos} minutos",
+                Data.Id, Data.TempoPreparoMinutos + Data.TempoEntregaMinutos);
+
+            MarkAsComplete();
+        }
+        // Se estiver em compensação, a notificação já foi tratada
+    }
+
+    // ==================== HANDLERS DE COMPENSAÇÃO ====================
+
+    /// <summary>
+    /// Processa a confirmação de cancelamento no restaurante.
+    /// </summary>
+    public async Task Handle(PedidoRestauranteCancelado message)
+    {
+        Data.PassosCompensados.Add($"RestauranteCancelado:{DateTime.UtcNow}");
+
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Pedido cancelado no restaurante", Data.Id);
+
+        await VerificarSeCompensacaoCompleta();
+    }
+
+    /// <summary>
+    /// Processa a confirmação de estorno de pagamento.
+    /// </summary>
+    public async Task Handle(PagamentoEstornado message)
+    {
+        Data.PassosCompensados.Add($"PagamentoEstornado:{DateTime.UtcNow}");
+
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Pagamento estornado com sucesso", Data.Id);
+
+        await VerificarSeCompensacaoCompleta();
+    }
+
+    /// <summary>
+    /// Processa a confirmação de liberação de entregador.
+    /// </summary>
+    public async Task Handle(EntregadorLiberado message)
+    {
+        Data.PassosCompensados.Add($"EntregadorLiberado:{DateTime.UtcNow}");
+
+        _logger.LogInformation("[SAGA] Pedido {PedidoId} - Entregador liberado", Data.Id);
+
+        await VerificarSeCompensacaoCompleta();
+    }
+
+    // ==================== MÉTODOS AUXILIARES ====================
+
+    /// <summary>
+    /// Inicia o processo de compensação.
+    /// </summary>
+    private async Task IniciarCompensacao(string? motivo)
+    {
+        Data.MensagemErro = motivo;
+        Data.EmCompensacao = true;
+        Data.DataInicioCompensacao = DateTime.UtcNow;
+        Data.EstadoAtual = "ExecutandoCompensacao";
+
+        _logger.LogWarning("[SAGA] Pedido {PedidoId} - COMPENSAÇÃO INICIADA", Data.Id);
+        _logger.LogWarning("[SAGA] Pedido {PedidoId} - Motivo: {Motivo}", Data.Id, motivo);
+
+        await Task.CompletedTask;
     }
 
     /// <summary>
     /// Verifica se todas as compensações necessárias foram executadas e finaliza a SAGA.
     /// </summary>
-    private async Task FinalizarCompensacaoSeCompleta<T>(BehaviorContext<EstadoPedido, T> context)
-        where T : class
+    private async Task VerificarSeCompensacaoCompleta()
     {
+        if (!Data.EmCompensacao)
+            return;
+
         // Verificar se todas as compensações necessárias foram executadas
         var todasCompensadas = true;
 
-        if (context.Saga.PagamentoProcessado &&
-            !context.Saga.PassosCompensados.Any(p => p.StartsWith("PagamentoEstornado")))
+        if (Data.PagamentoProcessado &&
+            !Data.PassosCompensados.Any(p => p.StartsWith("PagamentoEstornado")))
         {
             todasCompensadas = false;
         }
 
-        if (context.Saga.RestauranteValidado &&
-            !context.Saga.PassosCompensados.Any(p => p.StartsWith("RestauranteCancelado")))
+        if (Data.RestauranteValidado &&
+            !Data.PassosCompensados.Any(p => p.StartsWith("RestauranteCancelado")))
         {
             todasCompensadas = false;
         }
 
-        if (context.Saga.EntregadorAlocado &&
-            !context.Saga.PassosCompensados.Any(p => p.StartsWith("EntregadorLiberado")))
+        if (Data.EntregadorAlocado &&
+            !Data.PassosCompensados.Any(p => p.StartsWith("EntregadorLiberado")))
         {
             todasCompensadas = false;
         }
 
         if (todasCompensadas)
         {
-            context.Saga.DataConclusaoCompensacao = DateTime.UtcNow;
-            context.Saga.DataConclusao = DateTime.UtcNow;
-
-            var duracao = (context.Saga.DataConclusaoCompensacao.Value -
-                          context.Saga.DataInicioCompensacao!.Value).TotalSeconds;
-
-            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - COMPENSAÇÃO CONCLUÍDA ({duracao:F2}s)");
-            Console.WriteLine($"[SAGA] Pedido {context.Saga.CorrelationId} - Passos compensados: {context.Saga.PassosCompensados.Count}");
-
-            // Notificar cliente
-            await context.Publish(new NotificarCliente(
-                context.Saga.CorrelationId,
-                context.Saga.ClienteId,
-                $"Pedido cancelado: {context.Saga.MensagemErro}. Todos os valores foram estornados.",
-                TipoNotificacao.PedidoCancelado
-            ));
-
-            // Finalizar SAGA
-            context.SetCompleted();
+            await FinalizarCompensacao(Data.MensagemErro);
         }
+    }
+
+    /// <summary>
+    /// Finaliza o processo de compensação e marca a SAGA como completa.
+    /// </summary>
+    private async Task FinalizarCompensacao(string? motivo)
+    {
+        Data.DataConclusaoCompensacao = DateTime.UtcNow;
+        Data.DataConclusao = DateTime.UtcNow;
+        Data.EstadoAtual = "Cancelado";
+
+        if (Data.DataInicioCompensacao.HasValue)
+        {
+            var duracao = (Data.DataConclusaoCompensacao.Value - Data.DataInicioCompensacao.Value).TotalSeconds;
+
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - COMPENSAÇÃO CONCLUÍDA ({Duracao:F2}s)",
+                Data.Id, duracao);
+            _logger.LogInformation("[SAGA] Pedido {PedidoId} - Passos compensados: {Total}",
+                Data.Id, Data.PassosCompensados.Count);
+        }
+
+        // Notificar cliente sobre o cancelamento
+        await _bus.Send(new NotificarCliente(
+            Data.Id,
+            Data.ClienteId,
+            $"Pedido cancelado: {motivo}. Todos os valores foram estornados.",
+            TipoNotificacao.PedidoCancelado
+        ));
+
+        // Marcar SAGA como completa
+        MarkAsComplete();
     }
 }

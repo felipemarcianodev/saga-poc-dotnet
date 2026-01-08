@@ -569,7 +569,13 @@ cfg.UseCircuitBreaker(cb =>
 
 ## Observabilidade
 
-### Logging Estruturado (Serilog)
+### Stack Completa Implementada (Fase 12)
+
+A POC implementa observabilidade completa usando **OpenTelemetry**, **Jaeger**, **Prometheus** e **Grafana**.
+
+---
+
+### 1. Logging Estruturado (Serilog)
 
 **Configuração**:
 ```csharp
@@ -606,23 +612,280 @@ Log.Logger = new LoggerConfiguration()
 
 ---
 
-### Rastreamento Distribuído (Distributed Tracing)
+### 2. Distributed Tracing (OpenTelemetry + Jaeger)
 
-**Ferramentas Recomendadas**:
-- **OpenTelemetry** + Application Insights
-- **Jaeger**
-- **Zipkin**
+**Configuração OpenTelemetry**:
+```csharp
+// SagaPoc.Observability/OpenTelemetryExtensions.cs
+services.AddOpenTelemetry()
+    .ConfigureResource(r => r
+        .AddService(serviceName, serviceVersion)
+        .AddTelemetrySdk())
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddEntityFrameworkCoreInstrumentation()
+            .AddSource("SagaPoc.*")
+            .AddSource("MassTransit")
+            .AddJaegerExporter();
+    })
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddPrometheusExporter());
+```
+
+**URL Jaeger UI**: http://localhost:16686
 
 **Trace de uma SAGA completa**:
 ```
-[Trace: a1b2c3d4]
-├── [Span] POST /api/pedidos (75ms)
-├── [Span] ValidarPedidoRestaurante (150ms)
-├── [Span] ProcessarPagamento (450ms)
-├── [Span] AlocarEntregador (220ms)
-└── [Span] NotificarCliente (80ms)
-Total: 975ms
+[Trace: a1b2c3d4-e5f6-7890-abcd-ef1234567890]
+├── [Span] SagaPoc.Api: POST /api/pedidos (75ms)
+│   └── Tags: http.method=POST, http.status_code=202
+├── [Span] SagaPoc.Orquestrador: ValidarPedidoRestaurante (150ms)
+│   ├── Tags: saga.correlation_id, saga.state=ValidandoRestaurante
+│   └── [Span] RabbitMQ: Publish (ValidarPedidoRestaurante)
+├── [Span] SagaPoc.ServicoRestaurante: ValidarPedidoConsumer (120ms)
+│   └── Tags: restaurante.id=REST001, valor_total=45.90
+├── [Span] SagaPoc.Orquestrador: ProcessarPagamento (450ms)
+│   └── [Span] RabbitMQ: Publish (ProcessarPagamento)
+├── [Span] SagaPoc.ServicoPagamento: ProcessarPagamentoConsumer (400ms)
+│   └── Tags: transacao.id=TXN_abc123, payment.approved=true
+├── [Span] SagaPoc.Orquestrador: AlocarEntregador (220ms)
+│   └── [Span] RabbitMQ: Publish (AlocarEntregador)
+├── [Span] SagaPoc.ServicoEntregador: AlocarEntregadorConsumer (180ms)
+│   └── Tags: entregador.id=ENT001, tempo_estimado=25min
+└── [Span] SagaPoc.ServicoNotificacao: NotificarClienteConsumer (80ms)
+    └── Tags: notification.type=PedidoConfirmado, notification.sent=true
+
+Total Trace Duration: 1075ms
 ```
+
+**Propagação de Contexto**:
+- Propagação automática através do RabbitMQ via MassTransit
+- Header `traceparent` incluído em todas as mensagens
+- W3C Trace Context padrão
+
+---
+
+### 3. Métricas (Prometheus)
+
+**URL Prometheus**: http://localhost:9090
+
+**Endpoint de Métricas**: http://localhost:5000/metrics (cada serviço expõe)
+
+**Configuração do Prometheus** (`docker/infra/prometheus/prometheus.yml`):
+```yaml
+scrape_configs:
+  - job_name: 'saga-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['saga-api:8080']
+```
+
+**Métricas Coletadas Automaticamente**:
+
+#### HTTP Metrics:
+```promql
+# Taxa de requisições por segundo
+rate(http_server_requests_total[5m])
+
+# Duração P50, P90, P95, P99
+histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))
+
+# Taxa de erro (status 5xx)
+rate(http_server_requests_total{status=~"5.."}[5m])
+
+# Requisições por endpoint
+sum by (endpoint) (rate(http_server_requests_total[5m]))
+```
+
+#### Runtime Metrics:
+```promql
+# Uso de memória
+dotnet_total_memory_bytes
+
+# GC Collections
+rate(dotnet_collection_count_total[5m])
+
+# Thread pool
+dotnet_threadpool_num_threads
+```
+
+#### Custom Metrics (MassTransit):
+```promql
+# Mensagens publicadas/consumidas
+rate(mt_publish_total[5m])
+rate(mt_consume_total[5m])
+
+# Falhas de consumo
+rate(mt_consume_fault_total[5m])
+
+# Duração de processamento de mensagens
+histogram_quantile(0.95, rate(mt_consume_duration_seconds_bucket[5m]))
+```
+
+---
+
+### 4. Dashboards (Grafana)
+
+**URL Grafana**: http://localhost:3000 (admin/admin123)
+
+**Datasources Configurados**:
+- ✅ Prometheus (http://prometheus:9090)
+- ✅ Jaeger (http://jaeger:16686)
+
+**Dashboards Sugeridos**:
+
+#### Dashboard 1: Visão Geral da SAGA
+- Taxa de SAGAs iniciadas vs concluídas (por minuto)
+- Taxa de sucesso vs falha (%)
+- Duração P50/P95/P99 das SAGAs
+- Taxa de compensações executadas
+
+#### Dashboard 2: Saúde dos Serviços
+- Latência por serviço (P95)
+- Taxa de erro por serviço
+- Throughput (req/s)
+- Taxa de disponibilidade (uptime)
+
+#### Dashboard 3: RabbitMQ
+- Mensagens na fila por serviço
+- Taxa de publicação/consumo
+- Mensagens não confirmadas (unacked)
+- Dead Letter Queue
+
+#### Dashboard 4: Sistema
+- CPU usage por container
+- Memória usage por container
+- Disk I/O
+- Network traffic
+
+**Painel de Exemplo (Grafana Query)**:
+```promql
+# Taxa de sucesso de SAGAs (últimas 5min)
+sum(rate(http_server_requests_total{endpoint="/api/pedidos",status="202"}[5m]))
+/
+sum(rate(http_server_requests_total{endpoint="/api/pedidos"}[5m]))
+* 100
+```
+
+---
+
+### 5. Instrumentação Customizada
+
+**Criar Spans Manualmente**:
+```csharp
+using System.Diagnostics;
+
+public class ServicoRestaurante
+{
+    private static readonly ActivitySource ActivitySource = new("SagaPoc.ServicoRestaurante");
+
+    public async Task<Resultado<DadosValidacaoPedido>> ValidarPedidoAsync(
+        string restauranteId,
+        List<ItemPedido> itens)
+    {
+        using var activity = ActivitySource.StartActivity("ValidarPedidoRestaurante");
+        activity?.SetTag("restaurante.id", restauranteId);
+        activity?.SetTag("itens.count", itens.Count);
+
+        try
+        {
+            var resultado = await ValidarAsync(restauranteId, itens);
+
+            activity?.SetTag("resultado.sucesso", resultado.EhSucesso);
+            activity?.SetTag("valor_total", resultado.Valor?.ValorTotal);
+
+            if (resultado.EhFalha)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error, resultado.Erro.Mensagem);
+            }
+
+            return resultado;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+            throw;
+        }
+    }
+}
+```
+
+**Tags Customizadas Úteis**:
+- `saga.correlation_id` - ID da SAGA
+- `saga.state` - Estado atual
+- `compensacao.executada` - Se compensação foi executada
+- `restaurante.id`, `cliente.id`, `entregador.id` - IDs de negócio
+- `transaction.id` - ID da transação de pagamento
+
+---
+
+### 6. Configuração nos Serviços
+
+**Todos os serviços .NET estão configurados**:
+
+#### API (SagaPoc.Api/Program.cs):
+```csharp
+builder.Services.AddSagaOpenTelemetry(
+    builder.Configuration,
+    serviceName: "SagaPoc.Api",
+    serviceVersion: "1.0.0"
+);
+
+// ...
+
+app.UseSagaOpenTelemetry(); // Expõe endpoint /metrics
+```
+
+#### Workers (Orquestrador, Serviços):
+```csharp
+builder.AddSagaOpenTelemetryForHost(
+    serviceName: "SagaPoc.Orquestrador",
+    serviceVersion: "1.0.0"
+);
+```
+
+**Configuração via appsettings.json**:
+```json
+{
+  "Jaeger": {
+    "Enabled": true,
+    "AgentHost": "jaeger",
+    "AgentPort": 6831,
+    "Endpoint": "http://jaeger:14268/api/traces"
+  }
+}
+```
+
+---
+
+### 7. Stack Docker Completa
+
+**docker-compose.yml** inclui:
+- ✅ Jaeger (all-in-one)
+- ✅ Prometheus
+- ✅ Grafana (com datasources pré-configurados)
+- ✅ Node Exporter
+- ✅ RabbitMQ
+- ✅ Todos os 6 serviços .NET
+
+**Iniciar toda a stack**:
+```bash
+cd docker
+docker-compose up -d
+```
+
+**URLs de Acesso**:
+- Jaeger: http://localhost:16686
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 (admin/admin123)
+- RabbitMQ: http://localhost:15672 (saga/saga123)
+- API: http://localhost:5000
 
 ---
 
@@ -686,5 +949,6 @@ Configurar RabbitMQ com persistência criptografada usando plugins.
 ---
 
 **Documento criado em**: 2026-01-07
-**Versão**: 1.0
+**Versão**: 1.1
+**Última atualização**: 2026-01-07 - Fase 12 concluída (Observabilidade)
 **Status**: Completo

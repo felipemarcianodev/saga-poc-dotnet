@@ -1,15 +1,15 @@
-# Plano de Execução - POC SAGA Pattern com MassTransit e RabbitMQ
+# Plano de Execução - POC SAGA Pattern com Rebus e RabbitMQ
 
 ## 1. Visão Geral do Projeto
 
 ### 1.1 Objetivo
-Criar uma Proof of Concept (POC) demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **MassTransit** e **RabbitMQ** para comunicação entre microsserviços, aplicando o **Result Pattern** para tratamento de resultados.
+Criar uma Proof of Concept (POC) demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **Rebus** e **RabbitMQ** para comunicação entre microsserviços, aplicando o **Result Pattern** para tratamento de resultados.
 
 ### 1.2 Escopo
 - **Domínio**: Sistema de Delivery de Comida
 - **Padrões**: SAGA Orquestrado + Result Pattern
 - **Arquitetura**: Microsserviços com mensageria
-- **Mensageria**: MassTransit + RabbitMQ (Open Source)
+- **Mensageria**: Rebus + RabbitMQ (Open Source)
 - **Linguagem**: C# (.NET 9.0)
 - **Idioma**: Português (código, documentação, tudo)
 - **Casos de Uso**: Mínimo 10 cenários com compensações
@@ -20,11 +20,11 @@ saga-poc-dotnet/
 ├── docs/
 │   ├── plano-execucao.md
 │   ├── ARQUITETURA.md
-│   ├── MASSTRANSIT-GUIDE.md
+│   ├── REBUS-GUIDE.md
 │   └── CASOS-DE-USO.md
 ├── src/
 │   ├── SagaPoc.Shared/          # Result Pattern, Mensagens, DTOs
-│   ├── SagaPoc.Orquestrador/           # SAGA State Machine (MassTransit)
+│   ├── SagaPoc.Orquestrador/           # SAGA State Machine (Rebus)
 │   ├── SagaPoc.ServicoRestaurante/     # Serviço de Validação de Restaurante
 │   ├── SagaPoc.ServicoPagamento/       # Serviço de Processamento de Pagamento
 │   ├── SagaPoc.ServicoEntregador/      # Serviço de Alocação de Entregador
@@ -55,7 +55,7 @@ Se FALHA em qualquer etapa → Compensações em ordem reversa
 
 ### 2.2 Componentes
 
-#### 2.2.1 MassTransit
+#### 2.2.1 Rebus
 - **State Machine**: Orquestração da SAGA
 - **Consumers**: Manipuladores de mensagens em cada serviço
 - **Saga Repository**: Persistência do estado da SAGA (In-Memory para POC)
@@ -211,13 +211,12 @@ public enum StatusPedido
 #### 3.1.3 Pacotes NuGet Necessários
 ```xml
 <!-- Todos os projetos -->
-<PackageReference Include="MassTransit" Version="8.1.3" />
+<PackageReference Include="Rebus" Version="8.4.4" />
+<PackageReference Include="Rebus.RabbitMq" Version="10.1.1" />
+<PackageReference Include="Rebus.ServiceProvider" Version="9.0.2" />
 
-<!-- Orquestrador -->
-<PackageReference Include="MassTransit.StateMachine" Version="8.1.3" />
-
-<!-- API -->
-<PackageReference Include="MassTransit.AspNetCore" Version="8.1.3" />
+<!-- Orquestrador (para Sagas) -->
+<PackageReference Include="Rebus.Persistence.InMem" Version="3.0.0" />
 
 <!-- Logging -->
 <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
@@ -232,10 +231,10 @@ public enum StatusPedido
 
 ---
 
-### **FASE 2: Configuração MassTransit + RabbitMQ**
+### **FASE 2: Configuração Rebus + RabbitMQ**
 
 #### 3.2.1 Objetivos
-- Configurar MassTransit em todos os serviços
+- Configurar Rebus em todos os serviços
 - Configurar RabbitMQ (host, username, password em appsettings)
 - Implementar health checks
 
@@ -243,43 +242,30 @@ public enum StatusPedido
 
 ##### 1. **Configuração Base (Cada Serviço)**
 ```csharp
-services.AddMassTransit(x =>
-{
-    // Registrar consumers
-    x.AddConsumer<ValidarPedidoRestauranteConsumer>();
+// Program.cs ou Startup.cs
+services.AddRebus(configure => configure
+    .Logging(l => l.Serilog())
+    .Transport(t => t.UseRabbitMq(
+        $"amqp://{configuration["RabbitMQ:Username"]}:{configuration["RabbitMQ:Password"]}@{configuration["RabbitMQ:Host"]}",
+        "fila-restaurante"))
+    .Routing(r => r.TypeBased()
+        .MapAssemblyOf<ValidarPedidoRestaurante>("fila-restaurante"))
+);
 
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
-        {
-            h.Username(configuration["RabbitMQ:Username"]!);
-            h.Password(configuration["RabbitMQ:Password"]!);
-        });
-
-        cfg.ReceiveEndpoint("fila-restaurante", e =>
-        {
-            e.ConfigureConsumer<ValidarPedidoRestauranteConsumer>(context);
-        });
-    });
-});
+// Registrar handlers automaticamente
+services.AutoRegisterHandlersFromAssemblyOf<ValidarPedidoRestauranteHandler>();
 ```
 
 ##### 2. **Configuração da API**
 ```csharp
-services.AddMassTransit(x =>
-{
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.Host(configuration["RabbitMQ:Host"], "/", h =>
-        {
-            h.Username(configuration["RabbitMQ:Username"]!);
-            h.Password(configuration["RabbitMQ:Password"]!);
-        });
-    });
-});
-
-// Request Client para iniciar SAGA
-services.AddScoped<IRequestClient<IniciarPedido>>();
+// Program.cs - API apenas publica mensagens, não consome
+services.AddRebus(configure => configure
+    .Logging(l => l.Serilog())
+    .Transport(t => t.UseRabbitMqAsOneWayClient(
+        $"amqp://{configuration["RabbitMQ:Username"]}:{configuration["RabbitMQ:Password"]}@{configuration["RabbitMQ:Host"]}"))
+    .Routing(r => r.TypeBased()
+        .Map<IniciarPedido>("fila-orquestrador"))
+);
 ```
 
 ##### 3. **appsettings.json**
@@ -321,21 +307,25 @@ services:
 
 ---
 
-### **FASE 3: Implementação da SAGA State Machine**
+### **FASE 3: Implementação da SAGA com Rebus**
+
+> **NOTA**: Rebus não usa State Machines como MassTransit. Em vez disso, usa o padrão Saga Data + Message Handlers.
 
 #### 3.3.1 Objetivos
-- Criar State Machine no projeto Orquestrador
-- Definir estados e eventos da SAGA
+- Criar Saga Data para armazenar estado do pedido
+- Implementar handlers para cada etapa da SAGA
 - Implementar fluxo de compensação
 
 #### 3.3.2 Entregas
 
-##### 1. **Estado da SAGA**
+##### 1. **Saga Data (Estado da SAGA)**
 ```csharp
-public class EstadoPedido : SagaStateMachineInstance
+public class PedidoSagaData : ISagaData
 {
-    public Guid CorrelationId { get; set; }
-    public string EstadoAtual { get; set; }
+    public Guid Id { get; set; }  // Requerido pelo Rebus
+    public int Revision { get; set; }  // Requerido pelo Rebus
+
+    public string EstadoAtual { get; set; } = "Iniciado";
 
     // Dados do Pedido
     public string ClienteId { get; set; }
@@ -358,137 +348,166 @@ public class EstadoPedido : SagaStateMachineInstance
 }
 ```
 
-##### 2. **State Machine**
+##### 2. **Implementação da Saga**
 ```csharp
-public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
+public class PedidoSaga : Saga<PedidoSagaData>,
+    IAmInitiatedBy<IniciarPedido>,
+    IHandleMessages<PedidoRestauranteValidado>,
+    IHandleMessages<PagamentoProcessado>,
+    IHandleMessages<EntregadorAlocado>,
+    IHandleMessages<NotificacaoEnviada>,
+    IHandleMessages<RestauranteFalhou>,
+    IHandleMessages<PagamentoFalhou>
 {
-    // Estados
-    public State ValidandoRestaurante { get; private set; }
-    public State ProcessandoPagamento { get; private set; }
-    public State AlocandoEntregador { get; private set; }
-    public State NotificandoCliente { get; private set; }
-    public State PedidoConfirmado { get; private set; }
-    public State PedidoCancelado { get; private set; }
+    private readonly IBus _bus;
 
-    // Eventos
-    public Event<IniciarPedido> IniciarPedido { get; private set; }
-    public Event<PedidoRestauranteValidado> PedidoValidado { get; private set; }
-    public Event<PagamentoProcessado> PagamentoProcessado { get; private set; }
-    public Event<EntregadorAlocado> EntregadorAlocado { get; private set; }
-    public Event<NotificacaoEnviada> NotificacaoEnviada { get; private set; }
-
-    public PedidoSaga()
+    public PedidoSaga(IBus bus)
     {
-        InstanceState(x => x.EstadoAtual);
+        _bus = bus;
+    }
 
-        Initially(
-            When(IniciarPedido)
-                .Then(context => {
-                    context.Saga.ClienteId = context.Message.ClienteId;
-                    context.Saga.RestauranteId = context.Message.RestauranteId;
-                    context.Saga.EnderecoEntrega = context.Message.EnderecoEntrega;
-                    context.Saga.DataInicio = DateTime.UtcNow;
-                })
-                .TransitionTo(ValidandoRestaurante)
-                .Publish(context => new ValidarPedidoRestaurante(
-                    context.Saga.CorrelationId,
-                    context.Message.RestauranteId,
-                    context.Message.Itens
-                ))
-        );
+    protected override void CorrelateMessages(ICorrelationConfig<PedidoSagaData> config)
+    {
+        // Correlacionar mensagens pelo PedidoId
+        config.Correlate<IniciarPedido>(m => m.PedidoId, d => d.Id);
+        config.Correlate<PedidoRestauranteValidado>(m => m.PedidoId, d => d.Id);
+        config.Correlate<PagamentoProcessado>(m => m.PedidoId, d => d.Id);
+        config.Correlate<EntregadorAlocado>(m => m.PedidoId, d => d.Id);
+        config.Correlate<NotificacaoEnviada>(m => m.PedidoId, d => d.Id);
+        config.Correlate<RestauranteFalhou>(m => m.PedidoId, d => d.Id);
+        config.Correlate<PagamentoFalhou>(m => m.PedidoId, d => d.Id);
+    }
 
-        During(ValidandoRestaurante,
-            When(PedidoValidado)
-                .IfElse(context => context.Message.Valido,
-                    valido => valido
-                        .Then(context => {
-                            context.Saga.ValorTotal = context.Message.ValorTotal;
-                            context.Saga.TempoPreparoMinutos = context.Message.TempoPreparoMinutos;
-                        })
-                        .TransitionTo(ProcessandoPagamento)
-                        .Publish(context => new ProcessarPagamento(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            context.Saga.ValorTotal,
-                            context.Data.FormaPagamento
-                        )),
-                    invalido => invalido
-                        .TransitionTo(PedidoCancelado)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido cancelado: {context.Message.MotivoRejeicao}",
-                            TipoNotificacao.PedidoCancelado
-                        ))
-                )
-        );
+    // Handler inicial - inicia a SAGA
+    public async Task Handle(IniciarPedido message)
+    {
+        if (!IsNew) return; // Evitar duplicação
 
-        During(ProcessandoPagamento,
-            When(PagamentoProcessado)
-                .IfElse(context => context.Message.Sucesso,
-                    sucesso => sucesso
-                        .Then(context => context.Saga.TransacaoId = context.Message.TransacaoId)
-                        .TransitionTo(AlocandoEntregador)
-                        .Publish(context => new AlocarEntregador(
-                            context.Saga.CorrelationId,
-                            context.Saga.RestauranteId,
-                            context.Saga.EnderecoEntrega,
-                            context.Saga.ValorTotal * 0.15m // 15% de taxa
-                        )),
-                    falha => falha
-                        .TransitionTo(PedidoCancelado)
-                        // Compensar restaurante se necessário
-                )
-        );
+        Data.ClienteId = message.ClienteId;
+        Data.RestauranteId = message.RestauranteId;
+        Data.EnderecoEntrega = message.EnderecoEntrega;
+        Data.DataInicio = DateTime.UtcNow;
+        Data.EstadoAtual = "ValidandoRestaurante";
 
-        During(AlocandoEntregador,
-            When(EntregadorAlocado)
-                .IfElse(context => context.Message.Alocado,
-                    alocado => alocado
-                        .Then(context => {
-                            context.Saga.EntregadorId = context.Message.EntregadorId;
-                            context.Saga.TempoEntregaMinutos = context.Message.TempoEstimadoMinutos;
-                        })
-                        .TransitionTo(NotificandoCliente)
-                        .Publish(context => new NotificarCliente(
-                            context.Saga.CorrelationId,
-                            context.Saga.ClienteId,
-                            $"Pedido confirmado! Entregador {context.Message.EntregadorId} alocado.",
-                            TipoNotificacao.PedidoConfirmado
-                        )),
-                    semEntregador => semEntregador
-                        // Compensar: estornar pagamento
-                        .Publish(context => new EstornarPagamento(
-                            context.Saga.CorrelationId,
-                            context.Saga.TransacaoId!
-                        ))
-                        .TransitionTo(PedidoCancelado)
-                )
-        );
+        await _bus.Send(new ValidarPedidoRestaurante
+        {
+            PedidoId = Data.Id,
+            RestauranteId = message.RestauranteId,
+            Itens = message.Itens
+        });
+    }
 
-        During(NotificandoCliente,
-            When(NotificacaoEnviada)
-                .Then(context => context.Saga.DataConclusao = DateTime.UtcNow)
-                .TransitionTo(PedidoConfirmado)
-                .Finalize()
-        );
+    // Handler para restaurante validado
+    public async Task Handle(PedidoRestauranteValidado message)
+    {
+        if (message.Valido)
+        {
+            Data.ValorTotal = message.ValorTotal;
+            Data.TempoPreparoMinutos = message.TempoPreparoMinutos;
+            Data.EstadoAtual = "ProcessandoPagamento";
+
+            await _bus.Send(new ProcessarPagamento
+            {
+                PedidoId = Data.Id,
+                ClienteId = Data.ClienteId,
+                Valor = Data.ValorTotal
+            });
+        }
+        else
+        {
+            Data.EstadoAtual = "Cancelado";
+            await _bus.Send(new NotificarCliente
+            {
+                PedidoId = Data.Id,
+                Mensagem = $"Pedido cancelado: {message.MotivoRejeicao}"
+            });
+            MarkAsComplete();
+        }
+    }
+
+    // Handler para pagamento processado
+    public async Task Handle(PagamentoProcessado message)
+    {
+        Data.TransacaoId = message.TransacaoId;
+        Data.EstadoAtual = "AlocandoEntregador";
+
+        await _bus.Send(new AlocarEntregador
+        {
+            PedidoId = Data.Id,
+            EnderecoOrigem = Data.RestauranteId,
+            EnderecoDestino = Data.EnderecoEntrega
+        });
+    }
+
+    // Handler para entregador alocado
+    public async Task Handle(EntregadorAlocado message)
+    {
+        Data.EntregadorId = message.EntregadorId;
+        Data.TempoEntregaMinutos = message.TempoEstimadoMinutos;
+        Data.EstadoAtual = "NotificandoCliente";
+
+        await _bus.Send(new NotificarCliente
+        {
+            PedidoId = Data.Id,
+            Mensagem = $"Pedido confirmado! Entregador: {message.EntregadorId}"
+        });
+    }
+
+    // Handler para notificação enviada
+    public async Task Handle(NotificacaoEnviada message)
+    {
+        Data.EstadoAtual = "Concluido";
+        Data.DataConclusao = DateTime.UtcNow;
+        MarkAsComplete();
+    }
+
+    // Handlers de compensação
+    public async Task Handle(RestauranteFalhou message)
+    {
+        Data.EstadoAtual = "Cancelado";
+        await _bus.Send(new NotificarCliente
+        {
+            PedidoId = Data.Id,
+            Mensagem = "Pedido cancelado: Erro no restaurante"
+        });
+        MarkAsComplete();
+    }
+
+    public async Task Handle(PagamentoFalhou message)
+    {
+        // Compensar: Cancelar pedido no restaurante
+        await _bus.Send(new CancelarPedidoRestaurante { PedidoId = Data.Id });
+
+        Data.EstadoAtual = "Cancelado";
+        await _bus.Send(new NotificarCliente
+        {
+            PedidoId = Data.Id,
+            Mensagem = "Pedido cancelado: Falha no pagamento"
+        });
+        MarkAsComplete();
     }
 }
 ```
 
 ##### 3. **Configuração no Orquestrador**
 ```csharp
-services.AddMassTransit(x =>
-{
-    x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-        .InMemoryRepository(); // Para POC - usar Redis/SQL em produção
+// Program.cs - Orquestrador
+services.AddRebus(configure => configure
+    .Logging(l => l.Serilog())
+    .Transport(t => t.UseRabbitMq(
+        $"amqp://{configuration["RabbitMQ:Username"]}:{configuration["RabbitMQ:Password"]}@{configuration["RabbitMQ:Host"]}",
+        "fila-orquestrador"))
+    .Sagas(s => s.StoreInMemory()) // Para POC - usar SQL em produção
+    .Routing(r => r.TypeBased()
+        .MapAssemblyOf<IniciarPedido>("fila-orquestrador")
+        .Map<ValidarPedidoRestaurante>("fila-restaurante")
+        .Map<ProcessarPagamento>("fila-pagamento")
+        .Map<AlocarEntregador>("fila-entregador")
+        .Map<NotificarCliente>("fila-notificacao"))
+);
 
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.Host(configuration["RabbitMQ:Host"]);
-        cfg.ConfigureEndpoints(context);
-    });
-});
+// Registrar a Saga automaticamente
+services.AutoRegisterHandlersFromAssemblyOf<PedidoSaga>();
 ```
 
 #### 3.3.3 Critérios de Aceitação
@@ -766,13 +785,13 @@ public record CriarPedidoRequest(
 
 ##### 2. **ARQUITETURA.md**
 - Diagrama de componentes
-- Fluxo da SAGA com MassTransit
+- Fluxo da SAGA com Rebus
 - Explicação do Result Pattern
 - Decisões arquiteturais
 
-##### 3. **MASSTRANSIT-GUIDE.md**
+##### 3. **REBUS-GUIDE.md**
 - Como funciona a State Machine
-- Configuração do MassTransit
+- Configuração do Rebus
 - Boas práticas
 - Troubleshooting
 
@@ -794,7 +813,7 @@ public record CriarPedidoRequest(
 ### 4.1 Stack Técnico
 - **.NET**: 9.0 LTS
 - **Linguagem**: C# 13
-- **Mensageria**: MassTransit 8.1.3
+- **Mensageria**: Rebus 8.1.3
 - **Transport**: RabbitMQ
 - **Logging**: Serilog
 - **API**: ASP.NET Core Web API
@@ -841,7 +860,7 @@ saga-poc-dotnet/
 ├── docs/
 │   ├── plano-execucao.md
 │   ├── ARQUITETURA.md
-│   ├── MASSTRANSIT-GUIDE.md
+│   ├── REBUS-GUIDE.md
 │   └── CASOS-DE-USO.md
 │
 ├── src/
@@ -925,7 +944,7 @@ saga-poc-dotnet/
 | Fase | Entregas Principais | Dependências |
 |------|---------------------|--------------|
 | Fase 1 | Result Pattern + Estrutura | - |
-| Fase 2 | Configuração MassTransit | Fase 1 |
+| Fase 2 | Configuração Rebus | Fase 1 |
 | Fase 3 | SAGA State Machine | Fase 2 |
 | Fase 4 | Implementação dos Serviços | Fase 3 |
 | Fase 5 | API REST | Fase 4 |
@@ -938,18 +957,63 @@ saga-poc-dotnet/
 
 > **IMPORTANTE**: Esta POC é material educacional. Os passos abaixo são necessários se você for usar isso em produção de verdade.
 
-### 9.1 Persistência do Estado da SAGA
+### 9.1 Persistência do RabbitMQ
+
+**Problema**: Sem volumes Docker, o RabbitMQ perde todas as filas e mensagens ao executar `docker-compose down` ou remover o container.
+
+**Solução**: Adicionar volumes ao `docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: saga-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: saga
+      RABBITMQ_DEFAULT_PASS: saga123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq  # Persistência das mensagens e filas
+      - rabbitmq_logs:/var/log/rabbitmq  # Logs (opcional)
+
+volumes:
+  rabbitmq_data:
+    driver: local
+  rabbitmq_logs:
+    driver: local
+```
+
+**O que resolve**:
+- Filas, exchanges e mensagens persistem após `docker-compose down`
+- Configurações do RabbitMQ são mantidas
+- Logs históricos disponíveis para análise
+- Útil para ambientes de desenvolvimento/homologação
+
+**Trade-offs**:
+- **Benefício**: Dados sobrevivem a recriação de containers
+- **Atenção**: Volumes locais não são replicados (para produção use volumes gerenciados ou clusters)
+- **Backup**: Configure backup dos volumes Docker periodicamente
+
+**Estimativa**: 15 minutos (editar docker-compose.yml + testar)
+
+---
+
+### 9.2 Persistência do Estado da SAGA
 
 **Problema**: InMemory repository perde o estado se o orquestrador reiniciar.
 
 **Solução**:
 ```csharp
 // Trocar de:
-x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+x.AddRebusSaga<PedidoSaga>()
     .InMemoryRepository();
 
 // Para (SQL Server):
-x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+x.AddRebusSaga<PedidoSaga>()
     .EntityFrameworkRepository(r =>
     {
         r.ConcurrencyMode = ConcurrencyMode.Optimistic;
@@ -960,7 +1024,7 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
     });
 
 // Ou (Redis):
-x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+x.AddRebusSaga<PedidoSaga>()
     .RedisRepository(r =>
     {
         r.DatabaseConfiguration(redisConnectionString);
@@ -976,20 +1040,20 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
 
 ---
 
-### 9.2 Outbox Pattern (Garantias Transacionais)
+### 9.3 Outbox Pattern (Garantias Transacionais)
 
 **Problema**: Mensagem publicada mas transação no banco falha (ou vice-versa).
 
-**Solução**: Implementar Outbox Pattern com MassTransit
+**Solução**: Implementar Outbox Pattern com Rebus
 
 ```csharp
 services.AddDbContext<SagaDbContext>(options =>
 {
     options.UseSqlServer(connectionString);
-    options.AddMassTransitOutbox();
+    options.AddRebusOutbox();
 });
 
-services.AddMassTransit(x =>
+services.AddRebus(x =>
 {
     x.AddEntityFrameworkOutbox<SagaDbContext>(o =>
     {
@@ -1006,11 +1070,11 @@ services.AddMassTransit(x =>
 
 **Estimativa**: 4-8 horas (setup + testes)
 
-**Referência**: [MassTransit Outbox](https://masstransit.io/documentation/configuration/middleware/outbox)
+**Referência**: [Rebus Outbox](https://github.com/rebus-org/Rebus/documentation/configuration/middleware/outbox)
 
 ---
 
-### 9.3 Observabilidade (OpenTelemetry)
+### 9.4 Observabilidade (OpenTelemetry)
 
 **Problema**: Debug de SAGA distribuída é um pesadelo sem tracing.
 
@@ -1027,7 +1091,7 @@ services.AddOpenTelemetry()
         builder
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
-            .AddSource("MassTransit")
+            .AddSource("Rebus")
             .AddJaegerExporter(options =>
             {
                 options.AgentHost = "localhost";
@@ -1042,7 +1106,7 @@ services.AddOpenTelemetry()
         builder
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
-            .AddMeter("MassTransit")
+            .AddMeter("Rebus")
             .AddPrometheusExporter(); // Para Grafana
     });
 ```
@@ -1071,7 +1135,7 @@ jaeger:
 
 ---
 
-### 9.4 Retry Policy e Circuit Breaker
+### 9.5 Retry Policy e Circuit Breaker
 
 **Problema**: Falhas transitórias (timeout, network blip) matam a SAGA.
 
@@ -1109,7 +1173,7 @@ x.UsingRabbitMq((context, cfg) =>
 
 ---
 
-### 9.5 Idempotência (Deduplicate Messages)
+### 9.6 Idempotência (Deduplicate Messages)
 
 **Problema**: Retry pode processar a mesma mensagem 2x (duplo débito, etc).
 
@@ -1150,7 +1214,7 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
 
 ---
 
-### 9.6 Runbooks e Alertas
+### 9.7 Runbooks e Alertas
 
 **Problema**: SAGA travada em produção às 2h da manhã. E agora?
 
@@ -1188,7 +1252,7 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
 
 ---
 
-### 9.7 Testes de Carga e Caos
+### 9.8 Testes de Carga e Caos
 
 **Problema**: Funciona com 10 pedidos/min. E com 1000/min?
 
@@ -1220,7 +1284,7 @@ NBomberRunner.RegisterScenarios(scenario).Run();
 
 ---
 
-### 9.8 Segurança e Autenticação
+### 9.9 Segurança e Autenticação
 
 **Problema**: Mensagens não autenticadas = vulnerabilidade.
 
@@ -1256,10 +1320,492 @@ x.UsingRabbitMq((context, cfg) =>
 
 ---
 
+### 9.10 MongoDB para Auditoria e Histórico da SAGA
+
+**Problema**: Precisamos rastrear o histórico completo de transições da SAGA, armazenar mensagens que falharam na DLQ, e criar snapshots para recuperação rápida.
+
+**Solução**: Usar MongoDB para casos de uso que exigem schema flexível e queries complexas de análise.
+
+#### Casos de Uso
+
+##### 1. **Dead Letter Queue Storage**
+
+```csharp
+// Instalar: dotnet add package MongoDB.Driver
+
+public class MensagemFalhadaDocument
+{
+    public ObjectId Id { get; set; }
+    public Guid MessageId { get; set; }
+    public string TipoMensagem { get; set; }
+    public DateTime DataFalha { get; set; }
+    public string ConteudoMensagem { get; set; } // JSON serializado
+    public List<ExcecaoInfo> Excecoes { get; set; }
+    public int TentativasRetry { get; set; }
+    public string CorrelacaoId { get; set; }
+    public Dictionary<string, object> Metadata { get; set; }
+}
+
+public class ExcecaoInfo
+{
+    public string Tipo { get; set; }
+    public string Mensagem { get; set; }
+    public string StackTrace { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
+public interface IDeadLetterQueueRepository
+{
+    Task SalvarMensagemFalhadaAsync(MensagemFalhadaDocument mensagem);
+    Task<List<MensagemFalhadaDocument>> BuscarPorCorrelacaoIdAsync(string correlacaoId);
+    Task<List<MensagemFalhadaDocument>> BuscarMensagensRecentes(int ultimasHoras);
+}
+
+public class DeadLetterQueueRepository : IDeadLetterQueueRepository
+{
+    private readonly IMongoCollection<MensagemFalhadaDocument> _collection;
+
+    public DeadLetterQueueRepository(IMongoDatabase database)
+    {
+        _collection = database.GetCollection<MensagemFalhadaDocument>("mensagens_falhas");
+
+        // Criar índices
+        var indexKeys = Builders<MensagemFalhadaDocument>.IndexKeys
+            .Ascending(x => x.CorrelacaoId)
+            .Descending(x => x.DataFalha);
+        _collection.Indexes.CreateOne(new CreateIndexModel<MensagemFalhadaDocument>(indexKeys));
+    }
+
+    public async Task SalvarMensagemFalhadaAsync(MensagemFalhadaDocument mensagem)
+    {
+        await _collection.InsertOneAsync(mensagem);
+    }
+
+    public async Task<List<MensagemFalhadaDocument>> BuscarPorCorrelacaoIdAsync(string correlacaoId)
+    {
+        return await _collection
+            .Find(x => x.CorrelacaoId == correlacaoId)
+            .SortByDescending(x => x.DataFalha)
+            .ToListAsync();
+    }
+
+    public async Task<List<MensagemFalhadaDocument>> BuscarMensagensRecentes(int ultimasHoras)
+    {
+        var dataLimite = DateTime.UtcNow.AddHours(-ultimasHoras);
+        return await _collection
+            .Find(x => x.DataFalha >= dataLimite)
+            .SortByDescending(x => x.DataFalha)
+            .ToListAsync();
+    }
+}
+
+// Consumer atualizado
+public class DeadLetterQueueConsumer : IConsumer<Fault<IniciarPedido>>
+{
+    private readonly IDeadLetterQueueRepository _repository;
+    private readonly ILogger<DeadLetterQueueConsumer> _logger;
+
+    public async Task Consume(ConsumeContext<Fault<IniciarPedido>> context)
+    {
+        var mensagemFalhada = new MensagemFalhadaDocument
+        {
+            MessageId = context.MessageId ?? Guid.NewGuid(),
+            TipoMensagem = typeof(IniciarPedido).Name,
+            DataFalha = DateTime.UtcNow,
+            ConteudoMensagem = JsonSerializer.Serialize(context.Message.Message),
+            Excecoes = context.Message.Exceptions.Select(e => new ExcecaoInfo
+            {
+                Tipo = e.ExceptionType,
+                Mensagem = e.Message,
+                StackTrace = e.StackTrace,
+                Timestamp = e.Timestamp
+            }).ToList(),
+            TentativasRetry = context.Message.Exceptions.Length,
+            CorrelacaoId = context.Message.Message.CorrelacaoId.ToString(),
+            Metadata = new Dictionary<string, object>
+            {
+                ["Host"] = context.Host.MachineName,
+                ["ProcessId"] = Environment.ProcessId
+            }
+        };
+
+        await _repository.SalvarMensagemFalhadaAsync(mensagemFalhada);
+
+        _logger.LogError(
+            "[DLQ → MongoDB] Mensagem {MessageId} salva - CorrelacaoId: {CorrelacaoId}",
+            mensagemFalhada.MessageId,
+            mensagemFalhada.CorrelacaoId
+        );
+    }
+}
+```
+
+##### 2. **Histórico de Transições da SAGA**
+
+```csharp
+public class TransicaoSagaDocument
+{
+    public ObjectId Id { get; set; }
+    public Guid CorrelacaoId { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string EstadoAnterior { get; set; }
+    public string EstadoNovo { get; set; }
+    public string Evento { get; set; }
+    public Dictionary<string, object> DadosEvento { get; set; }
+    public string Usuario { get; set; } = "sistema";
+    public TimeSpan DuracaoTransicao { get; set; }
+}
+
+public interface IHistoricoSagaRepository
+{
+    Task RegistrarTransicaoAsync(TransicaoSagaDocument transicao);
+    Task<List<TransicaoSagaDocument>> ObterHistoricoCompletoDaSagaAsync(Guid correlacaoId);
+    Task<Dictionary<string, int>> ObterEstatisticasTransicoesAsync(DateTime dataInicio, DateTime dataFim);
+}
+
+public class HistoricoSagaRepository : IHistoricoSagaRepository
+{
+    private readonly IMongoCollection<TransicaoSagaDocument> _collection;
+
+    public HistoricoSagaRepository(IMongoDatabase database)
+    {
+        _collection = database.GetCollection<TransicaoSagaDocument>("historico_transicoes");
+
+        // Índices para performance
+        _collection.Indexes.CreateOne(new CreateIndexModel<TransicaoSagaDocument>(
+            Builders<TransicaoSagaDocument>.IndexKeys.Ascending(x => x.CorrelacaoId)
+        ));
+
+        _collection.Indexes.CreateOne(new CreateIndexModel<TransicaoSagaDocument>(
+            Builders<TransicaoSagaDocument>.IndexKeys.Descending(x => x.Timestamp)
+        ));
+    }
+
+    public async Task RegistrarTransicaoAsync(TransicaoSagaDocument transicao)
+    {
+        await _collection.InsertOneAsync(transicao);
+    }
+
+    public async Task<List<TransicaoSagaDocument>> ObterHistoricoCompletoDaSagaAsync(Guid correlacaoId)
+    {
+        return await _collection
+            .Find(x => x.CorrelacaoId == correlacaoId)
+            .SortBy(x => x.Timestamp)
+            .ToListAsync();
+    }
+
+    public async Task<Dictionary<string, int>> ObterEstatisticasTransicoesAsync(DateTime dataInicio, DateTime dataFim)
+    {
+        var pipeline = new[]
+        {
+            new BsonDocument("$match", new BsonDocument
+            {
+                { "Timestamp", new BsonDocument
+                    {
+                        { "$gte", dataInicio },
+                        { "$lte", dataFim }
+                    }
+                }
+            }),
+            new BsonDocument("$group", new BsonDocument
+            {
+                { "_id", "$EstadoNovo" },
+                { "count", new BsonDocument("$sum", 1) }
+            })
+        };
+
+        var resultado = await _collection.Aggregate<BsonDocument>(pipeline).ToListAsync();
+
+        return resultado.ToDictionary(
+            doc => doc["_id"].AsString,
+            doc => doc["count"].AsInt32
+        );
+    }
+}
+
+// Integração na State Machine
+public class PedidoSaga : Saga<PedidoSagaData>
+{
+    private readonly IHistoricoSagaRepository _historicoRepository;
+
+    public PedidoSaga(IHistoricoSagaRepository historicoRepository)
+    {
+        _historicoRepository = historicoRepository;
+
+        Initially(
+            When(IniciarPedido)
+                .Then(async context =>
+                {
+                    var transicao = new TransicaoSagaDocument
+                    {
+                        CorrelacaoId = context.Saga.CorrelationId,
+                        Timestamp = DateTime.UtcNow,
+                        EstadoAnterior = "Inicial",
+                        EstadoNovo = "ValidandoRestaurante",
+                        Evento = "IniciarPedido",
+                        DadosEvento = new Dictionary<string, object>
+                        {
+                            ["RestauranteId"] = context.Message.RestauranteId,
+                            ["ClienteId"] = context.Message.ClienteId,
+                            ["ValorTotal"] = context.Message.Itens.Sum(i => i.PrecoUnitario * i.Quantidade)
+                        }
+                    };
+
+                    await _historicoRepository.RegistrarTransicaoAsync(transicao);
+                })
+                .TransitionTo(ValidandoRestaurante)
+        );
+
+        // Repetir para todas as transições...
+    }
+}
+```
+
+##### 3. **Event Sourcing (Opcional)**
+
+```csharp
+public class EventoSagaDocument
+{
+    public ObjectId Id { get; set; }
+    public Guid CorrelacaoId { get; set; }
+    public long SequenceNumber { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string TipoEvento { get; set; }
+    public string DadosEvento { get; set; } // JSON
+    public string Versao { get; set; } = "1.0";
+}
+
+public interface IEventStoreRepository
+{
+    Task AdicionarEventoAsync(EventoSagaDocument evento);
+    Task<List<EventoSagaDocument>> ObterEventosDaSagaAsync(Guid correlacaoId);
+    Task<EstadoPedido> ReconstruirEstadoAsync(Guid correlacaoId);
+}
+```
+
+##### 5. **Snapshots de Estado da SAGA**
+
+```csharp
+public class SnapshotSagaDocument
+{
+    public ObjectId Id { get; set; }
+    public Guid CorrelacaoId { get; set; }
+    public DateTime DataSnapshot { get; set; }
+    public long UltimaSequencia { get; set; }
+    public string EstadoSerializado { get; set; } // JSON do EstadoPedido completo
+    public int VersaoSnapshot { get; set; }
+}
+
+public interface ISnapshotRepository
+{
+    Task SalvarSnapshotAsync(SnapshotSagaDocument snapshot);
+    Task<SnapshotSagaDocument> ObterUltimoSnapshotAsync(Guid correlacaoId);
+}
+
+public class SnapshotRepository : ISnapshotRepository
+{
+    private readonly IMongoCollection<SnapshotSagaDocument> _collection;
+
+    public SnapshotRepository(IMongoDatabase database)
+    {
+        _collection = database.GetCollection<SnapshotSagaDocument>("saga_snapshots");
+
+        // Índice único por CorrelacaoId (manter apenas o último snapshot)
+        _collection.Indexes.CreateOne(new CreateIndexModel<SnapshotSagaDocument>(
+            Builders<SnapshotSagaDocument>.IndexKeys.Ascending(x => x.CorrelacaoId),
+            new CreateIndexOptions { Unique = false }
+        ));
+    }
+
+    public async Task SalvarSnapshotAsync(SnapshotSagaDocument snapshot)
+    {
+        await _collection.InsertOneAsync(snapshot);
+    }
+
+    public async Task<SnapshotSagaDocument> ObterUltimoSnapshotAsync(Guid correlacaoId)
+    {
+        return await _collection
+            .Find(x => x.CorrelacaoId == correlacaoId)
+            .SortByDescending(x => x.DataSnapshot)
+            .FirstOrDefaultAsync();
+    }
+}
+
+// Criar snapshot a cada X transições ou periodicamente
+public class SnapshotWorker : BackgroundService
+{
+    private readonly ISagaRepository<EstadoPedido> _sagaRepository;
+    private readonly ISnapshotRepository _snapshotRepository;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            // A cada 1 hora, criar snapshots de SAGAs ativas
+            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+
+            // Lógica de snapshot...
+        }
+    }
+}
+```
+
+#### Configuração do MongoDB
+
+```csharp
+// Program.cs
+builder.Services.Configure<MongoDbSettings>(
+    builder.Configuration.GetSection("MongoDb")
+);
+
+builder.Services.AddSingleton<IMongoClient>(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>().Value;
+    return new MongoClient(settings.ConnectionString);
+});
+
+builder.Services.AddScoped(sp =>
+{
+    var client = sp.GetRequiredService<IMongoClient>();
+    var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>().Value;
+    return client.GetDatabase(settings.DatabaseName);
+});
+
+builder.Services.AddScoped<IDeadLetterQueueRepository, DeadLetterQueueRepository>();
+builder.Services.AddScoped<IHistoricoSagaRepository, HistoricoSagaRepository>();
+builder.Services.AddScoped<ISnapshotRepository, SnapshotRepository>();
+
+// appsettings.json
+{
+  "MongoDb": {
+    "ConnectionString": "mongodb://saga:saga123@localhost:27017",
+    "DatabaseName": "saga_auditoria"
+  }
+}
+```
+
+#### Docker Compose - Adicionar MongoDB
+
+```yaml
+mongodb:
+  image: mongo:7.0
+  container_name: saga-mongodb
+  environment:
+    MONGO_INITDB_ROOT_USERNAME: saga
+    MONGO_INITDB_ROOT_PASSWORD: saga123
+    MONGO_INITDB_DATABASE: saga_auditoria
+  volumes:
+    - mongodb-data:/data/db
+    - mongodb-config:/data/configdb
+  networks:
+    - saga-network
+  ports:
+    - "27017:27017"
+  healthcheck:
+    test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+mongo-express:
+  image: mongo-express:latest
+  container_name: saga-mongo-express
+  environment:
+    ME_CONFIG_MONGODB_ADMINUSERNAME: saga
+    ME_CONFIG_MONGODB_ADMINPASSWORD: saga123
+    ME_CONFIG_MONGODB_URL: mongodb://saga:saga123@mongodb:27017/
+  networks:
+    - saga-network
+  ports:
+    - "8081:8081"
+  depends_on:
+    mongodb:
+      condition: service_healthy
+
+volumes:
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+```
+
+#### Queries de Análise Úteis
+
+```csharp
+// 1. Taxa de sucesso vs falha por período
+public async Task<Dictionary<string, int>> ObterTaxaSucessoFalhaAsync(DateTime inicio, DateTime fim)
+{
+    var pipeline = new[]
+    {
+        new BsonDocument("$match", new BsonDocument("Timestamp", new BsonDocument
+        {
+            { "$gte", inicio },
+            { "$lte", fim }
+        })),
+        new BsonDocument("$group", new BsonDocument
+        {
+            { "_id", "$EstadoNovo" },
+            { "count", new BsonDocument("$sum", 1) }
+        })
+    };
+
+    // Executar pipeline...
+}
+
+// 2. Top 10 erros mais frequentes na DLQ
+public async Task<List<(string Erro, int Ocorrencias)>> ObterTopErrosAsync()
+{
+    var pipeline = new[]
+    {
+        new BsonDocument("$unwind", "$Excecoes"),
+        new BsonDocument("$group", new BsonDocument
+        {
+            { "_id", "$Excecoes.Mensagem" },
+            { "count", new BsonDocument("$sum", 1) }
+        }),
+        new BsonDocument("$sort", new BsonDocument("count", -1)),
+        new BsonDocument("$limit", 10)
+    };
+
+    // Executar pipeline...
+}
+
+// 3. Duração média das SAGAs por estado
+public async Task<Dictionary<string, double>> ObterDuracaoMediaPorEstadoAsync()
+{
+    var pipeline = new[]
+    {
+        new BsonDocument("$group", new BsonDocument
+        {
+            { "_id", "$EstadoNovo" },
+            { "duracaoMedia", new BsonDocument("$avg", "$DuracaoTransicao") }
+        })
+    };
+
+    // Executar pipeline...
+}
+```
+
+**O que resolve**:
+- ✅ Rastreabilidade completa de todas transições da SAGA
+- ✅ Análise de mensagens que falharam sem perder contexto
+- ✅ Event Sourcing para rebuild de estado
+- ✅ Snapshots para recuperação rápida após crash
+- ✅ Queries complexas para troubleshooting e análise de negócio
+
+**Trade-offs**:
+- **Benefício**: Schema flexível, perfeito para logs e eventos com estrutura variável
+- **Atenção**: Não usar para dados transacionais (use PostgreSQL)
+- **Performance**: Criar índices adequados para queries frequentes
+
+**Estimativa**: 6-10 horas (setup + implementação dos 4 casos de uso)
+
+---
+
 ## 10. Referências
 
-- [MassTransit Documentation](https://masstransit.io/)
-- [MassTransit Sagas](https://masstransit.io/documentation/patterns/saga)
+- [Rebus Documentation](https://github.com/rebus-org/Rebus/)
+- [Rebus Sagas](https://github.com/rebus-org/Rebus/documentation/patterns/saga)
 - [RabbitMQ](https://docs.microsoft.com/azure/service-bus-messaging/)
 - [Result Pattern - Vladimir Khorikov](https://enterprisecraftsmanship.com/posts/functional-c-handling-failures-input-errors/)
 - [SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)
@@ -1684,11 +2230,11 @@ public partial class Erro
 
 #### 3.10.2 Entregas
 
-##### 1. **Configuração de Retry Policy no MassTransit**
+##### 1. **Configuração de Retry Policy no Rebus**
 
 ```csharp
 // Program.cs - Orquestrador e Serviços
-services.AddMassTransit(x =>
+services.AddRebus(x =>
 {
     // Configurar consumers
     x.AddConsumer<ValidarPedidoRestauranteConsumer>();
@@ -1877,8 +2423,8 @@ builder.Services.AddHealthChecks()
         // Verificar se o bus está conectado
         var busControl = serviceProvider.GetRequiredService<IBusControl>();
         return busControl != null
-            ? HealthCheckResult.Healthy("MassTransit bus está ativo")
-            : HealthCheckResult.Unhealthy("MassTransit bus não está respondendo");
+            ? HealthCheckResult.Healthy("Rebus bus está ativo")
+            : HealthCheckResult.Unhealthy("Rebus bus não está respondendo");
     })
     .AddRabbitMQ(
         rabbitConnectionString: "amqp://saga:saga123@localhost:5672",
@@ -2052,7 +2598,7 @@ public class EstadoPedido : SagaStateMachineInstance
 ##### 2. **SAGA Estendida com Compensação Completa**
 
 ```csharp
-public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
+public class PedidoSaga : Saga<PedidoSagaData>
 {
     // ... (estados e eventos existentes)
 
@@ -2063,7 +2609,7 @@ public class PedidoSaga : MassTransitStateMachine<EstadoPedido>
 
     public PedidoSaga()
     {
-        InstanceState(x => x.EstadoAtual);
+        
 
         // ... (fluxo normal existente)
 
@@ -2507,183 +3053,521 @@ public record EntregadorLiberado(
 
 ---
 
-### **FASE 12: Observabilidade e Métricas**
+### **FASE 12: Observabilidade com OpenTelemetry (Jaeger + Prometheus + Grafana)**
 
 #### 3.12.1 Objetivos
-- Implementar logs estruturados com correlação end-to-end
-- Adicionar métricas de negócio e técnicas
-- Configurar dashboards para monitoramento
-- Rastrear duração e taxa de sucesso das SAGAs
+- Implementar distributed tracing com Jaeger via OpenTelemetry
+- Coletar métricas com Prometheus
+- Visualizar métricas e traces no Grafana
+- Rastrear duração e taxa de sucesso das SAGAs end-to-end
+- Correlacionar logs, métricas e traces
 
 #### 3.12.2 Entregas
 
-##### 1. **Logs Estruturados com Serilog e Contexto de Correlação**
+##### 1. **Pacotes NuGet Necessários**
 
-```csharp
-// Program.cs - Configuração Serilog
-builder.Host.UseSerilog((context, services, configuration) =>
-{
-    configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .Enrich.FromLogContext()
-        .Enrich.WithMachineName()
-        .Enrich.WithEnvironmentName()
-        .Enrich.WithProperty("Aplicacao", "SagaPoc.Orquestrador")
-        .WriteTo.Console(
-            outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{SourceContext}] {Message:lj} {Properties:j}{NewLine}{Exception}"
-        )
-        .WriteTo.File(
-            path: "logs/saga-.log",
-            rollingInterval: RollingInterval.Day,
-            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj} {Properties:j}{NewLine}{Exception}"
-        );
-});
+```bash
+# Shared (criar projeto SagaPoc.Observability)
+dotnet new classlib -n SagaPoc.Observability
+dotnet add package OpenTelemetry
+dotnet add package OpenTelemetry.Exporter.Jaeger
+dotnet add package OpenTelemetry.Exporter.Prometheus.AspNetCore
+dotnet add package OpenTelemetry.Extensions.Hosting
+dotnet add package OpenTelemetry.Instrumentation.AspNetCore
+dotnet add package OpenTelemetry.Instrumentation.Http
+dotnet add package OpenTelemetry.Instrumentation.EntityFrameworkCore
 ```
 
-##### 2. **Middleware de Correlação para MassTransit**
+##### 2. **Extension Method para OpenTelemetry**
 
 ```csharp
-public class CorrelationIdFilter<T> : IFilter<ConsumeContext<T>>
-    where T : class
-{
-    public async Task Send(ConsumeContext<T> context, IPipe<ConsumeContext<T>> next)
-    {
-        var correlacaoId = context.CorrelationId ?? context.MessageId ?? Guid.NewGuid();
+// SagaPoc.Observability/OpenTelemetryExtensions.cs
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 
-        using (LogContext.PushProperty("CorrelacaoId", correlacaoId))
-        using (LogContext.PushProperty("MessageType", typeof(T).Name))
-        {
-            await next.Send(context);
-        }
+namespace SagaPoc.Observability;
+
+public static class OpenTelemetryExtensions
+{
+    public static IServiceCollection AddSagaOpenTelemetry(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string serviceName,
+        string serviceVersion = "1.0.0")
+    {
+        var environment = configuration["ASPNETCORE_ENVIRONMENT"] ?? "Production";
+
+        var resourceBuilder = ResourceBuilder.CreateDefault()
+            .AddService(serviceName: serviceName, serviceVersion: serviceVersion)
+            .AddAttributes(new Dictionary<string, object>
+            {
+                ["deployment.environment"] = environment,
+                ["service.namespace"] = "SagaPoc",
+                ["host.name"] = Environment.MachineName
+            });
+
+        // Verificar se Jaeger está habilitado
+        var jaegerEnabled = configuration.GetValue("Jaeger:Enabled", true);
+
+        services.AddOpenTelemetry()
+            .ConfigureResource(r => r
+                .AddService(serviceName, serviceVersion: serviceVersion)
+                .AddTelemetrySdk())
+            .WithTracing(tracing =>
+            {
+                tracing
+                    .SetResourceBuilder(resourceBuilder)
+                    // Instrumentação automática do ASP.NET Core
+                    .AddAspNetCoreInstrumentation(options =>
+                    {
+                        options.RecordException = true;
+                        options.EnrichWithHttpRequest = (activity, request) =>
+                        {
+                            activity.SetTag("http.client_ip", request.HttpContext.Connection.RemoteIpAddress?.ToString());
+                            activity.SetTag("http.user_agent", request.Headers["User-Agent"].ToString());
+                            activity.SetTag("http.request_content_length", request.ContentLength);
+                        };
+                        options.EnrichWithHttpResponse = (activity, response) =>
+                        {
+                            activity.SetTag("http.response_content_length", response.ContentLength);
+                        };
+                    })
+                    // Instrumentação de HttpClient
+                    .AddHttpClientInstrumentation(options =>
+                    {
+                        options.RecordException = true;
+                        options.EnrichWithHttpRequestMessage = (activity, request) =>
+                        {
+                            activity.SetTag("http.request.method", request.Method.ToString());
+                        };
+                        options.EnrichWithHttpResponseMessage = (activity, response) =>
+                        {
+                            activity.SetTag("http.response.status_code", (int)response.StatusCode);
+                        };
+                    })
+                    // Instrumentação do Entity Framework Core (se usar PostgreSQL para SAGA state)
+                    .AddEntityFrameworkCoreInstrumentation(options =>
+                    {
+                        options.SetDbStatementForText = true;
+                        options.SetDbStatementForStoredProcedure = true;
+                        options.EnrichWithIDbCommand = (activity, command) =>
+                        {
+                            activity.SetTag("db.query_type", command.CommandType.ToString());
+                        };
+                    })
+                    // Sources customizados (para criar spans manuais)
+                    .AddSource("SagaPoc.*")
+                    .AddSource("Rebus") // Para rastrear mensagens RabbitMQ
+                    .AddConsoleExporter(); // Console exporter sempre habilitado
+
+                // Adicionar Jaeger Exporter (HTTP Binary Thrift)
+                if (jaegerEnabled)
+                {
+                    tracing.AddJaegerExporter(options =>
+                    {
+                        var jaegerEndpoint = configuration["Jaeger:Endpoint"] ?? "http://localhost:14268/api/traces";
+                        options.AgentHost = configuration["Jaeger:AgentHost"] ?? "localhost";
+                        options.AgentPort = int.Parse(configuration["Jaeger:AgentPort"] ?? "6831");
+                        options.MaxPayloadSizeInBytes = 4096;
+                        options.ExportProcessorType = ExportProcessorType.Batch;
+                        options.Endpoint = new Uri(jaegerEndpoint);
+                        options.Protocol = JaegerExportProtocol.HttpBinaryThrift;
+                        options.BatchExportProcessorOptions = new BatchExportProcessorOptions<Activity>
+                        {
+                            MaxQueueSize = 2048,
+                            ScheduledDelayMilliseconds = 5000,
+                            ExporterTimeoutMilliseconds = 30000,
+                            MaxExportBatchSize = 512,
+                        };
+                    });
+                }
+            })
+            .WithMetrics(metrics => metrics
+                .SetResourceBuilder(resourceBuilder)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddProcessInstrumentation()
+                .AddMeter("SagaPoc.*")
+                .AddMeter("Rebus")
+                .AddPrometheusExporter());
+
+        return services;
     }
 
-    public void Probe(ProbeContext context) { }
+    public static WebApplication UseSagaOpenTelemetry(this WebApplication app)
+    {
+        // Endpoint de métricas Prometheus (/metrics)
+        app.MapPrometheusScrapingEndpoint();
+
+        return app;
+    }
 }
-
-// Registrar no MassTransit
-cfg.UseConsumeFilter(typeof(CorrelationIdFilter<>), context);
 ```
 
-##### 3. **Métricas com App.Metrics**
+##### 3. **Configuração nos Serviços**
 
 ```csharp
-// Instalar: dotnet add package App.Metrics
-// Instalar: dotnet add package App.Metrics.AspNetCore.Mvc
+// Program.cs - Orquestrador
+using SagaPoc.Observability;
 
-public class MetricasSaga
-{
-    private readonly IMetrics _metrics;
+var builder = WebApplication.CreateBuilder(args);
 
-    public MetricasSaga(IMetrics metrics)
-    {
-        _metrics = metrics;
-    }
+// Adicionar OpenTelemetry
+builder.Services.AddSagaOpenTelemetry(
+    builder.Configuration,
+    serviceName: "SagaPoc.Orquestrador",
+    serviceVersion: "1.0.0"
+);
 
-    public void RegistrarInicioSaga()
-    {
-        _metrics.Measure.Counter.Increment(new CounterOptions
-        {
-            Name = "saga_iniciadas_total",
-            MeasurementUnit = Unit.Calls,
-            Tags = new MetricTags("tipo", "pedido")
-        });
-    }
+// ... resto da configuração
 
-    public void RegistrarSucesso(TimeSpan duracao)
-    {
-        _metrics.Measure.Counter.Increment(new CounterOptions
-        {
-            Name = "saga_sucesso_total",
-            MeasurementUnit = Unit.Calls
-        });
+var app = builder.Build();
 
-        _metrics.Measure.Histogram.Update(new HistogramOptions
-        {
-            Name = "saga_duracao_segundos",
-            MeasurementUnit = Unit.Requests
-        }, (long)duracao.TotalMilliseconds);
-    }
+// Habilitar endpoint de métricas
+app.UseSagaOpenTelemetry();
 
-    public void RegistrarFalha(string motivo)
-    {
-        _metrics.Measure.Counter.Increment(new CounterOptions
-        {
-            Name = "saga_falha_total",
-            MeasurementUnit = Unit.Calls,
-            Tags = new MetricTags("motivo", motivo)
-        });
-    }
-
-    public void RegistrarCompensacao(int passos)
-    {
-        _metrics.Measure.Counter.Increment(new CounterOptions
-        {
-            Name = "saga_compensacoes_total",
-            MeasurementUnit = Unit.Calls
-        });
-
-        _metrics.Measure.Histogram.Update(new HistogramOptions
-        {
-            Name = "saga_compensacao_passos",
-            MeasurementUnit = Unit.Items
-        }, passos);
-    }
-}
-
-// Configurar no Program.cs
-builder.Services.AddMetrics();
-builder.Services.AddSingleton<MetricasSaga>();
-
-app.UseMetricsAllMiddleware();
-app.UseMetricsAllEndpoints();
+app.Run();
 ```
 
-##### 4. **Dashboard de Métricas (Prometheus + Grafana)**
+```csharp
+// Program.cs - API
+builder.Services.AddSagaOpenTelemetry(
+    builder.Configuration,
+    serviceName: "SagaPoc.Api",
+    serviceVersion: "1.0.0"
+);
+```
+
+```csharp
+// Program.cs - Serviços (Restaurante, Pagamento, Entregador, Notificação)
+builder.Services.AddSagaOpenTelemetry(
+    builder.Configuration,
+    serviceName: "SagaPoc.ServicoRestaurante", // ou ServiçoPagamento, etc.
+    serviceVersion: "1.0.0"
+);
+```
+
+##### 4. **appsettings.json - Configuração**
+
+```json
+{
+  "Jaeger": {
+    "Enabled": true,
+    "AgentHost": "localhost",
+    "AgentPort": 6831,
+    "Endpoint": "http://localhost:14268/api/traces"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Rebus": "Information"
+    }
+  }
+}
+```
+
+##### 5. **Docker Compose - Observability Stack**
 
 ```yaml
-# docker-compose.yml - Adicionar Prometheus e Grafana
+# docker-compose.yml
 version: '3.8'
+
+networks:
+  saga-network:
+    driver: bridge
+
 services:
+  # ===================================
+  # OBSERVABILITY - TRACING (Jaeger)
+  # ===================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: saga-jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - saga-network
+    ports:
+      - "5775:5775/udp"   # Jaeger Agent (Thrift Compact)
+      - "6831:6831/udp"   # Jaeger Agent (Thrift Binary)
+      - "6832:6832/udp"   # Jaeger Agent (Thrift HTTP)
+      - "5778:5778"       # Jaeger Agent Config
+      - "16686:16686"     # Jaeger UI
+      - "14250:14250"     # Jaeger Collector gRPC
+      - "14268:14268"     # Jaeger Collector HTTP (Thrift)
+      - "14269:14269"     # Jaeger Collector Health
+      - "9411:9411"       # Zipkin Compatible
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - METRICS (Prometheus)
+  # ===================================
   prometheus:
     image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    container_name: saga-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - saga-network
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
 
+  # ===================================
+  # OBSERVABILITY - DASHBOARDS (Grafana)
+  # ===================================
   grafana:
     image: grafana/grafana:latest
+    container_name: saga-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    networks:
+      - saga-network
     ports:
       - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
+
+  # ===================================
+  # OBSERVABILITY - NODE EXPORTER (Opcional)
+  # ===================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: saga-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     volumes:
-      - grafana-storage:/var/lib/grafana
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - saga-network
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
 
 volumes:
-  grafana-storage:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+```
+
+##### 6. **Prometheus Configuration**
+
+```yaml
+# infra/prometheus/prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node Exporter (system metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # .NET APIs
+  - job_name: 'saga-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5000']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-api'
+
+  - job_name: 'saga-orquestrador'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5001']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-orquestrador'
+
+  - job_name: 'saga-servico-restaurante'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5002']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-servico-restaurante'
+
+  - job_name: 'saga-servico-pagamento'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5003']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-servico-pagamento'
+
+  - job_name: 'saga-servico-entregador'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5004']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-servico-entregador'
+
+  - job_name: 'saga-servico-notificacao'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:5005']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'saga-servico-notificacao'
+
+  # RabbitMQ (se habilitar prometheus plugin)
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+```
+
+##### 7. **Grafana Datasources Configuration**
+
+```yaml
+# infra/grafana/datasources/datasources.yml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
 ```
 
 ```yaml
-# prometheus.yml
-global:
-  scrape_interval: 15s
+# infra/grafana/dashboards.yml
+apiVersion: 1
 
-scrape_configs:
-  - job_name: 'saga-poc'
-    static_configs:
-      - targets: ['host.docker.internal:5000'] # API
-      - targets: ['host.docker.internal:5001'] # Orquestrador
+providers:
+  - name: 'Saga POC Dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
 ```
 
-#### 3.12.3 Critérios de Aceitação
-- [ ] Logs incluem CorrelationId em todas as mensagens
-- [ ] Métricas de taxa de sucesso/falha funcionando
-- [ ] Métricas de duração da SAGA funcionando
-- [ ] Dashboard Grafana exibindo métricas
-- [ ] Rastreamento de compensações em métricas
+##### 8. **Instrumentação Manual (Opcional)**
+
+```csharp
+// Para criar spans customizados
+using System.Diagnostics;
+
+public class ServicoRestaurante
+{
+    private static readonly ActivitySource ActivitySource = new("SagaPoc.ServicoRestaurante");
+
+    public async Task<Resultado<DadosValidacaoPedido>> ValidarPedidoAsync(
+        string restauranteId,
+        List<ItemPedido> itens)
+    {
+        using var activity = ActivitySource.StartActivity("ValidarPedidoRestaurante");
+        activity?.SetTag("restaurante.id", restauranteId);
+        activity?.SetTag("itens.count", itens.Count);
+
+        try
+        {
+            // Lógica de validação...
+            var resultado = await ValidarAsync(restauranteId, itens);
+
+            activity?.SetTag("resultado.sucesso", resultado.EhSucesso);
+
+            if (resultado.EhFalha)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error, resultado.Erro.Mensagem);
+            }
+
+            return resultado;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+            throw;
+        }
+    }
+}
+```
+
+#### 3.12.3 URLs de Acesso
+
+Após executar `docker-compose up`:
+
+- **Jaeger UI**: http://localhost:16686
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3000 (admin/admin123)
+
+#### 3.12.4 Queries Úteis no Prometheus
+
+```promql
+# Taxa de requisições por segundo
+rate(http_server_requests_total[5m])
+
+# Duração P95 das requisições
+histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))
+
+# Taxa de erro
+rate(http_server_requests_total{status=~"5.."}[5m])
+```
+
+#### 3.12.5 Critérios de Aceitação
+- [ ] Jaeger exibe traces end-to-end das SAGAs
+- [ ] Prometheus coleta métricas de todos os serviços
+- [ ] Grafana conectado ao Prometheus e Jaeger
+- [ ] Spans incluem tags customizadas (RestauranteId, CorrelacaoId, etc.)
+- [ ] Traces mostram propagação através do RabbitMQ
+- [ ] Métricas de duração e taxa de erro funcionando
+
+**Estimativa**: 4-6 horas (setup completo + testes)
 
 ---
 
@@ -2697,10 +3581,10 @@ scrape_configs:
 
 #### 3.13.2 Entregas
 
-##### 1. **Testes de Integração com MassTransit Test Harness**
+##### 1. **Testes de Integração com Rebus Test Harness**
 
 ```csharp
-// Instalar: dotnet add package MassTransit.TestFramework
+// Instalar: dotnet add package Rebus.TestFramework
 
 public class PedidoSagaTests
 {
@@ -2709,9 +3593,9 @@ public class PedidoSagaTests
     {
         // Arrange
         await using var provider = new ServiceCollection()
-            .AddMassTransitTestHarness(x =>
+            .AddRebusTestHarness(x =>
             {
-                x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+                x.AddRebusSaga<PedidoSaga>()
                     .InMemoryRepository();
 
                 x.AddConsumer<ValidarPedidoRestauranteConsumer>();
@@ -3063,12 +3947,12 @@ docker-compose up -d
 
 ```bash
 # Adicionar RabbitMQ em TODOS os projetos
-dotnet add src/SagaPoc.Orquestrador package MassTransit.RabbitMQ
-dotnet add src/SagaPoc.Api package MassTransit.RabbitMQ
-dotnet add src/SagaPoc.ServicoRestaurante package MassTransit.RabbitMQ
-dotnet add src/SagaPoc.ServicoPagamento package MassTransit.RabbitMQ
-dotnet add src/SagaPoc.ServicoEntregador package MassTransit.RabbitMQ
-dotnet add src/SagaPoc.ServicoNotificacao package MassTransit.RabbitMQ
+dotnet add src/SagaPoc.Orquestrador package Rebus.RabbitMQ
+dotnet add src/SagaPoc.Api package Rebus.RabbitMQ
+dotnet add src/SagaPoc.ServicoRestaurante package Rebus.RabbitMQ
+dotnet add src/SagaPoc.ServicoPagamento package Rebus.RabbitMQ
+dotnet add src/SagaPoc.ServicoEntregador package Rebus.RabbitMQ
+dotnet add src/SagaPoc.ServicoNotificacao package Rebus.RabbitMQ
 
 # Adicionar health check do RabbitMQ
 dotnet add src/SagaPoc.Orquestrador package AspNetCore.HealthChecks.Rabbitmq
@@ -3078,7 +3962,7 @@ dotnet add src/SagaPoc.Orquestrador package AspNetCore.HealthChecks.Rabbitmq
 
 ```csharp
 // src/SagaPoc.Orquestrador/Program.cs
-using MassTransit;
+using Rebus;
 using SagaPoc.Orquestrador;
 using SagaPoc.Orquestrador.Consumers;
 using SagaPoc.Orquestrador.Sagas;
@@ -3111,10 +3995,10 @@ try
         );
 
     // ==================== MASSTRANSIT COM RABBITMQ ====================
-    builder.Services.AddMassTransit(x =>
+    builder.Services.AddRebus(x =>
     {
         // Configurar SAGA State Machine
-        x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
+        x.AddRebusSaga<PedidoSaga>()
             .InMemoryRepository(); // Para POC - usar MongoDB/Redis em produção
 
         // Configurar Dead Letter Queue Consumer
@@ -3190,7 +4074,7 @@ finally
 
 ```csharp
 // src/SagaPoc.ServicoRestaurante/Program.cs
-using MassTransit;
+using Rebus;
 using SagaPoc.ServicoRestaurante.Consumers;
 using SagaPoc.ServicoRestaurante.Servicos;
 
@@ -3200,7 +4084,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddScoped<IServicoRestaurante, ServicoRestaurante>();
 
 // ==================== MASSTRANSIT COM RABBITMQ ====================
-builder.Services.AddMassTransit(x =>
+builder.Services.AddRebus(x =>
 {
     // Registrar consumers
     x.AddConsumer<ValidarPedidoRestauranteConsumer>();
@@ -3244,13 +4128,13 @@ host.Run();
 
 ```csharp
 // src/SagaPoc.Api/Program.cs
-using MassTransit;
+using Rebus;
 using SagaPoc.Shared.Mensagens.Comandos;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ==================== MASSTRANSIT COM RABBITMQ ====================
-builder.Services.AddMassTransit(x =>
+builder.Services.AddRebus(x =>
 {
     x.UsingRabbitMq((context, cfg) =>
     {
@@ -3285,7 +4169,7 @@ app.Run();
       "Override": {
         "Microsoft": "Warning",
         "System": "Warning",
-        "MassTransit": "Information"
+        "Rebus": "Information"
       }
     },
     "WriteTo": [
@@ -3353,7 +4237,7 @@ curl -X POST http://localhost:5000/api/pedidos \
 - [ ] Pacotes RabbitMQ instalados em todos os projetos
 - [ ] RabbitMQ rodando via Docker
 - [ ] Todos os serviços conectam ao RabbitMQ com sucesso
-- [ ] Filas criadas automaticamente pelo MassTransit
+- [ ] Filas criadas automaticamente pelo Rebus
 - [ ] Health check do RabbitMQ funcionando
 - [ ] RabbitMQ Management UI acessível (localhost:15672)
 - [ ] Políticas de resiliência mantidas (Retry, Circuit Breaker, DLQ)

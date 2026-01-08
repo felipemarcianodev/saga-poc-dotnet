@@ -1,7 +1,14 @@
-using MassTransit;
+using Rebus.Config;
+using Rebus.Persistence.InMem;
+using Rebus.Routing.TypeBased;
+using Rebus.Sagas;
+using Rebus.Serilog;
+using Rebus.ServiceProvider;
+using SagaPoc.Observability;
 using SagaPoc.Orquestrador;
-using SagaPoc.Orquestrador.Consumers;
 using SagaPoc.Orquestrador.Sagas;
+using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Shared.Mensagens.Respostas;
 using Serilog;
 
 // Configurar Serilog
@@ -13,78 +20,55 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Iniciando Orquestrador SAGA com RabbitMQ");
+    Log.Information("Iniciando Orquestrador SAGA com Rebus + RabbitMQ");
 
     var builder = Host.CreateApplicationBuilder(args);
 
     // Configurar Serilog como provedor de logging
     builder.Services.AddSerilog();
 
+    // Configurar OpenTelemetry
+    builder.AddSagaOpenTelemetryForHost(
+        serviceName: "SagaPoc.Orquestrador",
+        serviceVersion: "1.0.0"
+    );
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // ==================== MASSTRANSIT COM RABBITMQ ====================
-    builder.Services.AddMassTransit(x =>
-    {
-        // Configurar SAGA State Machine
-        x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
-            .InMemoryRepository(); // Para POC - usar MongoDB/Redis em produção
+    // ==================== REBUS COM RABBITMQ ====================
 
-        // Configurar Dead Letter Queue Consumer
-        x.AddConsumer<DeadLetterQueueConsumer>();
-
-        // ==================== RABBITMQ CONFIGURATION ====================
-        x.UsingRabbitMq((context, cfg) =>
+    builder.Services.AddRebus((configure, provider) => configure
+        .Logging(l => l.Serilog())
+        .Transport(t => t.UseRabbitMq(
+            $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}",
+            "fila-orquestrador"))
+        .Sagas(s => s.StoreInMemory()) // Para POC - usar SQL/MongoDB em produção
+        .Routing(r => r.TypeBased()
+            // Rotas para comandos enviados pela SAGA
+            .Map<ValidarPedidoRestaurante>("fila-restaurante")
+            .Map<ProcessarPagamento>("fila-pagamento")
+            .Map<AlocarEntregador>("fila-entregador")
+            .Map<NotificarCliente>("fila-notificacao")
+            .Map<CancelarPedidoRestaurante>("fila-restaurante")
+            .Map<EstornarPagamento>("fila-pagamento")
+            .Map<LiberarEntregador>("fila-entregador"))
+        .Options(o =>
         {
-            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
-            {
-                h.Username(builder.Configuration["RabbitMQ:Username"]!);
-                h.Password(builder.Configuration["RabbitMQ:Password"]!);
-            });
+            o.SetNumberOfWorkers(1); // Número de workers processando mensagens
+            o.SetMaxParallelism(10); // Máximo de mensagens processadas em paralelo
+        })
+    );
 
-            // ============ RETRY POLICY ============
-            cfg.UseMessageRetry(retry =>
-            {
-                retry.Exponential(
-                    retryLimit: 5,
-                    minInterval: TimeSpan.FromSeconds(1),
-                    maxInterval: TimeSpan.FromSeconds(30),
-                    intervalDelta: TimeSpan.FromSeconds(2)
-                );
-
-                // Retry apenas em erros transitórios
-                retry.Handle<TimeoutException>();
-                retry.Handle<HttpRequestException>();
-            });
-
-            // ============ CIRCUIT BREAKER ============
-            cfg.UseCircuitBreaker(cb =>
-            {
-                cb.TrackingPeriod = TimeSpan.FromMinutes(1);
-                cb.TripThreshold = 15;
-                cb.ActiveThreshold = 10;
-                cb.ResetInterval = TimeSpan.FromMinutes(5);
-            });
-
-            // ============ PREFETCH COUNT ============
-            // Limita quantas mensagens cada worker consome simultaneamente
-            cfg.PrefetchCount = 16;
-
-            // ============ DEAD LETTER QUEUE ============
-            cfg.ReceiveEndpoint("fila-dead-letter", e =>
-            {
-                e.ConfigureConsumer<DeadLetterQueueConsumer>(context);
-            });
-
-            // Configurar endpoints automaticamente
-            cfg.ConfigureEndpoints(context);
-        });
-    });
+    // Registrar a SAGA
+    builder.Services.AutoRegisterHandlersFromAssemblyOf<PedidoSaga>();
 
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
+
+    Log.Information("Orquestrador SAGA iniciado com sucesso");
 
     host.Run();
 

@@ -1,4 +1,8 @@
-using MassTransit;
+using Rebus.Config;
+using Rebus.Routing.TypeBased;
+using Rebus.Serilog;
+using SagaPoc.Observability;
+using SagaPoc.Shared.Mensagens.Comandos;
 using Serilog;
 
 // Configurar Serilog
@@ -12,7 +16,7 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Iniciando API SAGA POC");
+    Log.Information("Iniciando API SAGA POC com Rebus");
 
     var builder = WebApplication.CreateBuilder(args);
 
@@ -27,7 +31,7 @@ try
         c.SwaggerDoc("v1", new() {
             Title = "SAGA POC - Sistema de Delivery",
             Version = "v1",
-            Description = "POC de SAGA Pattern com MassTransit e RabbitMQ para sistema de delivery de comida"
+            Description = "POC de SAGA Pattern com Rebus e RabbitMQ para sistema de delivery de comida"
         });
 
         // Incluir comentários XML na documentação
@@ -39,24 +43,26 @@ try
         }
     });
 
-    // ==================== MASSTRANSIT COM RABBITMQ ====================
-    builder.Services.AddMassTransit(x =>
-    {
-        x.UsingRabbitMq((context, cfg) =>
-        {
-            cfg.Host(builder.Configuration["RabbitMQ:Host"], "/", h =>
-            {
-                h.Username(builder.Configuration["RabbitMQ:Username"]!);
-                h.Password(builder.Configuration["RabbitMQ:Password"]!);
-            });
-
-            // A API não precisa de receive endpoints, apenas publica mensagens
-        });
-    });
+    // ==================== REBUS COM RABBITMQ (ONE-WAY CLIENT) ====================
+    // A API apenas envia mensagens, não recebe (One-Way Client)
+    builder.Services.AddRebus((configure, provider) => configure
+        .Logging(l => l.Serilog())
+        .Transport(t => t.UseRabbitMqAsOneWayClient(
+            $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}"))
+        .Routing(r => r.TypeBased()
+            .Map<IniciarPedido>("fila-orquestrador"))
+    );
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
+
+    // Configurar OpenTelemetry
+    builder.Services.AddSagaOpenTelemetry(
+        builder.Configuration,
+        serviceName: "SagaPoc.Api",
+        serviceVersion: "1.0.0"
+    );
 
     var app = builder.Build();
 
@@ -72,6 +78,9 @@ try
     }
 
     app.UseSerilogRequestLogging();
+
+    // Habilitar endpoint de métricas OpenTelemetry/Prometheus
+    app.UseSagaOpenTelemetry();
 
     app.UseHttpsRedirection();
 

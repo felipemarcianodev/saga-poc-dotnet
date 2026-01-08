@@ -1,31 +1,33 @@
-using MassTransit;
+using Rebus.Bus;
+using Rebus.Handlers;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
 using SagaPoc.ServicoNotificacao.Servicos;
 
-namespace SagaPoc.ServicoNotificacao.Consumers;
+namespace SagaPoc.ServicoNotificacao.Handlers;
 
 /// <summary>
-/// Consumer responsável por enviar notificações aos clientes.
+/// Handler responsável por enviar notificações aos clientes.
 /// Recebe comando NotificarCliente e responde com NotificacaoEnviada.
 /// </summary>
-public class NotificarClienteConsumer : IConsumer<NotificarCliente>
+public class NotificarClienteHandler : IHandleMessages<NotificarCliente>
 {
     private readonly IServicoNotificacao _servico;
-    private readonly ILogger<NotificarClienteConsumer> _logger;
+    private readonly IBus _bus;
+    private readonly ILogger<NotificarClienteHandler> _logger;
 
-    public NotificarClienteConsumer(
+    public NotificarClienteHandler(
         IServicoNotificacao servico,
-        ILogger<NotificarClienteConsumer> logger)
+        IBus bus,
+        ILogger<NotificarClienteHandler> logger)
     {
         _servico = servico;
+        _bus = bus;
         _logger = logger;
     }
 
-    public async Task Consume(ConsumeContext<NotificarCliente> context)
+    public async Task Handle(NotificarCliente mensagem)
     {
-        var mensagem = context.Message;
-
         _logger.LogInformation(
             "Recebido comando NotificarCliente. CorrelacaoId: {CorrelacaoId}, " +
             "ClienteId: {ClienteId}, Tipo: {Tipo}",
@@ -51,8 +53,8 @@ public class NotificarClienteConsumer : IConsumer<NotificarCliente>
                 Enviada: resultado.EhSucesso
             );
 
-            // Enviar resposta
-            await context.RespondAsync(resposta);
+            // Enviar resposta usando Rebus
+            await _bus.Reply(resposta);
 
             if (resultado.EhSucesso)
             {
@@ -84,7 +86,7 @@ public class NotificarClienteConsumer : IConsumer<NotificarCliente>
 
             // Enviar resposta indicando falha, mas não re-throw
             // Notificações são "best effort" - não devem bloquear a SAGA
-            await context.RespondAsync(new NotificacaoEnviada(
+            await _bus.Reply(new NotificacaoEnviada(
                 CorrelacaoId: mensagem.CorrelacaoId,
                 Enviada: false
             ));
