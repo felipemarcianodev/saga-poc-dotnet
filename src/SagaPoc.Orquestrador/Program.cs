@@ -1,11 +1,15 @@
+using Microsoft.EntityFrameworkCore;
 using Rebus.Config;
 using Rebus.Persistence.InMem;
+using Rebus.PostgreSql;
+using Rebus.PostgreSql.Sagas;
 using Rebus.Routing.TypeBased;
 using Rebus.Sagas;
 using Rebus.Serilog;
 using Rebus.ServiceProvider;
 using SagaPoc.Observability;
 using SagaPoc.Orquestrador;
+using SagaPoc.Orquestrador.Persistence;
 using SagaPoc.Orquestrador.Sagas;
 using SagaPoc.Shared.Mensagens.Comandos;
 using SagaPoc.Shared.Mensagens.Respostas;
@@ -37,6 +41,17 @@ try
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
+    // ==================== ENTITY FRAMEWORK CORE ====================
+
+    // Configurar DbContext para persistência do estado da SAGA
+    var connectionString = builder.Configuration.GetConnectionString("SagaDatabase")
+        ?? throw new InvalidOperationException("Connection string 'SagaDatabase' não encontrada.");
+
+    builder.Services.AddDbContext<SagaDbContext>(options =>
+    {
+        options.UseNpgsql(connectionString);
+    });
+
     // ==================== REBUS COM RABBITMQ ====================
 
     builder.Services.AddRebus((configure, provider) => configure
@@ -44,7 +59,10 @@ try
         .Transport(t => t.UseRabbitMq(
             $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}",
             "fila-orquestrador"))
-        .Sagas(s => s.StoreInMemory()) // Para POC - usar SQL/MongoDB em produção
+        .Sagas(s => s.StoreInPostgres(
+            connectionString,
+            "PedidoSagas",        // Nome da tabela de dados da SAGA
+            "PedidoSagasIndex"))  // Nome da tabela de índices da SAGA
         .Routing(r => r.TypeBased()
             // Rotas para comandos enviados pela SAGA
             .Map<ValidarPedidoRestaurante>("fila-restaurante")
@@ -58,6 +76,7 @@ try
         {
             o.SetNumberOfWorkers(1); // Número de workers processando mensagens
             o.SetMaxParallelism(10); // Máximo de mensagens processadas em paralelo
+            // Retry policy nativo do Rebus irá lidar com falhas e concorrência
         })
     );
 
@@ -67,6 +86,9 @@ try
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
+
+    // Garantir que o banco de dados e as tabelas sejam criados
+    await host.EnsureDatabaseCreatedAsync();
 
     Log.Information("Orquestrador SAGA iniciado com sucesso");
 

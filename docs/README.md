@@ -441,7 +441,7 @@ E muitos outros cenários com diagnóstico passo a passo e ações corretivas.
 Esta POC é **educacional**. Para produção, considere:
 
 ### 1. Persistência da SAGA
-- Trocar `InMemoryRepository` por **SQL Server** ou **Redis**
+- Trocar `InMemoryRepository` por **Postgres**
 - Garantir recuperação em caso de reinicialização
 
 ### 2. Outbox Pattern

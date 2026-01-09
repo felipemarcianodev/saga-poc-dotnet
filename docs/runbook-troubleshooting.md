@@ -42,7 +42,7 @@ db.PedidoSagaData.find({
 ```
 
 ```csharp
-// Query no SQL Server (se usar persistência SQL)
+// Query no Postgres(se usar persistência SQL)
 SELECT
     CorrelationId,
     EstadoAtual,
@@ -632,8 +632,8 @@ db.PedidoSagaData.createIndex(
     { expireAfterSeconds: 604800 } // 7 dias
 )
 
-// Ou usar SQL Server:
-// .Sagas(s => s.UseSqlServer(connectionString, "Sagas"))
+// Ou usar Postgres:
+// .Sagas(s => s.UseNpgsql(connectionString, "Sagas"))
 ```
 
 #### Caso 2: Muitas Conexões Abertas

@@ -50,7 +50,7 @@ GET    /health                   # Health check
 **Tecnologias**:
 - Rebus Sagas
 - RabbitMQ
-- In-Memory Saga Repository (POC) - **Para produção: SQL Server ou MongoDB**
+- In-Memory Saga Repository (POC) - **Para produção: Postgres**
 
 **Componentes**:
 - `PedidoSaga` - Saga com Message Handlers (lógica de transições)
@@ -505,7 +505,7 @@ public class PedidoSagaData : ISagaData
 builder.Services.AddRebus((configure, provider) => configure
     .Logging(l => l.Serilog())
     .Transport(t => t.UseRabbitMq(...))
-    .Sagas(s => s.UseSqlServer(connectionString, "Sagas"))
+    .Sagas(s => s.UseNpgsql(connectionString, "Sagas"))
     // Ou MongoDB:
     // .Sagas(s => s.UseMongoDb(connectionString, "sagas"))
 );
@@ -968,10 +968,9 @@ Configurar RabbitMQ com persistência criptografada usando plugins.
 
 ## Referências
 
-- **[plano-execucao.md](./PLANO-EXECUCAO.md)** - Plano completo do projeto
+- **[plano-execucao.md](./plano-execucao/plano-execucao.md.md)** - Plano completo do projeto
 - **[guia-rebus.md](./guia-rebus.md)** - Guia do Rebus
 - **[casos-uso.md](./casos-uso.md)** - 12 cenários implementados
-- **[MIGRACAO-MASSTRANSIT-PARA-REBUS.md](./MIGRACAO-MASSTRANSIT-PARA-REBUS.md)** - Documento da migração
 - **[Rebus Documentation](https://github.com/rebus-org/Rebus)** - Documentação oficial
 - **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
 

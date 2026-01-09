@@ -571,7 +571,7 @@ x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()
         r.ConcurrencyMode = ConcurrencyMode.Optimistic;
         r.AddDbContext<DbContext, SagaDbContext>((provider, builder) =>
         {
-            builder.UseSqlServer(connectionString);
+            builder.UseNpgsql(connectionString);
         });
     });
 

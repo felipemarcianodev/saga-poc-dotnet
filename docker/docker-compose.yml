@@ -6,6 +6,29 @@ networks:
 
 services:
   # ===================================
+  # DATABASE (PostgreSQL)
+  # ===================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: saga-postgres
+    environment:
+      POSTGRES_USER: saga
+      POSTGRES_PASSWORD: saga123
+      POSTGRES_DB: sagapoc
+    networks:
+      - saga-network
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saga -d sagapoc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===================================
   # MESSAGE BROKER (RabbitMQ)
   # ===================================
   rabbitmq:
@@ -155,6 +178,7 @@ services:
     container_name: saga-orquestrador
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__SagaDatabase=Host=postgres;Port=5432;Database=sagapoc;Username=saga;Password=saga123
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123
@@ -165,6 +189,8 @@ services:
     networks:
       - saga-network
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       jaeger:
@@ -268,6 +294,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres_data:
+    driver: local
   rabbitmq_data:
     driver: local
   prometheus-data:
