@@ -9,6 +9,89 @@
 **Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **Rebus** e **RabbitMQ** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
 
 ---
+## Por que esse repositório existe
+
+Esse código **não nasceu para ser usado em produção**.
+
+Ele nasceu porque explicar Sagas apenas em texto não estava sendo suficiente.
+Sempre que o assunto surgia, a conversa escorregava para mensageria, tooling ou framework.
+E o problema real ficava de fora.
+
+Essa PoC existe para tornar visível uma dor comum em sistemas distribuídos:
+
+> o fluxo funciona, mas o significado não está claro.
+
+---
+
+## O problema que este código tenta expor
+
+Sagas coordenam execução.
+Elas **não garantem entendimento**.
+
+Na prática, a dificuldade raramente está em:
+
+* publicar eventos
+* reagir a mensagens
+* implementar compensações
+
+Ela aparece quando:
+
+* contratos são implícitos
+* versionamento vira formalidade
+* o domínio é interpretado de formas diferentes por serviços distintos
+
+Esse repositório usa Saga como instrumento didático para **provocar essa discussão**, não para encerrá‑la.
+
+---
+
+## O que você vai encontrar aqui
+
+* Um fluxo distribuído modelado com Saga
+* Comunicação assíncrona usando mensageria
+* Compensações explícitas para falhas intermediárias
+* Código organizado para leitura e análise — não otimizado para produção
+
+Tudo funciona.
+E isso é parte do problema.
+
+---
+
+## O que você **não** vai encontrar
+
+* Arquitetura de referência
+* Best practices universais
+* Respostas fechadas
+* Promessa de escalabilidade infinita
+
+Existem decisões aqui que são **intencionalmente discutíveis**.
+Elas fazem parte do aprendizado.
+
+---
+
+## Sobre contratos e versionamento
+
+Mensagens aqui são versionadas.
+Eventos têm nomes claros.
+
+Ainda assim, o código não responde perguntas como:
+
+* esse evento é contrato ou coincidência?
+* quem decide o significado de um campo?
+* quando uma mudança quebra entendimento, mesmo sem quebrar execução?
+
+Essas perguntas não são resolvidas por tooling.
+
+---
+
+## Como usar este repositório
+
+* Leia o código como quem lê uma decisão
+* Questione os limites do fluxo
+* Observe onde o domínio começa a ficar nebuloso
+
+Se você discordar de algo aqui, o objetivo foi cumprido.
+
+---
 
 ## Sobre o Projeto
 
