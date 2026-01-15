@@ -2,13 +2,20 @@
 
 ## Objetivos
 
-- Criar diagrama de componentes e interações (requisito obrigatório)
+- Criar diagrama de componentes e interações (requisito obrigatório em mermaid)
 - Documentar fluxos de dados end-to-end
 - Criar diagramas de sequência para operações principais
 - Documentar decisões arquiteturais (ADRs)
 - Preparar README completo com instruções de execução
 - Documentar APIs com Swagger/OpenAPI
 - Criar guia de troubleshooting
+- Antes de começar valide se já não existe em:
+  - C:\Projetos\saga-poc-dotnet\docs\fluxocaixa\README.md
+  - C:\Projetos\saga-poc-dotnet\docs\arquitetura.md
+  - C:\Projetos\saga-poc-dotnet\docs\runbook-troubleshooting.md
+  - C:\Projetos\saga-poc-dotnet\docs\diagramas-compensacao.md
+- O que poderia fazer é que para cada contexto ter um readme com o nome dele aqui C:\Projetos\saga-poc-dotnet\docs. O do fluxo de caixa está aqui C:\Projetos\saga-poc-dotnet\docs\fluxocaixa, mas poderia ser movido com o nome fluxo-caixa.md para onde informei. E referenciar esses readmes dentro do README.md onde o mesmo só descreveria de forma macro o que cada contexto faz e os readmes dos contextos detalhar.
+
 
 ## Entregas
 

@@ -388,7 +388,48 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 
 ### Documentação por Contexto
 
-- **[Fluxo de Caixa](fluxocaixa/README.md)** - Documentação completa do contexto de Fluxo de Caixa
+Este repositório implementa dois contextos principais:
+
+#### 1. SAGA Pattern com Delivery de Comida
+
+Demonstração educacional do padrão SAGA Orquestrado para sistemas distribuídos.
+
+**Objetivo**: Mostrar implementação de SAGA com compensações e resiliência.
+
+**Documentação**:
+- [Arquitetura SAGA](arquitetura.md) - Detalhes técnicos da implementação
+- [Casos de Uso](casos-uso.md) - 12 cenários implementados
+- [Diagramas de Compensação](diagramas-compensacao.md) - Fluxos visuais
+- [Boas Práticas](boas-praticas.md) - Os 10 mandamentos da SAGA
+- [Runbook Troubleshooting](runbook-troubleshooting.md) - Guia operacional
+
+**Serviços**: API, Orquestrador, Restaurante, Pagamento, Entregador, Notificação
+
+#### 2. Fluxo de Caixa (CQRS + Event-Driven)
+
+Sistema de controle de lançamentos com consolidado diário, demonstrando CQRS e arquitetura orientada a eventos.
+
+**Objetivo**: Implementar sistema de alta performance com separação de responsabilidades.
+
+**Documentação**:
+- **[Fluxo de Caixa](fluxo-caixa.md)** - Documentação completa do contexto
+- **[Diagramas Mermaid](diagramas-fluxo-caixa.md)** - Diagramas de arquitetura
+- **[ADRs](decisoes-arquiteturais/)** - Decisões arquiteturais documentadas
+
+**Características**:
+- CQRS: Write Model (Lançamentos) e Read Model (Consolidado)
+- Cache em 3 camadas (Memory + Redis + HTTP Response)
+- Performance: 50+ req/s com latência P95 < 10ms
+- Event-Driven: Sincronização assíncrona via RabbitMQ
+- Observabilidade: OpenTelemetry + Jaeger + Prometheus
+
+**Serviços**: API, Lançamentos, Consolidado
+
+**NFRs Atendidos**:
+- Disponibilidade independente entre Lançamentos e Consolidado
+- 50 req/s no Consolidado com < 5% de perda
+- Escalabilidade horizontal
+- Resiliência com retry automático
 
 ---
 

@@ -84,9 +84,55 @@ builder.Services.AutoRegisterHandlersFromAssemblyOf<LancamentoCreditoRegistradoH
 // Controllers e Swagger
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
+builder.Services.AddSwaggerGen(options =>
 {
-    c.SwaggerDoc("v1", new() { Title = "FluxoCaixa.Api", Version = "v1" });
+    options.SwaggerDoc("v1", new()
+    {
+        Title = "API de Fluxo de Caixa",
+        Version = "v1",
+        Description = @"
+            API para controle de fluxo de caixa com lançamentos e consolidado diário.
+
+            **Arquitetura:** CQRS + Event-Driven
+
+            **NFRs Atendidos:**
+            - 50 requisições/segundo no consolidado
+            - Disponibilidade independente entre serviços
+            - < 5% de perda de requisições
+            - Latência P95 < 10ms (com cache)
+
+            **Endpoints Principais:**
+            - POST /api/lancamentos - Registrar lançamento (débito ou crédito)
+            - GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
+            - GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
+            ",
+        Contact = new()
+        {
+            Name = "Equipe Backend",
+            Email = "backend@empresa.com"
+        }
+    });
+
+    // Incluir comentários XML
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        options.IncludeXmlComments(xmlPath);
+    }
+
+    // Adicionar servidores
+    options.AddServer(new()
+    {
+        Url = "http://localhost:5000",
+        Description = "Desenvolvimento Local"
+    });
+
+    options.AddServer(new()
+    {
+        Url = "https://api-fluxocaixa.empresa.com",
+        Description = "Produção"
+    });
 });
 
 var app = builder.Build();
