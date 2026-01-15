@@ -14,7 +14,7 @@
 ### 1. **Agregado ConsolidadoDiario**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/Agregados/ConsolidadoDiario.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Agregados/ConsolidadoDiario.cs
 
 namespace SagaPoc.FluxoCaixa.Domain.Agregados;
 
@@ -92,7 +92,7 @@ public class ConsolidadoDiario : AggregateRoot
 ### 2. **Repositório de Consolidado**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/Repositorios/IConsolidadoDiarioRepository.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Repositorios/IConsolidadoDiarioRepository.cs
 
 using SagaPoc.Shared.ResultPattern;
 
@@ -125,7 +125,7 @@ public interface IConsolidadoDiarioRepository
 #### Implementação com EF Core
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Infrastructure/Repositorios/ConsolidadoDiarioRepository.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure/Repositorios/ConsolidadoDiarioRepository.cs
 
 using Microsoft.EntityFrameworkCore;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -270,7 +270,7 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
 ### 3. **Handlers de Eventos**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Consolidado/Handlers/LancamentoCreditoRegistradoHandler.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Handlers/LancamentoCreditoRegistradoHandler.cs
 
 using Rebus.Handlers;
 using SagaPoc.FluxoCaixa.Domain.Eventos;
@@ -343,7 +343,7 @@ public class LancamentoCreditoRegistradoHandler
 ```
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Consolidado/Handlers/LancamentoDebitoRegistradoHandler.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Handlers/LancamentoDebitoRegistradoHandler.cs
 
 using Rebus.Handlers;
 using SagaPoc.FluxoCaixa.Domain.Eventos;
@@ -418,7 +418,7 @@ public class LancamentoDebitoRegistradoHandler
 ### 4. **Cache Service (Redis + Memory Cache)**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Consolidado/Servicos/ICacheService.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Servicos/ICacheService.cs
 
 namespace SagaPoc.FluxoCaixa.Consolidado.Servicos;
 
@@ -431,7 +431,7 @@ public interface ICacheService
 ```
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Consolidado/Servicos/RedisCacheService.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Servicos/RedisCacheService.cs
 
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
@@ -512,7 +512,7 @@ public class RedisCacheService : ICacheService
 ### 5. **API - Controller de Consolidado**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Api/Controllers/ConsolidadoController.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Controllers/ConsolidadoController.cs
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
@@ -663,7 +663,7 @@ public class ConsolidadoController : ControllerBase
 ### 6. **DTOs**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Api/DTOs/ConsolidadoResponse.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/DTOs/ConsolidadoResponse.cs
 
 namespace SagaPoc.FluxoCaixa.Api.DTOs;
 
@@ -684,7 +684,7 @@ public class ConsolidadoResponse
 ### 7. **Configuração - Program.cs**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Api/Program.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Program.cs
 
 var builder = WebApplication.CreateBuilder(args);
 

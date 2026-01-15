@@ -60,7 +60,7 @@ tests/
 #### Testes do Agregado Lancamento
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.Domain.Tests/Agregados/LancamentoTests.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain.Tests/Agregados/LancamentoTests.cs
 
 using FluentAssertions;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -260,7 +260,7 @@ public class LancamentoTests
 #### Testes do Agregado ConsolidadoDiario
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.Domain.Tests/Agregados/ConsolidadoDiarioTests.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain.Tests/Agregados/ConsolidadoDiarioTests.cs
 
 using FluentAssertions;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -362,7 +362,7 @@ public class ConsolidadoDiarioTests
 ### 3. **Testes de Integração**
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.Integration.Tests/Api/LancamentosControllerTests.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Integration.Tests/Api/LancamentosControllerTests.cs
 
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -479,7 +479,7 @@ public class LancamentosControllerTests : IClassFixture<WebApplicationFactory<Pr
 ### 4. **Testes BDD com SpecFlow**
 
 ```gherkin
-# tests/SagaPoc.FluxoCaixa.BDD.Tests/Features/RegistrarLancamento.feature
+# tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.BDD.Tests/Features/RegistrarLancamento.feature
 
 Feature: Registrar Lançamento
   Como um comerciante
@@ -513,7 +513,7 @@ Feature: Registrar Lançamento
 ```
 
 ```gherkin
-# tests/SagaPoc.FluxoCaixa.BDD.Tests/Features/ConsultarConsolidado.feature
+# tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.BDD.Tests/Features/ConsultarConsolidado.feature
 
 Feature: Consultar Consolidado Diário
   Como um comerciante
@@ -544,7 +544,7 @@ Feature: Consultar Consolidado Diário
 ```
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.BDD.Tests/StepDefinitions/LancamentoSteps.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.BDD.Tests/StepDefinitions/LancamentoSteps.cs
 
 using TechTalk.SpecFlow;
 using FluentAssertions;
@@ -605,7 +605,7 @@ public class LancamentoSteps
 ### 5. **Testes de Carga com NBomber**
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.LoadTests/ConsolidadoLoadTests.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.LoadTests/ConsolidadoLoadTests.cs
 
 using NBomber.CSharp;
 using NBomber.Http.CSharp;
@@ -706,7 +706,7 @@ public class ConsolidadoLoadTests
 ### 6. **Testes de Resiliência**
 
 ```csharp
-// tests/SagaPoc.FluxoCaixa.Integration.Tests/Resiliencia/DisponibilidadeTests.cs
+// tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Integration.Tests/Resiliencia/DisponibilidadeTests.cs
 
 using FluentAssertions;
 using Xunit;

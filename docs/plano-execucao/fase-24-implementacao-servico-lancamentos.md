@@ -16,7 +16,7 @@
 #### Agregado Raiz: Lancamento
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/Agregados/Lancamento.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Agregados/Lancamento.cs
 
 using SagaPoc.Shared.ResultPattern;
 
@@ -163,7 +163,7 @@ public class Lancamento : AggregateRoot
 #### Value Objects
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/ValueObjects/EnumTipoLancamento.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/ValueObjects/EnumTipoLancamento.cs
 
 namespace SagaPoc.FluxoCaixa.Domain.ValueObjects;
 
@@ -184,7 +184,7 @@ public enum EnumStatusLancamento
 #### Eventos de Domínio
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/Eventos/LancamentoCreditoRegistrado.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Eventos/LancamentoCreditoRegistrado.cs
 
 namespace SagaPoc.FluxoCaixa.Domain.Eventos;
 
@@ -218,7 +218,7 @@ public record LancamentoCancelado(
 #### Interface do Repositório
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Domain/Repositorios/ILancamentoRepository.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Repositorios/ILancamentoRepository.cs
 
 using SagaPoc.Shared.ResultPattern;
 
@@ -244,7 +244,7 @@ public interface ILancamentoRepository
 #### Implementação com EF Core
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Infrastructure/Repositorios/LancamentoRepository.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure/Repositorios/LancamentoRepository.cs
 
 using Microsoft.EntityFrameworkCore;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -385,7 +385,7 @@ public class LancamentoRepository : ILancamentoRepository
 ### 3. **DbContext e Configurações EF Core**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Infrastructure/Persistencia/FluxoCaixaDbContext.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure/Persistencia/FluxoCaixaDbContext.cs
 
 using Microsoft.EntityFrameworkCore;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -411,7 +411,7 @@ public class FluxoCaixaDbContext : DbContext
 #### Configuração da Entidade Lancamento
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Infrastructure/Persistencia/Configuracoes/LancamentoConfiguration.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure/Persistencia/Configuracoes/LancamentoConfiguration.cs
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -493,7 +493,7 @@ public class LancamentoConfiguration : IEntityTypeConfiguration<Lancamento>
 ### 4. **Handlers de Comandos**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Lancamentos/Handlers/RegistrarLancamentoHandler.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Lancamentos/Handlers/RegistrarLancamentoHandler.cs
 
 using Rebus.Handlers;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
@@ -597,7 +597,7 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
 ### 5. **API REST - Endpoints**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Api/Controllers/LancamentosController.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Controllers/LancamentosController.cs
 
 using Microsoft.AspNetCore.Mvc;
 using Rebus.Bus;
@@ -739,13 +739,13 @@ dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 
 # Criar migration
 dotnet ef migrations add CriarTabelaLancamentos \
-  --project src/SagaPoc.FluxoCaixa.Infrastructure \
+  --project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure \
   --startup-project src/SagaPoc.FluxoCaixa.Api \
   --context FluxoCaixaDbContext
 
 # Aplicar migration
 dotnet ef database update \
-  --project src/SagaPoc.FluxoCaixa.Infrastructure \
+  --project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure \
   --startup-project src/SagaPoc.FluxoCaixa.Api
 ```
 

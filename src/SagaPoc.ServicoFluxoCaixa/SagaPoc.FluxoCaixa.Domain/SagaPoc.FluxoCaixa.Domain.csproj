@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\SagaPoc.Shared\SagaPoc.Shared.csproj" />
+    <ProjectReference Include="..\..\SagaPoc.Shared\SagaPoc.Shared.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

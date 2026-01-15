@@ -12,12 +12,14 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.1" />
     <PackageReference Include="Rebus" Version="8.9.0" />
     <PackageReference Include="Rebus.RabbitMq" Version="10.1.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SagaPoc.FluxoCaixa.Consolidado\SagaPoc.FluxoCaixa.Consolidado.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Domain\SagaPoc.FluxoCaixa.Domain.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Infrastructure\SagaPoc.FluxoCaixa.Infrastructure.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Lancamentos\SagaPoc.FluxoCaixa.Lancamentos.csproj" />

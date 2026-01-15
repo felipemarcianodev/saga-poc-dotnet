@@ -293,24 +293,12 @@ services:
         condition: service_started
     restart: unless-stopped
 
-volumes:
-  postgres_fluxocaixa_data:
-    driver: local
-  postgres_data:
-    driver: local
-  rabbitmq_data:
-    driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
-    driver: local
-
   # ===================================
-  # FLUXO CAIXA - PostgreSQL
+  # FLUXO CAIXA - PostgreSQL (Lançamentos)
   # ===================================
   postgres-fluxocaixa:
     image: postgres:16-alpine
-    container_name: fluxocaixa-postgres
+    container_name: fluxocaixa-postgres-lancamentos
     environment:
       POSTGRES_DB: fluxocaixa_lancamentos
       POSTGRES_USER: saga
@@ -318,7 +306,7 @@ volumes:
     ports:
       - "5433:5432"
     volumes:
-      - postgres_fluxocaixa_data:/var/lib/postgresql/data
+      - postgres_fluxocaixa_lancamentos_data:/var/lib/postgresql/data
     networks:
       - saga-network
     healthcheck:
@@ -328,16 +316,62 @@ volumes:
       retries: 5
     restart: unless-stopped
 
+  # ===================================
+  # FLUXO CAIXA - PostgreSQL (Consolidado)
+  # ===================================
+  postgres-consolidado:
+    image: postgres:16-alpine
+    container_name: fluxocaixa-postgres-consolidado
+    environment:
+      POSTGRES_DB: fluxocaixa_consolidado
+      POSTGRES_USER: saga
+      POSTGRES_PASSWORD: saga123
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_consolidado_data:/var/lib/postgresql/data
+    networks:
+      - saga-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saga -d fluxocaixa_consolidado"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===================================
+  # REDIS - Cache Distribuído
+  # ===================================
+  redis:
+    image: redis:7-alpine
+    container_name: fluxocaixa-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - saga-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ===================================
   # FLUXO CAIXA - API
+  # ===================================
   fluxocaixa-api:
     build:
       context: ..
-      dockerfile: src/SagaPoc.FluxoCaixa.Api/Dockerfile
+      dockerfile: src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Dockerfile
     container_name: fluxocaixa-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__FluxoCaixaDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123
+      - ConnectionStrings__ConsolidadoDb=Host=postgres-consolidado;Port=5432;Database=fluxocaixa_consolidado;Username=saga;Password=saga123
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Port=5672
       - RabbitMQ__Username=saga
@@ -349,6 +383,26 @@ volumes:
     depends_on:
       postgres-fluxocaixa:
         condition: service_healthy
+      postgres-consolidado:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_fluxocaixa_lancamentos_data:
+    driver: local
+  postgres_consolidado_data:
+    driver: local
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

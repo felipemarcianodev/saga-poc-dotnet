@@ -334,10 +334,10 @@ Isso iniciará:
 
 ```bash
 # Banco de Lançamentos
-dotnet ef database update --project src/SagaPoc.FluxoCaixa.Infrastructure --startup-project src/SagaPoc.FluxoCaixa.Api --context FluxoCaixaDbContext
+dotnet ef database update --project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure --startup-project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api --context FluxoCaixaDbContext
 
 # Banco de Consolidado
-dotnet ef database update --project src/SagaPoc.FluxoCaixa.Infrastructure --startup-project src/SagaPoc.FluxoCaixa.Consolidado --context ConsolidadoDbContext
+dotnet ef database update --project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure --startup-project src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado --context ConsolidadoDbContext
 ```
 
 ### 4. Executar Serviços
@@ -353,15 +353,15 @@ docker-compose --profile fluxocaixa up -d
 
 ```bash
 # Terminal 1: API
-cd src/SagaPoc.FluxoCaixa.Api
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api
 dotnet run
 
 # Terminal 2: Serviço de Lançamentos
-cd src/SagaPoc.FluxoCaixa.Lancamentos
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Lancamentos
 dotnet run
 
 # Terminal 3: Serviço de Consolidado
-cd src/SagaPoc.FluxoCaixa.Consolidado
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado
 dotnet run
 ```
 
@@ -445,25 +445,25 @@ curl -X GET "http://localhost:5000/api/consolidado/COM001/periodo?inicio=2026-01
 ### Testes Unitários
 
 ```bash
-dotnet test tests/SagaPoc.FluxoCaixa.Domain.Tests
+dotnet test tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain.Tests
 ```
 
 ### Testes de Integração
 
 ```bash
-dotnet test tests/SagaPoc.FluxoCaixa.Integration.Tests
+dotnet test tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Integration.Tests
 ```
 
 ### Testes BDD (SpecFlow)
 
 ```bash
-dotnet test tests/SagaPoc.FluxoCaixa.BDD.Tests
+dotnet test tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.BDD.Tests
 ```
 
 ### Testes de Carga (NBomber)
 
 ```bash
-dotnet test tests/SagaPoc.FluxoCaixa.LoadTests
+dotnet test tests/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.LoadTests
 ```
 
 ### Cobertura de Código
@@ -551,7 +551,7 @@ Criado como parte do Desafio Backend - Fluxo de Caixa
 ### 6. **Swagger/OpenAPI - Anotações**
 
 ```csharp
-// src/SagaPoc.FluxoCaixa.Api/Program.cs
+// src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Program.cs
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
