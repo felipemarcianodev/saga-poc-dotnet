@@ -114,7 +114,7 @@ x.AddRebusSaga<PedidoSaga>()
 ## Trade-offs
 
 ### Postgres
-- ✅ **Vantagens**:
+- **Vantagens**:
   - Suporte transacional ACID completo
   - Melhor para auditoria e consultas complexas
   - Integração nativa com EF Core
@@ -125,7 +125,7 @@ x.AddRebusSaga<PedidoSaga>()
   - Schema rígido
 
 ### Redis
-- ✅ **Vantagens**:
+- **Vantagens**:
   - Performance extremamente alta
   - Baixa latência
   - Ideal para alta taxa de transações
@@ -136,7 +136,7 @@ x.AddRebusSaga<PedidoSaga>()
   - Memória é mais cara que disco
 
 ### MongoDB
-- ✅ **Vantagens**:
+- **Vantagens**:
   - Schema flexível
   - Boa performance
   - Bom para evolução de schema

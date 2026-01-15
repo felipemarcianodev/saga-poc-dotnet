@@ -29,7 +29,7 @@ function Invoke-TestarCaso {
     try {
         $response = Invoke-RestMethod -Uri $apiEndpoint -Method Post -Body $json -ContentType "application/json"
 
-        Write-Host "`n✅ Resposta:" -ForegroundColor Green
+        Write-Host "`n Resposta:" -ForegroundColor Green
         $response | ConvertTo-Json | Write-Host -ForegroundColor Green
 
         Write-Host "`n📊 PedidoId: $($response.pedidoId)" -ForegroundColor Magenta
@@ -303,7 +303,7 @@ if ($CasoUso -eq 0) {
     Invoke-TestarCaso -Numero 11 -Nome "Pedido Agendado" -Payload $caso11
     Invoke-TestarCaso -Numero 12 -Nome "Compensação Total" -Payload $caso12
 
-    Write-Host "`n✅ Todos os 12 casos foram executados!" -ForegroundColor Green
+    Write-Host "`n Todos os 12 casos foram executados!" -ForegroundColor Green
 }
 else {
     # Testar caso específico

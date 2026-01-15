@@ -485,11 +485,11 @@ public async Task<Dictionary<string, double>> ObterDuracaoMediaPorEstadoAsync()
 
 ## Benefícios
 
-- ✅ Rastreabilidade completa de todas transições da SAGA
-- ✅ Análise de mensagens que falharam sem perder contexto
-- ✅ Event Sourcing para rebuild de estado
-- ✅ Snapshots para recuperação rápida após crash
-- ✅ Queries complexas para troubleshooting e análise de negócio
+- Rastreabilidade completa de todas transições da SAGA
+- Análise de mensagens que falharam sem perder contexto
+- Event Sourcing para rebuild de estado
+- Snapshots para recuperação rápida após crash
+- Queries complexas para troubleshooting e análise de negócio
 
 ## Trade-offs
 

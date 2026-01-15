@@ -359,7 +359,7 @@ public async Task DeveRetornarResultadoArmazenadoParaMensagemDuplicada()
 ## Trade-offs
 
 ### Redis
-- ✅ **Vantagens**:
+- **Vantagens**:
   - TTL nativo (limpeza automática)
   - Alta performance
   - Baixa latência
@@ -368,7 +368,7 @@ public async Task DeveRetornarResultadoArmazenadoParaMensagemDuplicada()
   - Custo de memória
 
 ### Postgres
-- ✅ **Vantagens**:
+- **Vantagens**:
   - Persistência durável
   - Queries complexas para análise
   - Backup robusto

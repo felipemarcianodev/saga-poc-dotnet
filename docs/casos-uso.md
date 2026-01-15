@@ -648,7 +648,7 @@ Para cada caso de uso, validar:
 ```
 ┌─────────────────────────────────────────────────────┐
 │ Total de Pedidos: 1.523                             │
-│ ✅ Confirmados: 1.401 (92%)                         │
+│ Confirmados: 1.401 (92%)                         │
 │ ❌ Cancelados: 122 (8%)                             │
 ├─────────────────────────────────────────────────────┤
 │ Motivos de Cancelamento:                            │

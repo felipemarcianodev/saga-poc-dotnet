@@ -13,13 +13,13 @@
 
 **Cenário de Falha**:
 ```
-1. Salvar estado da SAGA no banco → ✅ Sucesso
+1. Salvar estado da SAGA no banco → Sucesso
 2. Publicar mensagem no RabbitMQ → ❌ Falha (network issue)
 Resultado: Estado inconsistente (banco atualizado, mas mensagem não enviada)
 
 OU
 
-1. Publicar mensagem no RabbitMQ → ✅ Sucesso
+1. Publicar mensagem no RabbitMQ → Sucesso
 2. Salvar estado da SAGA no banco → ❌ Falha (constraint violation)
 Resultado: Mensagem enviada mas estado não persistido
 ```
@@ -169,11 +169,11 @@ public class OutboxWorker : BackgroundService
 
 ## Benefícios
 
-- ✅ Garante que mensagens são enviadas APENAS se a transação commitou
-- ✅ Retry automático de mensagens que falharam
-- ✅ Histórico de mensagens enviadas (auditoria)
-- ✅ Deduplicação de mensagens
-- ✅ Consistência transacional entre banco e mensageria
+- Garante que mensagens são enviadas APENAS se a transação commitou
+- Retry automático de mensagens que falharam
+- Histórico de mensagens enviadas (auditoria)
+- Deduplicação de mensagens
+- Consistência transacional entre banco e mensageria
 
 ## Configuração Avançada
 

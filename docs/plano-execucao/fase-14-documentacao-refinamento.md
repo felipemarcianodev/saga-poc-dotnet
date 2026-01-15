@@ -25,7 +25,7 @@ sequenceDiagram
 
     API->>SAGA: IniciarPedido
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Pagamento: ProcessarPagamento
     Pagamento-->>SAGA: Falha ❌
@@ -33,7 +33,7 @@ sequenceDiagram
     Note over SAGA: Iniciando Compensação
 
     SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado ✅
+    Restaurante-->>SAGA: Cancelado
 
     Note over SAGA: Compensação Concluída
 ```
@@ -48,10 +48,10 @@ sequenceDiagram
     participant Entregador
 
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Aprovado ✅
+    Pagamento-->>SAGA: Aprovado
 
     SAGA->>Entregador: AlocarEntregador
     Entregador-->>SAGA: Indisponível ❌
@@ -63,8 +63,8 @@ sequenceDiagram
         SAGA->>Restaurante: CancelarPedido
     end
 
-    Pagamento-->>SAGA: Estornado ✅
-    Restaurante-->>SAGA: Cancelado ✅
+    Pagamento-->>SAGA: Estornado
+    Restaurante-->>SAGA: Cancelado
 ```
 \`\`\`
 
@@ -127,37 +127,37 @@ POST /api/pedidos/{id}/compensar
 ## Boas Práticas - SAGA Pattern
 
 ### 1. Idempotência
-- ✅ **SEMPRE** verificar idempotência antes de processar
-- ✅ Usar chaves únicas (MessageId, TransacaoId, etc)
-- ✅ Armazenar em cache/banco com TTL de 24-48h
+- **SEMPRE** verificar idempotência antes de processar
+- Usar chaves únicas (MessageId, TransacaoId, etc)
+- Armazenar em cache/banco com TTL de 24-48h
 
 ### 2. Compensações
-- ✅ Compensar em **ordem reversa**
-- ✅ Compensações devem ser **idempotentes**
-- ✅ Não lançar exceções em compensações
-- ✅ Logar todas as compensações executadas
+- Compensar em **ordem reversa**
+- Compensações devem ser **idempotentes**
+- Não lançar exceções em compensações
+- Logar todas as compensações executadas
 
 ### 3. Timeouts
-- ✅ Definir timeout para TODAS as operações
-- ✅ Usar CancellationToken
-- ✅ Timeout maior no orquestrador que nos serviços
+- Definir timeout para TODAS as operações
+- Usar CancellationToken
+- Timeout maior no orquestrador que nos serviços
 
 ### 4. Logs
-- ✅ Incluir CorrelationId em TODOS os logs
-- ✅ Usar log estruturado (Serilog, NLog)
-- ✅ Log de início/fim de cada passo
+- Incluir CorrelationId em TODOS os logs
+- Usar log estruturado (Serilog, NLog)
+- Log de início/fim de cada passo
 
 ### 5. Métricas
-- ✅ Taxa de sucesso/falha por tipo de erro
-- ✅ Duração de cada passo da SAGA
-- ✅ Contagem de compensações
-- ✅ Taxa de retry
+- Taxa de sucesso/falha por tipo de erro
+- Duração de cada passo da SAGA
+- Contagem de compensações
+- Taxa de retry
 
 ### 6. Testes
-- ✅ Testar TODOS os cenários de falha
-- ✅ Testar compensação parcial e total
-- ✅ Testar idempotência
-- ✅ Testes de carga
+- Testar TODOS os cenários de falha
+- Testar compensação parcial e total
+- Testar idempotência
+- Testes de carga
 ```
 
 #### 3.14.3 Critérios de Aceitação

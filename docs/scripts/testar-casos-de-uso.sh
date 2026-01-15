@@ -38,7 +38,7 @@ testar_caso() {
     body=$(echo "$response" | sed '/HTTP_STATUS/d')
 
     if [ "$http_status" == "200" ] || [ "$http_status" == "201" ] || [ "$http_status" == "202" ]; then
-        echo -e "\n${GREEN}✅ Resposta (HTTP $http_status):${NC}"
+        echo -e "\n${GREEN} Resposta (HTTP $http_status):${NC}"
         echo -e "${GREEN}$body${NC}" | jq '.' 2>/dev/null || echo "$body"
 
         pedido_id=$(echo "$body" | jq -r '.pedidoId' 2>/dev/null)
@@ -286,7 +286,7 @@ if [ "$CASO_USO" -eq 0 ]; then
     testar_caso 11 "Pedido Agendado" "$CASO_11"
     testar_caso 12 "Compensação Total" "$CASO_12"
 
-    echo -e "\n${GREEN}✅ Todos os 12 casos foram executados!${NC}"
+    echo -e "\n${GREEN} Todos os 12 casos foram executados!${NC}"
 else
     # Testar caso específico
     case $CASO_USO in

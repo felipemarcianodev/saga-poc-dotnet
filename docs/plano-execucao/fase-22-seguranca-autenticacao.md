@@ -509,15 +509,15 @@ app.MapPost("/api/pedidos", async (PedidoRequest request, IBus bus) =>
 ## Trade-offs
 
 **Benefícios:**
-- ✅ Comunicação criptografada end-to-end
-- ✅ Proteção contra interceptação de mensagens
-- ✅ Secrets gerenciados centralmente
-- ✅ Conformidade com requisitos de segurança (LGPD, PCI-DSS)
+- Comunicação criptografada end-to-end
+- Proteção contra interceptação de mensagens
+- Secrets gerenciados centralmente
+- Conformidade com requisitos de segurança (LGPD, PCI-DSS)
 
 **Considerações:**
-- ⚠️ Overhead de performance (5-10% por criptografia)
-- ⚠️ Complexidade adicional na infraestrutura
-- ⚠️ Necessidade de gerenciar certificados e rotação
+- Overhead de performance (5-10% por criptografia)
+- Complexidade adicional na infraestrutura
+- Necessidade de gerenciar certificados e rotação
 
 ## Estimativa
 

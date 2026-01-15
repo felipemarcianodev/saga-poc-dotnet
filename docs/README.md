@@ -386,6 +386,10 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 
 - **[docs/scripts/readme-script.md](scripts/readme-script.md)** - Como usar os scripts de teste
 
+### Documentação por Contexto
+
+- **[Fluxo de Caixa](fluxocaixa/README.md)** - Documentação completa do contexto de Fluxo de Caixa
+
 ---
 
 ## Tecnologias Utilizadas
@@ -498,11 +502,11 @@ rate(http_server_requests_total{status=~"5.."}[5m])
 ### Instrumentação Implementada
 
 Todos os serviços incluem:
-- ✅ **AspNetCore Instrumentation** - Traces HTTP automáticos
-- ✅ **HttpClient Instrumentation** - Traces de chamadas externas
-- ✅ **EntityFramework Instrumentation** - Traces de queries SQL
-- ✅ **Rebus Integration** - Propagação de contexto via mensageria
-- ✅ **Custom Spans** - Para operações de negócio críticas
+- **AspNetCore Instrumentation** - Traces HTTP automáticos
+- **HttpClient Instrumentation** - Traces de chamadas externas
+- **EntityFramework Instrumentation** - Traces de queries SQL
+- **Rebus Integration** - Propagação de contexto via mensageria
+- **Custom Spans** - Para operações de negócio críticas
 
 ### Troubleshooting
 
@@ -539,10 +543,10 @@ Esta POC é **educacional**. Para produção, considere:
 - Deduplicação de mensagens por MessageId
 - Armazenamento em Redis/SQL
 
-### 5. Observabilidade ✅ **Implementado (Fase 12)**
-- ✅ OpenTelemetry + Jaeger (Distributed Tracing)
-- ✅ Prometheus (Métricas)
-- ✅ Grafana (Dashboards)
+### 5. Observabilidade **Implementado (Fase 12)**
+- OpenTelemetry + Jaeger (Distributed Tracing)
+- Prometheus (Métricas)
+- Grafana (Dashboards)
 - ⏳ Application Insights (Azure - opcional)
 
 ### 6. Testes

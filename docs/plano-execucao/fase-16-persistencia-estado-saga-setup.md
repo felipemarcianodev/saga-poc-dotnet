@@ -302,10 +302,10 @@ Os seguintes índices são criados automaticamente:
 
 Se você estava usando InMemory, a migração é simples:
 
-1. ✅ Código atualizado: `StoreInMemory()` → `StoreInPostgres()`
-2. ✅ Connection string adicionada
-3. ✅ DbContext criado
-4. ✅ Tabelas criadas automaticamente
+1. Código atualizado: `StoreInMemory()` → `StoreInPostgres()`
+2. Connection string adicionada
+3. DbContext criado
+4. Tabelas criadas automaticamente
 
 Nenhuma SAGA em andamento será migrada. Aguarde todas as SAGAs atuais finalizarem antes de atualizar.
 
@@ -316,6 +316,6 @@ Nenhuma SAGA em andamento será migrada. Aguarde todas as SAGAs atuais finalizar
 
 ---
 
-**Status**: ✅ Persistência PostgreSQL implementada e testada
+**Status**: Persistência PostgreSQL implementada e testada
 **Data**: 2026-01-09
 **Versão**: 1.0.0

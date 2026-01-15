@@ -14,7 +14,7 @@
 | 7 | **Pedido Premium** | `REST_VIP` | Aprovado | Prioritário | Sucesso | - |
 | 8 | **Múltiplos Itens** | `REST001` | Aprovado | Disponível | Sucesso | - |
 | 9 | **Endereço Longe** | `REST001` | Aprovado | Motorizado | Taxa alta | - |
-| 10 | **Falha Notificação** | `REST001` | Aprovado | Disponível | ⚠️ Pedido OK | - |
+| 10 | **Falha Notificação** | `REST001` | Aprovado | Disponível | Pedido OK | - |
 | 11 | **Pedido Agendado** | `REST001` | Aprovado | Agendado | Sucesso | - |
 | 12 | **Compensação Total** | `REST001` | Aprovado | Falha total | ❌ Rollback | ⬅️ Todas |
 

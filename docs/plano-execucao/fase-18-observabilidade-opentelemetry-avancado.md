@@ -340,23 +340,23 @@ SetCompleted(
 ## O que Rastrear
 
 ### Traces (Distributed Tracing)
-- ✅ Duração de cada passo da SAGA
-- ✅ Correlação entre mensagens (CorrelationId)
-- ✅ Exceções e erros
-- ✅ Compensações executadas
-- ✅ Latência de comunicação com RabbitMQ
+- Duração de cada passo da SAGA
+- Correlação entre mensagens (CorrelationId)
+- Exceções e erros
+- Compensações executadas
+- Latência de comunicação com RabbitMQ
 
 ### Métricas (Prometheus)
-- ✅ Taxa de sucesso/falha por tipo de erro
-- ✅ Dead Letter Queue (DLQ) metrics
-- ✅ Duração média por estado da SAGA
-- ✅ Taxa de compensação
-- ✅ Throughput (pedidos/min)
+- Taxa de sucesso/falha por tipo de erro
+- Dead Letter Queue (DLQ) metrics
+- Duração média por estado da SAGA
+- Taxa de compensação
+- Throughput (pedidos/min)
 
 ### Logs Estruturados
-- ✅ Correlação com TraceId
-- ✅ Contexto de negócio (RestauranteId, ClienteId, etc)
-- ✅ Níveis apropriados (Info, Warning, Error)
+- Correlação com TraceId
+- Contexto de negócio (RestauranteId, ClienteId, etc)
+- Níveis apropriados (Info, Warning, Error)
 
 ## Dashboards Grafana
 

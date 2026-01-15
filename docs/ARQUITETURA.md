@@ -213,7 +213,7 @@ enum TipoNotificacao
 if (ClienteId == "CLI_SEM_NOTIFICACAO")
 {
     _logger.LogWarning("Cliente sem notificações habilitadas");
-    return Resultado.Sucesso(); // ✅ Não cancela o pedido
+    return Resultado.Sucesso(); // Não cancela o pedido
 }
 ```
 ---
@@ -241,10 +241,10 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
 
 | Orquestrado | Coreografado |
 |-------------|--------------|
-| ✅ Controle centralizado | ❌ Lógica espalhada |
-| ✅ Fácil debug e rastreamento | ❌ Difícil rastrear fluxo completo |
-| ✅ Compensações explícitas | ❌ Cada serviço conhece os outros |
-| ⚠️ Orquestrador é ponto único | ✅ Sem ponto único de falha |
+| Controle centralizado | ❌ Lógica espalhada |
+| Fácil debug e rastreamento | ❌ Difícil rastrear fluxo completo |
+| Compensações explícitas | ❌ Cada serviço conhece os outros |
+| Orquestrador é ponto único | Sem ponto único de falha |
 
 **Trade-off**: Escolhemos orquestrado porque:
 - POC educacional (mais fácil de entender)
@@ -761,8 +761,8 @@ histogram_quantile(0.95, rate(rebus_message_duration_seconds_bucket[5m]))
 **URL Grafana**: http://localhost:3000 (admin/admin123)
 
 **Datasources Configurados**:
-- ✅ Prometheus (http://prometheus:9090)
-- ✅ Jaeger (http://jaeger:16686)
+- Prometheus (http://prometheus:9090)
+- Jaeger (http://jaeger:16686)
 
 **Dashboards Sugeridos**:
 
@@ -894,12 +894,12 @@ builder.AddSagaOpenTelemetryForHost(
 ### 7. Stack Docker Completa
 
 **docker-compose.yml** inclui:
-- ✅ Jaeger (all-in-one)
-- ✅ Prometheus
-- ✅ Grafana (com datasources pré-configurados)
-- ✅ Node Exporter
-- ✅ RabbitMQ
-- ✅ Todos os 6 serviços .NET
+- Jaeger (all-in-one)
+- Prometheus
+- Grafana (com datasources pré-configurados)
+- Node Exporter
+- RabbitMQ
+- Todos os 6 serviços .NET
 
 **Iniciar toda a stack**:
 ```bash
@@ -922,7 +922,7 @@ docker-compose up -d
 
 | Alternativa | Prós | Contras | Quando usar |
 |-------------|------|---------|-------------|
-| **Rebus** | ✅ Leve, simples, flexível, Sagas com handlers explícitos | Sem State Machine visual, menos recursos prontos | ✅ POC, projetos médios, controle explícito |
+| **Rebus** | Leve, simples, flexível, Sagas com handlers explícitos | Sem State Machine visual, menos recursos prontos | POC, projetos médios, controle explícito |
 | **MassTransit** | State Machine integrada, Retry/CB embutidos | Curva de aprendizado, mais complexo | SAGA complexas, múltiplos transportes |
 | **NServiceBus** | Mais maduro, suporte enterprise | Pago | Enterprise |
 | **RabbitMQ direto** | Controle total | Muito boilerplate | Necessita customização extrema |
@@ -933,7 +933,7 @@ docker-compose up -d
 
 | Transport | Prós | Contras | Quando usar |
 |-----------|------|---------|-------------|
-| **RabbitMQ** | ✅ Dead Letter Queue, garantia de ordem, Request/Reply nativo | Menor vazão que Kafka | ✅ SAGA, POC, Request/Response |
+| **RabbitMQ** | Dead Letter Queue, garantia de ordem, Request/Reply nativo | Menor vazão que Kafka | SAGA, POC, Request/Response |
 | **Kafka** | Alta vazão, log distribuído, retenção longa | Overkill para SAGA, sem Request/Reply | Event Sourcing, analytics, streaming |
 | **Azure Service Bus** | Gerenciado, integração Azure | Custo, vendor lock-in | Cloud Azure |
 

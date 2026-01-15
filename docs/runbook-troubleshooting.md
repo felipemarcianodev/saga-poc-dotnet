@@ -779,7 +779,7 @@ for service in "${SERVICES[@]}"; do
   response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health)
 
   if [ "$response" == "200" ]; then
-    echo "✅ $name está saudável"
+    echo " $name está saudável"
   else
     echo "❌ $name está com problemas (HTTP $response)"
   fi

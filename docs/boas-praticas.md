@@ -31,7 +31,7 @@ Em sistemas distribuídos com mensageria, é **inevitável** que mensagens sejam
 
 **Idempotência garante que processar a mesma mensagem N vezes tenha o mesmo resultado de processar 1 vez.**
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Verificar Idempotência Antes de Processar
 
@@ -91,13 +91,13 @@ public class ProcessarPagamentoConsumer : IConsumer<ProcessarPagamento>
 #### Usar Chaves Únicas Adequadas
 
 ```csharp
-// ✅ BOM: Usar MessageId do MassTransit
+// BOM: Usar MessageId do MassTransit
 var chave = $"msg:{context.MessageId}";
 
-// ✅ BOM: Usar identificador de negócio
+// BOM: Usar identificador de negócio
 var chave = $"pedido:{context.Message.PedidoId}:validacao";
 
-// ✅ BOM: Combinar múltiplos IDs
+// BOM: Combinar múltiplos IDs
 var chave = $"estorno:{context.Message.TransacaoId}:{context.Message.ClienteId}";
 
 // ❌ RUIM: Usar CorrelationId sozinho (pode ter múltiplas mensagens com mesmo CorrelationId)
@@ -107,10 +107,10 @@ var chave = $"{context.CorrelationId}";
 #### Definir TTL Apropriado
 
 ```csharp
-// ✅ BOM: 24-48 horas para operações transacionais
+// BOM: 24-48 horas para operações transacionais
 AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24)
 
-// ✅ BOM: 7 dias para operações de reconciliação
+// BOM: 7 dias para operações de reconciliação
 AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7)
 
 // ❌ RUIM: TTL muito curto (aumenta chance de duplicação)
@@ -151,7 +151,7 @@ public async Task Consume(ConsumeContext<ProcessarPagamento> context)
 
 **Compensação não é um rollback!** É uma nova transação que desfaz o efeito da transação original.
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Compensar em Ordem Reversa
 
@@ -236,7 +236,7 @@ public class EstornarPagamentoConsumer : IConsumer<EstornarPagamento>
 #### Nunca Lançar Exceções em Compensações
 
 ```csharp
-// ✅ BOM: Compensação robusta
+// BOM: Compensação robusta
 public async Task Consume(ConsumeContext<CancelarPedido> context)
 {
     try
@@ -342,12 +342,12 @@ catch (Exception ex)
 
 ## 3. Timeouts e Resiliência
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Definir Timeouts para TODAS as Operações
 
 ```csharp
-// ✅ Configurar timeout no HttpClient
+// Configurar timeout no HttpClient
 services.AddHttpClient<IPagamentoService, PagamentoService>(client =>
 {
     client.BaseAddress = new Uri("http://localhost:5002");
@@ -357,7 +357,7 @@ services.AddHttpClient<IPagamentoService, PagamentoService>(client =>
     .TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(25)) // Timeout do Polly (menor)
 );
 
-// ✅ Configurar timeout nas SAGAs
+// Configurar timeout nas SAGAs
 public PedidoSaga()
 {
     During(AguardandoPagamento,
@@ -382,7 +382,7 @@ public PedidoSaga()
 #### Usar CancellationToken
 
 ```csharp
-// ✅ BOM: Propagar CancellationToken
+// BOM: Propagar CancellationToken
 public async Task<Resultado> ProcessarPagamentoAsync(
     ProcessarPagamento comando,
     CancellationToken cancellationToken = default)
@@ -413,7 +413,7 @@ public async Task<Resultado> ProcessarPagamentoAsync(
 #### Configurar Retry com Backoff Exponencial
 
 ```csharp
-// ✅ Configurar retry no MassTransit
+// Configurar retry no MassTransit
 services.AddMassTransit(x =>
 {
     x.AddConsumer<ProcessarPagamentoConsumer>();
@@ -440,7 +440,7 @@ services.AddMassTransit(x =>
 #### Implementar Circuit Breaker
 
 ```csharp
-// ✅ Configurar circuit breaker com Polly
+// Configurar circuit breaker com Polly
 services.AddHttpClient<IPagamentoService, PagamentoService>()
     .AddTransientHttpErrorPolicy(builder => builder
         .CircuitBreakerAsync(
@@ -482,12 +482,12 @@ catch (TimeoutException)
 
 ## 4. Logs e Observabilidade
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Incluir CorrelationId em TODOS os Logs
 
 ```csharp
-// ✅ Usar Serilog com enrichers
+// Usar Serilog com enrichers
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Aplicacao", "SagaPoc.Orquestrador")
@@ -497,7 +497,7 @@ Log.Logger = new LoggerConfiguration()
     )
     .CreateLogger();
 
-// ✅ Adicionar CorrelationId no contexto
+// Adicionar CorrelationId no contexto
 public async Task Consume(ConsumeContext<ProcessarPagamento> context)
 {
     using (LogContext.PushProperty("CorrelacaoId", context.CorrelationId))
@@ -513,7 +513,7 @@ public async Task Consume(ConsumeContext<ProcessarPagamento> context)
 #### Usar Log Estruturado
 
 ```csharp
-// ✅ BOM: Log estruturado
+// BOM: Log estruturado
 _logger.LogInformation(
     "Pedido {PedidoId} validado com sucesso - {QuantidadeItens} itens - Valor total: {ValorTotal:C}",
     pedido.Id,
@@ -583,7 +583,7 @@ _logger.LogInformation("Pedido: {Pedido}", pedido); // Pode causar referências 
 
 ## 5. Métricas e Monitoramento
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Coletar Métricas de Taxa de Sucesso/Falha
 
@@ -681,7 +681,7 @@ public async Task Consume(ConsumeContext<ProcessarPagamento> context)
 
 ## 6. Testes
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 #### Testar TODOS os Cenários de Falha
 
@@ -737,10 +737,10 @@ public async Task DeveSerIdempotente_QuandoProcessarDuasVezes()
 
 ## 7. Persistência de Estado
 
-### ✅ SEMPRE Fazer
+### SEMPRE Fazer
 
 ```csharp
-// ✅ Usar índices apropriados
+// Usar índices apropriados
 services.AddMassTransit(x =>
 {
     x.AddSagaStateMachine<PedidoSaga, EstadoPedido>()

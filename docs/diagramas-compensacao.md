@@ -17,7 +17,7 @@ sequenceDiagram
 
     API->>SAGA: IniciarPedido
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Pagamento: ProcessarPagamento
     Pagamento-->>SAGA: Falha ❌
@@ -25,7 +25,7 @@ sequenceDiagram
     Note over SAGA: Iniciando Compensação
 
     SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado ✅
+    Restaurante-->>SAGA: Cancelado
 
     Note over SAGA: Compensação Concluída
     SAGA-->>API: Pedido Compensado
@@ -57,10 +57,10 @@ sequenceDiagram
     participant Entregador
 
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Aprovado ✅
+    Pagamento-->>SAGA: Aprovado
 
     SAGA->>Entregador: AlocarEntregador
     Entregador-->>SAGA: Indisponível ❌
@@ -72,8 +72,8 @@ sequenceDiagram
         SAGA->>Restaurante: CancelarPedido
     end
 
-    Pagamento-->>SAGA: Estornado ✅
-    Restaurante-->>SAGA: Cancelado ✅
+    Pagamento-->>SAGA: Estornado
+    Restaurante-->>SAGA: Cancelado
 
     Note over SAGA: Compensação Concluída
 ```
@@ -109,13 +109,13 @@ sequenceDiagram
     API->>SAGA: IniciarPedido
 
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Aprovado ✅
+    Pagamento-->>SAGA: Aprovado
 
     SAGA->>Entregador: AlocarEntregador
-    Entregador-->>SAGA: Alocado ✅
+    Entregador-->>SAGA: Alocado
 
     Note over SAGA: Pedido Concluído
     SAGA-->>API: Pedido Confirmado
@@ -173,10 +173,10 @@ sequenceDiagram
 
     Note over SAGA: Retry 2/3
     SAGA->>Pagamento: EstornarPagamento
-    Pagamento-->>SAGA: Estornado ✅
+    Pagamento-->>SAGA: Estornado
 
     SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado ✅
+    Restaurante-->>SAGA: Cancelado
 
     Note over SAGA: Compensação Concluída
 ```
@@ -203,13 +203,13 @@ sequenceDiagram
     Pagamento->>Cache: Verificar idempotência (chave: transacao-123)
     Cache-->>Pagamento: Não encontrado
     Pagamento->>Cache: Armazenar (transacao-123: "processando")
-    Pagamento-->>SAGA: Estornado ✅
+    Pagamento-->>SAGA: Estornado
 
     Note over SAGA: Retry acidental ou mensagem duplicada
 
     SAGA->>Pagamento: EstornarPagamento (Tentativa 2)
     Pagamento->>Cache: Verificar idempotência (chave: transacao-123)
-    Cache-->>Pagamento: Já processado ✅
+    Cache-->>Pagamento: Já processado
     Pagamento-->>SAGA: OK (Idempotente)
 ```
 
@@ -222,8 +222,8 @@ Tabela de referência rápida para entender quais compensações são executadas
 | Falha no Passo | Restaurante | Pagamento | Entregador | Compensações Executadas |
 |---------------|-------------|-----------|------------|------------------------|
 | Validação Restaurante | ❌ | - | - | Nenhuma |
-| Pagamento | ✅ | ❌ | - | Cancelar Restaurante |
-| Entregador | ✅ | ✅ | ❌ | Estornar Pagamento + Cancelar Restaurante |
+| Pagamento | | ❌ | - | Cancelar Restaurante |
+| Entregador | | | ❌ | Estornar Pagamento + Cancelar Restaurante |
 
 ---
 
@@ -264,10 +264,10 @@ sequenceDiagram
     participant Estoque
 
     SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado ✅
+    Restaurante-->>SAGA: Validado
 
     SAGA->>Estoque: ReservarItens
-    Estoque-->>SAGA: Reservado ✅
+    Estoque-->>SAGA: Reservado
 
     SAGA->>Pagamento: ProcessarPagamento
     Pagamento-->>SAGA: Falha (Saldo Insuficiente) ❌
@@ -275,10 +275,10 @@ sequenceDiagram
     Note over SAGA: Compensação Parcial
 
     SAGA->>Estoque: LiberarReserva
-    Estoque-->>SAGA: Liberado ✅
+    Estoque-->>SAGA: Liberado
 
     SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado ✅
+    Restaurante-->>SAGA: Cancelado
 ```
 
 ---
@@ -327,10 +327,10 @@ sequenceDiagram
 
 ### Garantias
 
-- ✅ Eventual consistência através das compensações
-- ✅ Nenhuma transação fica "meio processada"
-- ✅ Todos os passos bem-sucedidos são compensados em caso de falha
-- ✅ Sistema retorna a um estado consistente mesmo após falhas
+- Eventual consistência através das compensações
+- Nenhuma transação fica "meio processada"
+- Todos os passos bem-sucedidos são compensados em caso de falha
+- Sistema retorna a um estado consistente mesmo após falhas
 
 ---
 

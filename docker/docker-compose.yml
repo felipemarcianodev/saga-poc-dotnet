@@ -294,6 +294,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres_fluxocaixa_data:
+    driver: local
   postgres_data:
     driver: local
   rabbitmq_data:
@@ -302,3 +304,51 @@ volumes:
     driver: local
   grafana-data:
     driver: local
+
+  # ===================================
+  # FLUXO CAIXA - PostgreSQL
+  # ===================================
+  postgres-fluxocaixa:
+    image: postgres:16-alpine
+    container_name: fluxocaixa-postgres
+    environment:
+      POSTGRES_DB: fluxocaixa_lancamentos
+      POSTGRES_USER: saga
+      POSTGRES_PASSWORD: saga123
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_fluxocaixa_data:/var/lib/postgresql/data
+    networks:
+      - saga-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saga -d fluxocaixa_lancamentos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # FLUXO CAIXA - API
+  fluxocaixa-api:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.FluxoCaixa.Api/Dockerfile
+    container_name: fluxocaixa-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__FluxoCaixaDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+    networks:
+      - saga-network
+    ports:
+      - "5100:8080"
+    depends_on:
+      postgres-fluxocaixa:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
