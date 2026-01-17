@@ -1,26 +1,13 @@
 using Microsoft.EntityFrameworkCore;
+using Polly;
 using Rebus.Config;
-using Rebus.Persistence.InMem;
-using Rebus.PostgreSql;
-using Rebus.PostgreSql.Sagas;
 using Rebus.Routing.TypeBased;
-using Rebus.Sagas;
-using Rebus.Serilog;
-using Rebus.ServiceProvider;
+using SagaPoc.Common.Mensagens.Comandos;
 using SagaPoc.Observability;
 using SagaPoc.Orquestrador;
 using SagaPoc.Orquestrador.Persistence;
 using SagaPoc.Orquestrador.Sagas;
-using SagaPoc.Shared.Mensagens.Comandos;
-using SagaPoc.Shared.Mensagens.Respostas;
 using Serilog;
-
-// Configurar Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .Build())
-    .CreateLogger();
 
 try
 {
@@ -28,14 +15,13 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
-    // Configurar Serilog como provedor de logging
-    builder.Services.AddSerilog();
+    var applicationName = builder.Environment.ApplicationName;
+    var environmentName = builder.Environment.EnvironmentName;
+    var isDevelopment = builder.Environment.IsDevelopment();
 
-    // Configurar OpenTelemetry
-    builder.AddSagaOpenTelemetryForHost(
-        serviceName: "SagaPoc.Orquestrador",
-        serviceVersion: "1.0.0"
-    );
+    builder.AddSagaOpenTelemetryForHost(applicationName);
+    builder.UseCustomSerilog(builder.Configuration, applicationName, environmentName, builder.Environment.IsDevelopment());
+    
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()

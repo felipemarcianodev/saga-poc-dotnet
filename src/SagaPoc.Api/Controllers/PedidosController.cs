@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Rebus.Bus;
 using SagaPoc.Api.DTOs;
-using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Common.Mensagens.Comandos;
 
 namespace SagaPoc.Api.Controllers;
 

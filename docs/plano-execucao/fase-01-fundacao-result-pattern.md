@@ -8,7 +8,7 @@
 
 #### 3.1.2 Entregas
 
-##### 1. **Result Pattern (SagaPoc.Shared)**
+##### 1. **Result Pattern (SagaPoc.Common)**
 ```csharp
 // Tudo em português
 public class Resultado<T>
@@ -124,7 +124,11 @@ public enum StatusPedido
 ```
 
 ##### 4. **Estrutura de Projetos**
-- `SagaPoc.Shared.csproj` - Class Library
+- `SagaPoc.Common.csproj` - Class Library (BuildingBlocks)
+- `SagaPoc.Observability.csproj` - Class Library (BuildingBlocks)
+- `WebHost.csproj` - Class Library (BuildingBlocks)
+- `SagaPoc.Infrastructure.csproj` - Class Library (BuildingBlocks)
+- `SagaPoc.Infrastructure.Core.csproj` - Class Library (BuildingBlocks)
 - `SagaPoc.Orquestrador.csproj` - Worker Service
 - `SagaPoc.ServicoRestaurante.csproj` - Worker Service
 - `SagaPoc.ServicoPagamento.csproj` - Worker Service

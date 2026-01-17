@@ -1,6 +1,6 @@
 # SAGA POC - Docker Compose
 
-Este diretório contém a configuração Docker Compose completa para executar toda a stack da SAGA POC, incluindo serviços .NET, RabbitMQ e observabilidade (Jaeger, Prometheus, Grafana).
+Este diretório contém a configuração Docker Compose completa para executar toda a stack da SAGA POC, incluindo serviços .NET, RabbitMQ e observabilidade (Jaeger, Seq).
 
 ## Pré-requisitos
 
@@ -13,9 +13,7 @@ Este diretório contém a configuração Docker Compose completa para executar t
 - **PostgreSQL** (porta 5432): Banco de dados para persistência do estado da SAGA
 - **RabbitMQ** (porta 15672): Message broker com interface de gerenciamento
 - **Jaeger** (porta 16686): Distributed tracing UI
-- **Prometheus** (porta 9090): Coleta de métricas
-- **Grafana** (porta 3000): Dashboards e visualização
-- **Node Exporter** (porta 9100): Métricas do sistema
+- **Seq** (porta 5341/80): Logs estruturados e análise
 
 ### Serviços .NET
 - **saga-api** (porta 5000): API REST principal
@@ -71,8 +69,7 @@ Após executar `docker-compose up`, você pode acessar:
 - **PostgreSQL**: `localhost:5432` (usuário: `saga`, senha: `saga123`, database: `sagapoc`)
 - **RabbitMQ Management**: http://localhost:15672 (usuário: `saga`, senha: `saga123`)
 - **Jaeger UI**: http://localhost:16686 (traces distribuídos)
-- **Prometheus**: http://localhost:9090 (métricas)
-- **Grafana**: http://localhost:3000 (usuário: `admin`, senha: `admin123`)
+- **Seq UI**: http://localhost:80 (logs estruturados)
 
 ### Conectar ao PostgreSQL
 
@@ -156,13 +153,6 @@ docker-compose up -d
 ```
 docker/
 ├── docker-compose.yml              # Configuração principal
-├── infra/
-│   ├── prometheus/
-│   │   └── prometheus.yml          # Configuração Prometheus
-│   └── grafana/
-│       ├── datasources/
-│       │   └── datasources.yml     # Datasources (Prometheus + Jaeger)
-│       └── dashboards.yml          # Configuração de dashboards
 └── README.md                        # Este arquivo
 ```
 
@@ -173,16 +163,11 @@ docker/
 - Selecione o serviço (ex: `SagaPoc.Api`)
 - Visualize os traces das requisições end-to-end
 
-### Prometheus (Métricas)
-- Acesse http://localhost:9090
-- Exemplos de queries:
-  - Taxa de requisições: `rate(http_server_requests_total[5m])`
-  - Duração P95: `histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))`
-
-### Grafana (Dashboards)
-- Acesse http://localhost:3000 (admin/admin123)
-- Datasources já configurados: Prometheus e Jaeger
-- Crie seus próprios dashboards ou importe existentes
+### Seq (Logs Estruturados)
+- Acesse http://localhost:80
+- Visualize logs em tempo real de todos os serviços
+- Filtre por nível de log, propriedades customizadas, serviço
+- Crie queries e dashboards customizados
 
 ## Verificar Estado das SAGAs
 
@@ -225,7 +210,6 @@ Todos os serviços estão na mesma rede (`saga-network`), permitindo comunicaç�
 - `postgres:5432`
 - `rabbitmq:5672`
 - `jaeger:6831`
-- `prometheus:9090`
 - `saga-api:8080`
 
 ## Variáveis de Ambiente

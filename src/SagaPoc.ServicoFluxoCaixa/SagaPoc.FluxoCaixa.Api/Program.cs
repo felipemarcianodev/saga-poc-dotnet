@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using Rebus.Config;
+using Rebus.Handlers;
 using Rebus.Routing.TypeBased;
-using Rebus.ServiceProvider;
 using SagaPoc.FluxoCaixa.Consolidado.Handlers;
 using SagaPoc.FluxoCaixa.Consolidado.Servicos;
 using SagaPoc.FluxoCaixa.Domain.Comandos;
@@ -11,6 +12,7 @@ using SagaPoc.FluxoCaixa.Domain.Repositorios;
 using SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
 using SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
 using SagaPoc.FluxoCaixa.Lancamentos.Handlers;
+using SagaPoc.Observability;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -75,18 +77,19 @@ builder.Services.AddRebus(configure => configure
         .Map<LancamentoCreditoRegistrado>("fluxocaixa-consolidado")
         .Map<LancamentoDebitoRegistrado>("fluxocaixa-consolidado")));
 
-// Registrar handlers - Lançamentos
-builder.Services.AutoRegisterHandlersFromAssemblyOf<RegistrarLancamentoHandler>();
+// Registrar handlers manualmente - Lançamentos
+builder.Services.AddScoped<IHandleMessages<RegistrarLancamento>, RegistrarLancamentoHandler>();
 
-// Registrar handlers - Consolidado
-builder.Services.AutoRegisterHandlersFromAssemblyOf<LancamentoCreditoRegistradoHandler>();
+// Registrar handlers manualmente - Consolidado
+builder.Services.AddScoped<IHandleMessages<LancamentoCreditoRegistrado>, LancamentoCreditoRegistradoHandler>();
+builder.Services.AddScoped<IHandleMessages<LancamentoDebitoRegistrado>, LancamentoDebitoRegistradoHandler>();
 
 // Controllers e Swagger
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new()
+    options.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "API de Fluxo de Caixa",
         Version = "v1",
@@ -106,7 +109,7 @@ builder.Services.AddSwaggerGen(options =>
             - GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
             - GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
             ",
-        Contact = new()
+        Contact = new OpenApiContact
         {
             Name = "Equipe Backend",
             Email = "backend@empresa.com"
@@ -122,18 +125,26 @@ builder.Services.AddSwaggerGen(options =>
     }
 
     // Adicionar servidores
-    options.AddServer(new()
-    {
-        Url = "http://localhost:5000",
-        Description = "Desenvolvimento Local"
-    });
+    //options.AddServer(new OpenApiServer
+    //{
+    //    Url = "http://localhost:5102",
+    //    Description = "Desenvolvimento Local"
+    //});
 
-    options.AddServer(new()
-    {
-        Url = "https://api-fluxocaixa.empresa.com",
-        Description = "Produção"
-    });
+    //options.AddServer(new OpenApiServer
+    //{
+    //    Url = "https://api-fluxocaixa.empresa.com",
+    //    Description = "Produção"
+    //});
 });
+
+var applicationName = builder.Environment.ApplicationName;
+builder.Services.AddSagaOpenTelemetry(
+       builder.Configuration,
+       serviceName: applicationName
+   );
+
+builder.Host.UseCustomSerilog();
 
 var app = builder.Build();
 

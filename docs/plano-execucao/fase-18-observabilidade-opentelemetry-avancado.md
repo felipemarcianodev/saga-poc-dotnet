@@ -4,7 +4,7 @@
 ## Objetivos
 - Implementar distributed tracing com OpenTelemetry
 - Configurar exportação de traces para Jaeger (visualização)
-- Configurar exportação de métricas para Prometheus (monitoramento)
+- Configurar logs estruturados com Serilog + SEQ (monitoramento)
 - Rastrear duração e status de cada passo da SAGA
 - Monitorar taxa de sucesso/falha e compensações
 
@@ -18,7 +18,7 @@
 - Correlacionar erros entre componentes
 - Analisar padrões de falha
 
-**Solução**: Adicionar OpenTelemetry + Jaeger (visualização) + Prometheus (métricas)
+**Solução**: Adicionar OpenTelemetry + Jaeger (visualização) + Serilog + SEQ (logs)
 
 ## Implementação
 
@@ -28,8 +28,11 @@
 dotnet add package OpenTelemetry.Exporter.Jaeger
 dotnet add package OpenTelemetry.Instrumentation.AspNetCore
 dotnet add package OpenTelemetry.Extensions.Hosting
-dotnet add package OpenTelemetry.Exporter.Prometheus.AspNetCore
 dotnet add package OpenTelemetry.Instrumentation.Http
+dotnet add package Serilog
+dotnet add package Serilog.AspNetCore
+dotnet add package Serilog.Sinks.Seq
+dotnet add package Serilog.Enrichers.Environment
 ```
 
 ### 2. Configurar OpenTelemetry
@@ -63,19 +66,7 @@ services.AddOpenTelemetry()
             })
             // Alternativa: Console Exporter para desenvolvimento
             .AddConsoleExporter();
-    })
-    .WithMetrics(builder =>
-    {
-        builder
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation()
-            .AddMeter("Rebus") // Métricas do Rebus
-            .AddMeter("SagaPOC") // Métricas customizadas
-            .AddPrometheusExporter(); // Para Grafana
     });
-
-// Expor endpoint de métricas Prometheus
-app.MapPrometheusScrapingEndpoint(); // /metrics
 ```
 
 ### 3. Docker Compose - Jaeger
@@ -95,53 +86,62 @@ jaeger:
     - saga-network
 ```
 
-### 4. Docker Compose - Prometheus + Grafana
+### 4. Docker Compose - SEQ
 
 ```yaml
-prometheus:
-  image: prom/prometheus:latest
-  container_name: saga-prometheus
-  ports:
-    - "9090:9090"
-  volumes:
-    - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    - prometheus-data:/prometheus
-  command:
-    - '--config.file=/etc/prometheus/prometheus.yml'
-    - '--storage.tsdb.path=/prometheus'
-  networks:
-    - saga-network
-
-grafana:
-  image: grafana/grafana:latest
-  container_name: saga-grafana
-  ports:
-    - "3000:3000"
+seq:
+  image: datalust/seq:latest
+  container_name: saga-seq
   environment:
-    - GF_SECURITY_ADMIN_PASSWORD=admin
+    - ACCEPT_EULA=Y
+  ports:
+    - "5341:80"
   volumes:
-    - grafana-data:/var/lib/grafana
+    - seq-data:/data
   networks:
     - saga-network
-  depends_on:
-    - prometheus
 
 volumes:
-  prometheus-data:
-    driver: local
-  grafana-data:
+  seq-data:
     driver: local
 ```
 
-**prometheus.yml**:
-```yaml
-global:
-  scrape_interval: 15s
+**Serilog Configuration** (Program.cs):
+```csharp
+using Serilog;
 
-scrape_configs:
-  - job_name: 'saga-poc'
-    static_configs:
-      - targets: ['host.docker.internal:5000'] # API
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .Enrich.FromLogContext()
+    .Enrich.WithMachineName()
+    .Enrich.WithProperty("Application", "SagaPoc")
+    .WriteTo.Console()
+    .WriteTo.Seq("http://localhost:5341")
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+```
+
+**appsettings.json**:
+```json
+{
+  "Seq": {
+    "ServerUrl": "http://localhost:5341",
+    "ApiKey": null
+  }
+}
+```
+
+**Queries úteis no SEQ**:
+```sql
+-- Filtrar por aplicação
+Application = "SagaPoc.Orquestrador"
+
+-- Filtrar por CorrelationId
+CorrelationId = "abc123"
+
+-- SAGAs com falha
+Level = "Error" AND @MessageTemplate LIKE "%SAGA%"
 ```
 
 ### 5. Instrumentar a SAGA
@@ -346,9 +346,9 @@ SetCompleted(
 - Compensações executadas
 - Latência de comunicação com RabbitMQ
 
-### Métricas (Prometheus)
-- Taxa de sucesso/falha por tipo de erro
-- Dead Letter Queue (DLQ) metrics
+### Logs Estruturados (SEQ)
+- Logs de sucesso/falha por tipo de erro
+- Eventos de Dead Letter Queue (DLQ)
 - Duração média por estado da SAGA
 - Taxa de compensação
 - Throughput (pedidos/min)
@@ -358,9 +358,9 @@ SetCompleted(
 - Contexto de negócio (RestauranteId, ClienteId, etc)
 - Níveis apropriados (Info, Warning, Error)
 
-## Dashboards Grafana
+## Queries no SEQ
 
-### 1. Dashboard de Taxa de Sucesso
+### 1. Análise de Taxa de Sucesso
 
 ```promql
 # Taxa de sucesso (últimas 5 min)
@@ -389,15 +389,14 @@ rate(saga_duracao_segundos_sum[5m]) / rate(saga_duracao_segundos_count[5m])
 ## Acessar Ferramentas
 
 - **Jaeger UI**: http://localhost:16686
-- **Prometheus UI**: http://localhost:9090
-- **Grafana**: http://localhost:3000 (admin/admin)
+- **SEQ UI**: http://localhost:5341
 
 ## Critérios de Aceitação
-- [ ] OpenTelemetry configurado com Jaeger e Prometheus
+- [ ] OpenTelemetry configurado com Jaeger
 - [ ] Distributed tracing funcionando (traces visíveis no Jaeger)
-- [ ] Métricas customizadas implementadas
-- [ ] Dashboard Grafana criado com métricas principais
-- [ ] Logs estruturados com TraceId
+- [ ] Serilog + SEQ configurados e funcionando
+- [ ] Logs estruturados com CorrelationId
+- [ ] Queries no SEQ retornando dados corretos
 - [ ] Documentação de observabilidade atualizada
 - [ ] Runbook de troubleshooting com Jaeger
 
@@ -411,8 +410,8 @@ rate(saga_duracao_segundos_sum[5m]) / rate(saga_duracao_segundos_count[5m])
 ## Referências
 - [OpenTelemetry .NET](https://opentelemetry.io/docs/instrumentation/net/)
 - [Jaeger](https://www.jaegertracing.io/)
-- [Prometheus](https://prometheus.io/)
-- [Grafana](https://grafana.com/)
+- [Serilog](https://serilog.net/)
+- [SEQ](https://datalust.co/seq)
 
 ---
 

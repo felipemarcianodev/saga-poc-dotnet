@@ -143,7 +143,7 @@ string BuildSecureConnectionString()
 ```csharp
 // Instalar: dotnet add package System.Security.Cryptography
 
-// src/SagaPoc.Shared/Seguranca/CriptografiaMensagens.cs
+// src/SagaPoc.Common/Seguranca/CriptografiaMensagens.cs
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -200,7 +200,7 @@ public class CriptografiaMensagensAes : ICriptografiaMensagens
 #### Integração com Rebus
 
 ```csharp
-// src/SagaPoc.Shared/Seguranca/RebusMensagemCriptografadaPipeline.cs
+// src/SagaPoc.Common/Seguranca/RebusMensagemCriptografadaPipeline.cs
 
 public class RebusMensagemCriptografadaPipeline : IOutgoingStep, IIncomingStep
 {

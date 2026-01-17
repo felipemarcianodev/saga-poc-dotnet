@@ -1,19 +1,10 @@
 using Rebus.Config;
 using Rebus.Routing.TypeBased;
-using Rebus.Serilog;
-using Rebus.ServiceProvider;
 using SagaPoc.Observability;
 using SagaPoc.ServicoNotificacao;
 using SagaPoc.ServicoNotificacao.Handlers;
-using SagaPoc.Shared.Mensagens.Respostas;
+using SagaPoc.Common.Mensagens.Respostas;
 using Serilog;
-
-// Configurar Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .Build())
-    .CreateLogger();
 
 try
 {
@@ -21,14 +12,12 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
-    // Configurar Serilog como provedor de logging
-    builder.Services.AddSerilog();
+    var applicationName = builder.Environment.ApplicationName;
+    var environmentName = builder.Environment.EnvironmentName;
+    var isDevelopment = builder.Environment.IsDevelopment();
 
-    // Configurar OpenTelemetry
-    builder.AddSagaOpenTelemetryForHost(
-        serviceName: "SagaPoc.ServicoNotificacao",
-        serviceVersion: "1.0.0"
-    );
+    builder.AddSagaOpenTelemetryForHost(applicationName);
+    builder.UseCustomSerilog(builder.Configuration, applicationName, environmentName, builder.Environment.IsDevelopment());
 
     // Registrar serviços de negócio
     builder.Services.AddScoped<SagaPoc.ServicoNotificacao.Servicos.IServicoNotificacao,

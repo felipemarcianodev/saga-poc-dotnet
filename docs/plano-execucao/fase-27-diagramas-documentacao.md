@@ -91,8 +91,7 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │  OBSERVABILIDADE                                                    │
 ├─────────────────────────────────────────────────────────────────────┤
-│  • Logs: Serilog → Console/File                                    │
-│  • Métricas: Prometheus → Grafana                                  │
+│  • Logs: Serilog → SEQ                                              │
 │  • Traces: OpenTelemetry → Jaeger                                  │
 │  • Health Checks: /health endpoint                                 │
 └─────────────────────────────────────────────────────────────────────┘
@@ -290,9 +289,8 @@ Sistema de controle de fluxo de caixa com lançamentos (débitos e créditos) e 
 - RabbitMQ 3.13
 - Redis 7
 - Rebus (mensageria)
-- Serilog (logs estruturados)
+- Serilog + SEQ (logs estruturados)
 - OpenTelemetry + Jaeger (tracing)
-- Prometheus + Grafana (métricas)
 - xUnit + FluentAssertions (testes)
 - SpecFlow (BDD)
 - NBomber (testes de carga)
@@ -334,8 +332,7 @@ Isso iniciará:
 - RabbitMQ (porta 5672, Management UI: 15672)
 - Redis (porta 6379)
 - Jaeger (porta 16686)
-- Prometheus (porta 9090)
-- Grafana (porta 3000)
+- SEQ (porta 5341)
 
 ### 3. Executar Migrations
 
@@ -378,7 +375,7 @@ dotnet run
 - **Health Check**: http://localhost:5000/health
 - **RabbitMQ Management**: http://localhost:15672 (saga/saga123)
 - **Jaeger UI**: http://localhost:16686
-- **Grafana**: http://localhost:3000 (admin/admin123)
+- **SEQ UI**: http://localhost:5341 (admin/admin123)
 
 ## Exemplos de Uso
 

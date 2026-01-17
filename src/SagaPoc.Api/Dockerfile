@@ -4,18 +4,22 @@ WORKDIR /src
 
 # Copiar arquivos de projeto
 COPY ["src/SagaPoc.Api/SagaPoc.Api.csproj", "SagaPoc.Api/"]
-COPY ["src/SagaPoc.Shared/SagaPoc.Shared.csproj", "SagaPoc.Shared/"]
-COPY ["src/WebHost/WebHost.csproj", "WebHost/"]
-COPY ["src/SagaPoc.Observability/SagaPoc.Observability.csproj", "SagaPoc.Observability/"]
+COPY ["src/BuildingBlocks/SagaPoc.Common/SagaPoc.Common.csproj", "BuildingBlocks/SagaPoc.Common/"]
+COPY ["src/BuildingBlocks/WebHost/WebHost.csproj", "BuildingBlocks/WebHost/"]
+COPY ["src/BuildingBlocks/SagaPoc.Observability/SagaPoc.Observability.csproj", "BuildingBlocks/SagaPoc.Observability/"]
+COPY ["src/BuildingBlocks/SagaPoc.Infrastructure/SagaPoc.Infrastructure.csproj", "BuildingBlocks/SagaPoc.Infrastructure/"]
+COPY ["src/BuildingBlocks/SagaPoc.Infrastructure.Core/SagaPoc.Infrastructure.Core.csproj", "BuildingBlocks/SagaPoc.Infrastructure.Core/"]
 
 # Restaurar dependências
 RUN dotnet restore "SagaPoc.Api/SagaPoc.Api.csproj"
 
 # Copiar todo o código fonte
 COPY src/SagaPoc.Api/. SagaPoc.Api/
-COPY src/SagaPoc.Shared/. SagaPoc.Shared/
-COPY src/WebHost/. WebHost/
-COPY src/SagaPoc.Observability/. SagaPoc.Observability/
+COPY src/BuildingBlocks/SagaPoc.Common/. BuildingBlocks/SagaPoc.Common/
+COPY src/BuildingBlocks/WebHost/. BuildingBlocks/WebHost/
+COPY src/BuildingBlocks/SagaPoc.Observability/. BuildingBlocks/SagaPoc.Observability/
+COPY src/BuildingBlocks/SagaPoc.Infrastructure/. BuildingBlocks/SagaPoc.Infrastructure/
+COPY src/BuildingBlocks/SagaPoc.Infrastructure.Core/. BuildingBlocks/SagaPoc.Infrastructure.Core/
 
 # Build da aplicação
 WORKDIR /src/SagaPoc.Api

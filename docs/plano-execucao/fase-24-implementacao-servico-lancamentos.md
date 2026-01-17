@@ -18,7 +18,7 @@
 ```csharp
 // src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Agregados/Lancamento.cs
 
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Domain.Agregados;
 
@@ -220,7 +220,7 @@ public record LancamentoCancelado(
 ```csharp
 // src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Repositorios/ILancamentoRepository.cs
 
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Domain.Repositorios;
 
@@ -249,7 +249,7 @@ public interface ILancamentoRepository
 using Microsoft.EntityFrameworkCore;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
 

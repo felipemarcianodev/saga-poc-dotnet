@@ -1,7 +1,7 @@
+using SagaPoc.Common.DDD;
+using SagaPoc.Common.ResultPattern;
 using SagaPoc.FluxoCaixa.Domain.Eventos;
 using SagaPoc.FluxoCaixa.Domain.ValueObjects;
-using SagaPoc.Shared.DDD;
-using SagaPoc.Shared.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Domain.Agregados;
 

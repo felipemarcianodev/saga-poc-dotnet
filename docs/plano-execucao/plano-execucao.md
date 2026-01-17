@@ -21,7 +21,7 @@ Este plano de execução foi organizado em múltiplos arquivos para facilitar a 
 - [Fase 9](./fase-09-integracao-result-pattern.md) - Integração Completa do Result Pattern no Fluxo de Delivery
 - [Fase 10](./fase-10-tratamentos-resiliencia.md) - Tratamentos de Resiliência
 - [Fase 11](./fase-11-compensacao-rollback.md) - Compensação e Rollback Completo
-- [Fase 12](./fase-12-observabilidade-opentelemetry.md) - Observabilidade com OpenTelemetry (Jaeger + Prometheus + Grafana)
+- [Fase 12](./fase-12-observabilidade-opentelemetry.md) - Observabilidade com OpenTelemetry (Jaeger + Serilog + SEQ)
 - [Fase 13](./fase-13-testes-cenarios-complexos.md) - Testes de Cenários Complexos
 - [Fase 14](./fase-14-documentacao-refinamento.md) - Documentação e Refinamento Final
 - [Fase 15](./fase-15-migracao-rabbitmq.md) - Migração para RabbitMQ (Open Source)

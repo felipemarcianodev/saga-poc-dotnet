@@ -218,9 +218,16 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
 ```
 ---
 
-### 4. **SagaPoc.Shared** (Camada Compartilhada)
+### 4. **BuildingBlocks** (Camada Compartilhada)
 
-**Responsabilidade**: Contratos, modelos e utilitários compartilhados.
+**Responsabilidade**: Contratos, modelos e utilitários compartilhados entre todos os serviços.
+
+**Projetos**:
+- **SagaPoc.Common** - Result Pattern, mensagens, modelos compartilhados
+- **SagaPoc.Observability** - OpenTelemetry, métricas, rastreamento
+- **WebHost** - Configurações comuns de host e healthchecks
+- **SagaPoc.Infrastructure** - Implementações de infraestrutura
+- **SagaPoc.Infrastructure.Core** - Abstrações e interfaces core
 
 **Estrutura**:
 
@@ -597,7 +604,7 @@ await circuitBreakerPolicy.ExecuteAsync(async () =>
 
 ### Stack Completa Implementada (Fase 12)
 
-A POC implementa observabilidade completa usando **OpenTelemetry**, **Jaeger**, **Prometheus** e **Grafana**.
+A POC implementa observabilidade completa usando **Serilog**, **SEQ** e **Jaeger** com **OpenTelemetry**.
 
 ---
 
@@ -659,8 +666,7 @@ services.AddOpenTelemetry()
     })
     .WithMetrics(metrics => metrics
         .AddAspNetCoreInstrumentation()
-        .AddHttpClientInstrumentation()
-        .AddPrometheusExporter());
+        .AddHttpClientInstrumentation());
 ```
 
 **URL Jaeger UI**: http://localhost:16686
@@ -697,111 +703,44 @@ Total Trace Duration: 1075ms
 
 ---
 
-### 3. Métricas (Prometheus)
+### 3. Logs Estruturados (Serilog + SEQ)
 
-**URL Prometheus**: http://localhost:9090
+**URL SEQ**: http://localhost:5341 (admin/admin123)
 
-**Endpoint de Métricas**: http://localhost:5000/metrics (cada serviço expõe)
-
-**Configuração do Prometheus** (`docker/infra/prometheus/prometheus.yml`):
-```yaml
-scrape_configs:
-  - job_name: 'saga-api'
-    metrics_path: '/metrics'
-    static_configs:
-      - targets: ['saga-api:8080']
+**Configuração do Serilog**:
+```csharp
+builder.Host.UseCustomSerilog("SagaPoc.Api");
 ```
 
-**Métricas Coletadas Automaticamente**:
+**Enrichers Configurados**:
+- Machine Name
+- Environment Name
+- Thread ID
+- Process ID
+- Application Name
+- CorrelationId (propagado via contexto)
 
-#### HTTP Metrics:
-```promql
-# Taxa de requisições por segundo
-rate(http_server_requests_total[5m])
+**Queries Úteis (SEQ)**:
+```sql
+-- Logs de um serviço específico
+Application = "SagaPoc.Orquestrador"
 
-# Duração P50, P90, P95, P99
-histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))
+-- Rastrear uma SAGA específica
+CorrelationId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-# Taxa de erro (status 5xx)
-rate(http_server_requests_total{status=~"5.."}[5m])
+-- Erros nas últimas 24h
+Level = "Error" AND @Timestamp > Now() - 1d
 
-# Requisições por endpoint
-sum by (endpoint) (rate(http_server_requests_total[5m]))
-```
+-- Compensações executadas
+@MessageTemplate LIKE "%Compensação%"
 
-#### Runtime Metrics:
-```promql
-# Uso de memória
-dotnet_total_memory_bytes
-
-# GC Collections
-rate(dotnet_collection_count_total[5m])
-
-# Thread pool
-dotnet_threadpool_num_threads
-```
-
-#### Custom Metrics (Rebus):
-```promql
-# Mensagens enviadas/recebidas
-rate(rebus_messages_sent_total[5m])
-rate(rebus_messages_received_total[5m])
-
-# Falhas de processamento
-rate(rebus_messages_failed_total[5m])
-
-# Duração de processamento de mensagens
-histogram_quantile(0.95, rate(rebus_message_duration_seconds_bucket[5m]))
+-- Performance de endpoints
+@MessageTemplate LIKE "%HTTP%Request%" AND Duration > 1000
 ```
 
 ---
 
-### 4. Dashboards (Grafana)
-
-**URL Grafana**: http://localhost:3000 (admin/admin123)
-
-**Datasources Configurados**:
-- Prometheus (http://prometheus:9090)
-- Jaeger (http://jaeger:16686)
-
-**Dashboards Sugeridos**:
-
-#### Dashboard 1: Visão Geral da SAGA
-- Taxa de SAGAs iniciadas vs concluídas (por minuto)
-- Taxa de sucesso vs falha (%)
-- Duração P50/P95/P99 das SAGAs
-- Taxa de compensações executadas
-
-#### Dashboard 2: Saúde dos Serviços
-- Latência por serviço (P95)
-- Taxa de erro por serviço
-- Throughput (req/s)
-- Taxa de disponibilidade (uptime)
-
-#### Dashboard 3: RabbitMQ
-- Mensagens na fila por serviço
-- Taxa de publicação/consumo
-- Mensagens não confirmadas (unacked)
-- Dead Letter Queue
-
-#### Dashboard 4: Sistema
-- CPU usage por container
-- Memória usage por container
-- Disk I/O
-- Network traffic
-
-**Painel de Exemplo (Grafana Query)**:
-```promql
-# Taxa de sucesso de SAGAs (últimas 5min)
-sum(rate(http_server_requests_total{endpoint="/api/pedidos",status="202"}[5m]))
-/
-sum(rate(http_server_requests_total{endpoint="/api/pedidos"}[5m]))
-* 100
-```
-
----
-
-### 5. Instrumentação Customizada
+### 4. Instrumentação Customizada
 
 **Criar Spans Manualmente**:
 ```csharp
@@ -894,11 +833,11 @@ builder.AddSagaOpenTelemetryForHost(
 ### 7. Stack Docker Completa
 
 **docker-compose.yml** inclui:
-- Jaeger (all-in-one)
-- Prometheus
-- Grafana (com datasources pré-configurados)
-- Node Exporter
-- RabbitMQ
+- SEQ (logs estruturados)
+- Jaeger (distributed tracing)
+- RabbitMQ (message broker)
+- PostgreSQL (bancos de dados)
+- Redis (cache)
 - Todos os 6 serviços .NET
 
 **Iniciar toda a stack**:
@@ -908,9 +847,8 @@ docker-compose up -d
 ```
 
 **URLs de Acesso**:
+- SEQ: http://localhost:5341 (admin/admin123)
 - Jaeger: http://localhost:16686
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (admin/admin123)
 - RabbitMQ: http://localhost:15672 (saga/saga123)
 - API: http://localhost:5000
 

@@ -1,4 +1,4 @@
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 using SagaPoc.ServicoPagamento.Modelos;
 
 namespace SagaPoc.ServicoPagamento.Servicos;

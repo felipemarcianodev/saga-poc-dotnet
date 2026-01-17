@@ -1,4 +1,4 @@
-using SagaPoc.Shared.Modelos;
+using SagaPoc.Common.Modelos;
 using System.ComponentModel.DataAnnotations;
 
 namespace SagaPoc.Api.DTOs;

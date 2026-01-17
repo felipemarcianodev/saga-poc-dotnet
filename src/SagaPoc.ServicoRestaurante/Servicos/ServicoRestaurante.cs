@@ -1,5 +1,5 @@
-using SagaPoc.Shared.Modelos;
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.Modelos;
+using SagaPoc.Common.ResultPattern;
 using SagaPoc.ServicoRestaurante.Modelos;
 
 namespace SagaPoc.ServicoRestaurante.Servicos;

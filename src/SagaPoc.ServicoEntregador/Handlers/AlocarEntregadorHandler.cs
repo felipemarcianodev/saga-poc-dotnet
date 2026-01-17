@@ -1,7 +1,7 @@
 using Rebus.Bus;
 using Rebus.Handlers;
-using SagaPoc.Shared.Mensagens.Comandos;
-using SagaPoc.Shared.Mensagens.Respostas;
+using SagaPoc.Common.Mensagens.Comandos;
+using SagaPoc.Common.Mensagens.Respostas;
 using SagaPoc.ServicoEntregador.Servicos;
 
 namespace SagaPoc.ServicoEntregador.Handlers;

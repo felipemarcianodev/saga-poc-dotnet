@@ -1,42 +1,31 @@
 using Rebus.Config;
 using Rebus.Routing.TypeBased;
-using Rebus.Serilog;
-using Rebus.ServiceProvider;
+using SagaPoc.Infrastructure.Core;
 using SagaPoc.Observability;
 using SagaPoc.ServicoPagamento;
 using SagaPoc.ServicoPagamento.Handlers;
-using SagaPoc.Shared.Mensagens.Respostas;
+using SagaPoc.Common.Mensagens.Respostas;
 using Serilog;
-
-// Configurar Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .Build())
-    .CreateLogger();
 
 try
 {
     Log.Information("Iniciando Serviço de Pagamento com Rebus");
 
     var builder = Host.CreateApplicationBuilder(args);
+    var applicationName = builder.Environment.ApplicationName;
+    var environmentName = builder.Environment.EnvironmentName;
+    var isDevelopment = builder.Environment.IsDevelopment();
 
-    // Configurar Serilog como provedor de logging
-    builder.Services.AddSerilog();
-
-    // Configurar OpenTelemetry
-    builder.AddSagaOpenTelemetryForHost(
-        serviceName: "SagaPoc.ServicoPagamento",
-        serviceVersion: "1.0.0"
-    );
+    builder.AddSagaOpenTelemetryForHost(applicationName);
+    builder.UseCustomSerilog(builder.Configuration, applicationName, environmentName, builder.Environment.IsDevelopment());
 
     // Registrar serviços de negócio
     builder.Services.AddScoped<SagaPoc.ServicoPagamento.Servicos.IServicoPagamento,
         SagaPoc.ServicoPagamento.Servicos.ServicoPagamento>();
 
     // Registrar repositório de idempotência
-    builder.Services.AddSingleton<SagaPoc.Shared.Infraestrutura.IRepositorioIdempotencia,
-        SagaPoc.Shared.Infraestrutura.RepositorioIdempotenciaInMemory>();
+    builder.Services.AddSingleton<IRepositorioIdempotencia,
+        RepositorioIdempotenciaInMemory>();
 
     // Configurar Health Checks
     builder.Services.AddHealthChecks()

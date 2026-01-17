@@ -235,7 +235,7 @@ host.Run();
 ```csharp
 // src/SagaPoc.Api/Program.cs
 using Rebus;
-using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Common.Mensagens.Comandos;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -362,7 +362,7 @@ curl -X POST http://localhost:5000/api/pedidos \
 | **Fase 12** | Observabilidade | Logs estruturados, métricas, dashboards | ⭐⭐⭐ |
 | **Fase 13** | Testes Complexos | Testes de integração, carga, chaos | ⭐⭐⭐⭐ |
 | **Fase 14** | Documentação | Diagramas, runbooks, boas práticas | ⭐⭐ |
-| **Fase 15** | Stack Open Source | RabbitMQ, DockerDB, Postgres, Grafana | ⭐⭐⭐⭐ |
+| **Fase 15** | Stack Open Source | RabbitMQ, Docker, Postgres, Seq | ⭐⭐⭐⭐ |
 
 ---
 
@@ -384,4 +384,4 @@ curl -X POST http://localhost:5000/api/pedidos \
 **Documento criado em**: 2026-01-06
 **Versão**: 5.0 (Adicionada Fase 15 - Stack Open Source Completa)
 **Idioma**: Português (BR)
-**Última atualização**: 2026-01-07 - Migração para RabbitMQ + Docker + MongoDB + Postgres + Grafana
+**Última atualização**: 2026-01-07 - Migração para RabbitMQ + Docker + Postgres + Seq

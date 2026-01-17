@@ -4,16 +4,20 @@ WORKDIR /src
 
 # Copiar arquivos de projeto
 COPY ["src/SagaPoc.Orquestrador/SagaPoc.Orquestrador.csproj", "SagaPoc.Orquestrador/"]
-COPY ["src/SagaPoc.Shared/SagaPoc.Shared.csproj", "SagaPoc.Shared/"]
-COPY ["src/SagaPoc.Observability/SagaPoc.Observability.csproj", "SagaPoc.Observability/"]
+COPY ["src/BuildingBlocks/SagaPoc.Common/SagaPoc.Common.csproj", "BuildingBlocks/SagaPoc.Common/"]
+COPY ["src/BuildingBlocks/SagaPoc.Observability/SagaPoc.Observability.csproj", "BuildingBlocks/SagaPoc.Observability/"]
+COPY ["src/BuildingBlocks/SagaPoc.Infrastructure/SagaPoc.Infrastructure.csproj", "BuildingBlocks/SagaPoc.Infrastructure/"]
+COPY ["src/BuildingBlocks/SagaPoc.Infrastructure.Core/SagaPoc.Infrastructure.Core.csproj", "BuildingBlocks/SagaPoc.Infrastructure.Core/"]
 
 # Restaurar dependências
 RUN dotnet restore "SagaPoc.Orquestrador/SagaPoc.Orquestrador.csproj"
 
 # Copiar todo o código fonte
 COPY src/SagaPoc.Orquestrador/. SagaPoc.Orquestrador/
-COPY src/SagaPoc.Shared/. SagaPoc.Shared/
-COPY src/SagaPoc.Observability/. SagaPoc.Observability/
+COPY src/BuildingBlocks/SagaPoc.Common/. BuildingBlocks/SagaPoc.Common/
+COPY src/BuildingBlocks/SagaPoc.Observability/. BuildingBlocks/SagaPoc.Observability/
+COPY src/BuildingBlocks/SagaPoc.Infrastructure/. BuildingBlocks/SagaPoc.Infrastructure/
+COPY src/BuildingBlocks/SagaPoc.Infrastructure.Core/. BuildingBlocks/SagaPoc.Infrastructure.Core/
 
 # Build da aplicação
 WORKDIR /src/SagaPoc.Orquestrador

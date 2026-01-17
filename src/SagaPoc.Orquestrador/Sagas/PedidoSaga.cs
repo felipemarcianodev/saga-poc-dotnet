@@ -1,9 +1,9 @@
 using Rebus.Bus;
 using Rebus.Handlers;
 using Rebus.Sagas;
-using SagaPoc.Shared.Mensagens.Comandos;
-using SagaPoc.Shared.Mensagens.Respostas;
-using SagaPoc.Shared.Modelos;
+using SagaPoc.Common.Mensagens.Comandos;
+using SagaPoc.Common.Mensagens.Respostas;
+using SagaPoc.Common.Modelos;
 
 namespace SagaPoc.Orquestrador.Sagas;
 

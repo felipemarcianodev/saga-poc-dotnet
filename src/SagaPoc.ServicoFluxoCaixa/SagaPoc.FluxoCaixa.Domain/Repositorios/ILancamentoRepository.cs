@@ -1,5 +1,5 @@
+using SagaPoc.Common.ResultPattern;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
-using SagaPoc.Shared.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Domain.Repositorios;
 

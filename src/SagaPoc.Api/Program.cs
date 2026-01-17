@@ -2,26 +2,15 @@ using Rebus.Config;
 using Rebus.Routing.TypeBased;
 using Rebus.Serilog;
 using SagaPoc.Observability;
-using SagaPoc.Shared.Mensagens.Comandos;
+using SagaPoc.Common.Mensagens.Comandos;
 using Serilog;
 
-// Configurar Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
-        .Build())
-    .Enrich.FromLogContext()
-    .CreateLogger();
 
 try
 {
     Log.Information("Iniciando API SAGA POC com Rebus");
 
     var builder = WebApplication.CreateBuilder(args);
-
-    // Configurar Serilog
-    builder.Host.UseSerilog();
 
     // Add services to the container
     builder.Services.AddControllers();
@@ -57,14 +46,17 @@ try
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // Configurar OpenTelemetry
+    var applicationName = builder.Environment.ApplicationName;
+
     builder.Services.AddSagaOpenTelemetry(
         builder.Configuration,
-        serviceName: "SagaPoc.Api",
-        serviceVersion: "1.0.0"
+        serviceName: applicationName
     );
+    
+    builder.Host.UseCustomSerilog();
 
     var app = builder.Build();
+
 
     // Configure the HTTP request pipeline
     if (app.Environment.IsDevelopment())
@@ -78,9 +70,6 @@ try
     }
 
     app.UseSerilogRequestLogging();
-
-    // Habilitar endpoint de métricas OpenTelemetry/Prometheus
-    app.UseSagaOpenTelemetry();
 
     app.UseHttpsRedirection();
 

@@ -94,7 +94,7 @@ public class ConsolidadoDiario : AggregateRoot
 ```csharp
 // src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain/Repositorios/IConsolidadoDiarioRepository.cs
 
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Domain.Repositorios;
 
@@ -130,7 +130,7 @@ public interface IConsolidadoDiarioRepository
 using Microsoft.EntityFrameworkCore;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
 

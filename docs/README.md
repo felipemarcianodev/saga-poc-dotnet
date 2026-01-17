@@ -153,10 +153,8 @@ docker-compose up -d
 
 Isso irá iniciar toda a stack:
 - **RabbitMQ 3.13** (Message Broker) - porta 5672 (AMQP) e 15672 (Management UI)
+- **SEQ** (Logs Estruturados) - porta 5341 (UI)
 - **Jaeger** (Distributed Tracing) - porta 16686 (UI)
-- **Prometheus** (Métricas) - porta 9090
-- **Grafana** (Dashboards) - porta 3000
-- **Node Exporter** (Métricas do sistema) - porta 9100
 - **Todos os 6 serviços .NET** (API + Orquestrador + 4 Workers)
 
 **OU** executar apenas o RabbitMQ (para rodar os serviços .NET manualmente):
@@ -191,23 +189,17 @@ Visualize traces distribuídos das SAGAs end-to-end:
 - Veja a propagação através de todos os serviços
 - Analise latências e bottlenecks
 
-#### Prometheus (Métricas)
+#### SEQ (Logs Estruturados)
 ```
-http://localhost:9090
-```
-Execute queries de métricas:
-- `rate(http_server_requests_total[5m])` - Taxa de requisições
-- `histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))` - P95 latência
-
-#### Grafana (Dashboards)
-```
-http://localhost:3000
+http://localhost:5341
 ```
 **Credenciais:** `admin` / `admin123`
 
-Datasources já configurados:
-- **Prometheus** (métricas)
-- **Jaeger** (traces)
+Visualize logs estruturados em tempo real:
+- Filtros poderosos com sintaxe SQL-like
+- Queries por properties (ex: `Application = "SagaPoc.Orquestrador"`)
+- Acompanhe eventos de domínio, comandos e sagas
+- Correlação por CorrelationId
 
 #### API Swagger
 ```
@@ -421,7 +413,7 @@ Sistema de controle de lançamentos com consolidado diário, demonstrando CQRS e
 - Cache em 3 camadas (Memory + Redis + HTTP Response)
 - Performance: 50+ req/s com latência P95 < 10ms
 - Event-Driven: Sincronização assíncrona via RabbitMQ
-- Observabilidade: OpenTelemetry + Jaeger + Prometheus
+- Observabilidade: Serilog + SEQ + Jaeger (OpenTelemetry)
 
 **Serviços**: API, Lançamentos, Consolidado
 
@@ -476,19 +468,21 @@ Para entender como implementar corretamente cada conceito, consulte:
 
 ### Stack Completa Implementada (Fase 12)
 
-A POC inclui observabilidade completa com **OpenTelemetry**, **Jaeger**, **Prometheus** e **Grafana**.
+A POC inclui observabilidade completa com **Serilog**, **SEQ** e **Jaeger**.
 
-#### 1. **Logs Estruturados (Serilog)**
+#### 1. **Logs Estruturados (Serilog + SEQ)**
 
-Cada operação gera logs com:
-- **CorrelationId** (rastreamento end-to-end)
-- **Transições de estado** da SAGA
-- **Compensações executadas**
-- **Timestamps** e métricas
+- **URL SEQ**: http://localhost:5341 (admin/admin123)
+- Logs estruturados em tempo real com queries poderosas
+- Correlação por **CorrelationId** (rastreamento end-to-end)
+- Visualização de:
+  - **Transições de estado** da SAGA
+  - **Compensações executadas**
+  - **Eventos de domínio** e **Comandos**
 
-```bash
-# Filtrar logs por PedidoId
-grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
+**Exemplo de query no SEQ:**
+```sql
+Application = "SagaPoc.Orquestrador" AND CorrelationId = "a1b2c3d4-e5f6-7890"
 ```
 
 #### 2. **Distributed Tracing (Jaeger + OpenTelemetry)**
@@ -505,49 +499,27 @@ grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
 3. Visualize o trace completo da SAGA
 4. Identifique bottlenecks e falhas
 
-#### 3. **Métricas (Prometheus)**
+#### 3. **RabbitMQ Management**
 
-- **URL**: http://localhost:9090
-- Coleta automática de métricas dos serviços .NET
-- Endpoint `/metrics` exposto em cada serviço
-- Métricas de HTTP, runtime e custom
-
-**Queries úteis:**
-```promql
-# Taxa de requisições por segundo
-rate(http_server_requests_total[5m])
-
-# Duração P95 das requisições
-histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket[5m]))
-
-# Taxa de erro (status 5xx)
-rate(http_server_requests_total{status=~"5.."}[5m])
-```
-
-#### 4. **Dashboards (Grafana)**
-
-- **URL**: http://localhost:3000 (admin/admin123)
-- Datasources pré-configurados (Prometheus + Jaeger)
-- Crie dashboards personalizados para:
-  - Taxa de sucesso/falha de SAGAs
-  - Duração média das compensações
-  - Throughput do RabbitMQ
-  - Latência por serviço
-
-#### 5. **Métricas do Sistema (Node Exporter)**
-
-- **URL**: http://localhost:9100/metrics
-- CPU, memória, disco e rede do host
-- Integrado ao Prometheus
+- **URL**: http://localhost:15672 (saga/saga123)
+- Visualize filas, mensagens e consumers
+- Monitore throughput e performance
+- Gerencie exchanges e bindings
 
 ### Instrumentação Implementada
 
-Todos os serviços incluem:
+**OpenTelemetry (Jaeger):**
 - **AspNetCore Instrumentation** - Traces HTTP automáticos
 - **HttpClient Instrumentation** - Traces de chamadas externas
 - **EntityFramework Instrumentation** - Traces de queries SQL
 - **Rebus Integration** - Propagação de contexto via mensageria
 - **Custom Spans** - Para operações de negócio críticas
+
+**Serilog (SEQ):**
+- **Enrichers** - Machine name, environment, thread, process
+- **Structured Logging** - Properties extraíveis para queries
+- **Correlation** - CorrelationId em todos os logs
+- **Contexto** - Application, Service, Environment
 
 ### Troubleshooting
 
@@ -585,9 +557,8 @@ Esta POC é **educacional**. Para produção, considere:
 - Armazenamento em Redis/SQL
 
 ### 5. Observabilidade **Implementado (Fase 12)**
+- Serilog + SEQ (Logs Estruturados)
 - OpenTelemetry + Jaeger (Distributed Tracing)
-- Prometheus (Métricas)
-- Grafana (Dashboards)
 - ⏳ Application Insights (Azure - opcional)
 
 ### 6. Testes

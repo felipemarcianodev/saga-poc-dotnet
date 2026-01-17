@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using SagaPoc.FluxoCaixa.Domain.Agregados;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
 using SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 
 namespace SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
 

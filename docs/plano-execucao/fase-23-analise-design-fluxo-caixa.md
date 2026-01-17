@@ -451,11 +451,9 @@ src/
 
 ### Observabilidade
 
-- **Logs estruturados** (Serilog)
+- **Logs estruturados** (Serilog + SEQ)
 - **Distributed tracing** (OpenTelemetry + Jaeger)
-- **Métricas** (Prometheus + Grafana)
 - **Health checks** customizados
-- **Alertas** (Alertmanager)
 
 ## Diagramas
 

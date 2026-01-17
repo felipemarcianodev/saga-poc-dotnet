@@ -1,4 +1,4 @@
-Ôªøusing System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -15,33 +15,33 @@ namespace SagaPoc.Orquestrador.Migrations
                 name: "PedidoSagas",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, comment: "ID √∫nico da inst√¢ncia da SAGA"),
-                    Revision = table.Column<int>(type: "integer", nullable: false, comment: "N√∫mero de revis√£o para controle de concorr√™ncia otimista"),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, comment: "ID ˙nico da inst‚ncia da SAGA"),
+                    Revision = table.Column<int>(type: "integer", nullable: false, comment: "N˙mero de revis„o para controle de concorrÍncia otimista"),
                     EstadoAtual = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false, comment: "Estado atual da SAGA"),
                     ClienteId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false, comment: "ID do cliente que fez o pedido"),
                     RestauranteId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false, comment: "ID do restaurante onde o pedido foi feito"),
                     ValorTotal = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false, comment: "Valor total do pedido"),
-                    EnderecoEntrega = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false, comment: "Endere√ßo para entrega do pedido"),
+                    EnderecoEntrega = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false, comment: "EndereÁo para entrega do pedido"),
                     FormaPagamento = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false, comment: "Forma de pagamento utilizada"),
-                    TransacaoId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, comment: "ID da transa√ß√£o de pagamento (necess√°rio para estorno)"),
-                    EntregadorId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, comment: "ID do entregador alocado (necess√°rio para libera√ß√£o)"),
+                    TransacaoId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, comment: "ID da transaÁ„o de pagamento (necess·rio para estorno)"),
+                    EntregadorId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, comment: "ID do entregador alocado (necess·rio para liberaÁ„o)"),
                     PedidoRestauranteId = table.Column<Guid>(type: "uuid", nullable: true, comment: "ID do pedido no sistema do restaurante"),
-                    EmCompensacao = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se o pedido est√° em processo de compensa√ß√£o"),
-                    DataInicioCompensacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Timestamp de in√≠cio da compensa√ß√£o"),
-                    DataConclusaoCompensacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Timestamp de conclus√£o da compensa√ß√£o"),
+                    EmCompensacao = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se o pedido est· em processo de compensaÁ„o"),
+                    DataInicioCompensacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Timestamp de inÌcio da compensaÁ„o"),
+                    DataConclusaoCompensacao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Timestamp de conclus„o da compensaÁ„o"),
                     PassosCompensados = table.Column<string>(type: "text", nullable: false, comment: "Lista de passos compensados com sucesso"),
-                    RestauranteValidado = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se a valida√ß√£o do restaurante foi executada"),
+                    RestauranteValidado = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se a validaÁ„o do restaurante foi executada"),
                     PagamentoProcessado = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se o pagamento foi processado"),
                     EntregadorAlocado = table.Column<bool>(type: "boolean", nullable: false, comment: "Indica se o entregador foi alocado"),
-                    TentativasCompensacao = table.Column<int>(type: "integer", nullable: false, comment: "Contador de tentativas de compensa√ß√£o"),
-                    ErrosCompensacao = table.Column<string>(type: "text", nullable: false, comment: "Erros ocorridos durante a compensa√ß√£o"),
-                    DataInicio = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, comment: "Data e hora de in√≠cio do processamento da SAGA"),
-                    DataConclusao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Data e hora de conclus√£o da SAGA"),
+                    TentativasCompensacao = table.Column<int>(type: "integer", nullable: false, comment: "Contador de tentativas de compensaÁ„o"),
+                    ErrosCompensacao = table.Column<string>(type: "text", nullable: false, comment: "Erros ocorridos durante a compensaÁ„o"),
+                    DataInicio = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, comment: "Data e hora de inÌcio do processamento da SAGA"),
+                    DataConclusao = table.Column<DateTime>(type: "timestamp with time zone", nullable: true, comment: "Data e hora de conclus„o da SAGA"),
                     TempoPreparoMinutos = table.Column<int>(type: "integer", nullable: false, comment: "Tempo estimado de preparo do pedido em minutos"),
                     TempoEntregaMinutos = table.Column<int>(type: "integer", nullable: false, comment: "Tempo estimado de entrega em minutos"),
                     TaxaEntrega = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false, comment: "Taxa de entrega cobrada"),
                     MensagemErro = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true, comment: "Mensagem de erro em caso de falha"),
-                    MotivoRejeicao = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true, comment: "Motivo da rejei√ß√£o/cancelamento do pedido")
+                    MotivoRejeicao = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true, comment: "Motivo da rejeiÁ„o/cancelamento do pedido")
                 },
                 constraints: table =>
                 {

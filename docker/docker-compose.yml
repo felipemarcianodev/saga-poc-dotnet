@@ -1,4 +1,4 @@
-name: saga-poc
+name: saga-poc-dotnet
 
 networks:
   saga-network:
@@ -54,6 +54,24 @@ services:
     restart: unless-stopped
 
   # ===================================
+  # OBSERVABILITY - LOGS (SEQ)
+  # ===================================
+  seq:
+    image: datalust/seq:latest
+    container_name: saga-seq
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINUSERNAME=admin
+      - SEQ_FIRSTRUN_ADMINPASSWORD=admin123
+    volumes:
+      - seq_data:/data
+    networks:
+      - saga-network
+    ports:
+      - "5342:80"
+    restart: unless-stopped
+
+  # ===================================
   # OBSERVABILITY - TRACING (Jaeger)
   # ===================================
   jaeger:
@@ -77,69 +95,6 @@ services:
     restart: unless-stopped
 
   # ===================================
-  # OBSERVABILITY - METRICS (Prometheus)
-  # ===================================
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: saga-prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    networks:
-      - saga-network
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
-
-  # ===================================
-  # OBSERVABILITY - DASHBOARDS (Grafana)
-  # ===================================
-  grafana:
-    image: grafana/grafana:latest
-    container_name: saga-grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
-    networks:
-      - saga-network
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus
-      - jaeger
-    restart: unless-stopped
-
-  # ===================================
-  # OBSERVABILITY - NODE EXPORTER (Opcional)
-  # ===================================
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: saga-node-exporter
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    networks:
-      - saga-network
-    ports:
-      - "9100:9100"
-    restart: unless-stopped
-
-  # ===================================
   # .NET SERVICES
   # ===================================
 
@@ -159,6 +114,8 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     ports:
@@ -167,6 +124,8 @@ services:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -186,6 +145,8 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     depends_on:
@@ -194,6 +155,8 @@ services:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -212,12 +175,16 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     depends_on:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -236,12 +203,16 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     depends_on:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -260,12 +231,16 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     depends_on:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -284,12 +259,16 @@ services:
       - Jaeger__AgentHost=jaeger
       - Jaeger__AgentPort=6831
       - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     depends_on:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      seq:
         condition: service_started
     restart: unless-stopped
 
@@ -376,6 +355,8 @@ services:
       - RabbitMQ__Port=5672
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
     networks:
       - saga-network
     ports:
@@ -389,6 +370,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      seq:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
@@ -402,7 +385,5 @@ volumes:
     driver: local
   rabbitmq_data:
     driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
+  seq_data:
     driver: local

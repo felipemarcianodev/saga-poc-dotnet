@@ -1,4 +1,4 @@
-using SagaPoc.Shared.ResultPattern;
+using SagaPoc.Common.ResultPattern;
 using SagaPoc.ServicoEntregador.Modelos;
 
 namespace SagaPoc.ServicoEntregador.Servicos;

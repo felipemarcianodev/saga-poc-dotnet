@@ -274,7 +274,7 @@ A Fase 16 está completa. As próximas fases do projeto são:
 - **Fase 18**: [Observabilidade com OpenTelemetry](./fase-18.md)
   - Traces distribuídos completos
   - Métricas customizadas de SAGAs
-  - Dashboards no Grafana
+  - Logs estruturados no Seq
 
 ## Referências
 

@@ -1,5 +1,5 @@
+using SagaPoc.Common.DDD;
 using SagaPoc.FluxoCaixa.Domain.ValueObjects;
-using SagaPoc.Shared.DDD;
 
 namespace SagaPoc.FluxoCaixa.Domain.Agregados;
 

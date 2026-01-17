@@ -26,16 +26,21 @@ saga-poc-dotnet/
 │   └── CASOS-DE-USO.md
 │
 ├── src/
-│   ├── SagaPoc.Shared/
-│   │   ├── ResultPattern/
-│   │   │   ├── Resultado.cs
-│   │   │   ├── Erro.cs
-│   │   │   └── ResultadoExtensions.cs
-│   │   ├── Mensagens/
-│   │   │   ├── Comandos/
-│   │   │   ├── Eventos/
-│   │   │   └── Respostas/
-│   │   └── Modelos/
+│   ├── BuildingBlocks/
+│   │   ├── SagaPoc.Common/
+│   │   │   ├── ResultPattern/
+│   │   │   │   ├── Resultado.cs
+│   │   │   │   ├── Erro.cs
+│   │   │   │   └── ResultadoExtensions.cs
+│   │   │   ├── Mensagens/
+│   │   │   │   ├── Comandos/
+│   │   │   │   ├── Eventos/
+│   │   │   │   └── Respostas/
+│   │   │   └── Modelos/
+│   │   ├── SagaPoc.Observability/
+│   │   ├── WebHost/
+│   │   ├── SagaPoc.Infrastructure/
+│   │   └── SagaPoc.Infrastructure.Core/
 │   │
 │   ├── SagaPoc.Orquestrador/
 │   │   ├── Sagas/
