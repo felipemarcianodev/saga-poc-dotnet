@@ -610,7 +610,6 @@ builder.Services.AddSwaggerGen(options =>
 - [ ] Swagger/OpenAPI configurado e documentado
 - [ ] Guia de troubleshooting criado
 - [ ] Documentação de APIs atualizada
-- [ ] Todos os requisitos obrigatórios do desafio atendidos
 
 ## Checklist de Requisitos Implementados
 

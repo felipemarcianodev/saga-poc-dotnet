@@ -1,5 +1,5 @@
 # Menu Interativo para Testes do Sistema Completo
-# Interface amigável para escolher e executar testes
+# Interface amigavel para escolher e executar testes
 # Uso: .\menu-interativo.ps1
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -22,7 +22,7 @@ function Show-Menu {
     Write-Host "│  SAGA PATTERN (Delivery de Comida)                                       │" -ForegroundColor Yellow
     Write-Host "├─────────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Yellow
     Write-Host "│                                                                             │" -ForegroundColor Yellow
-    Write-Host "│  [1] Testar Caso de Uso Específico (12 cenários)                           │" -ForegroundColor White
+    Write-Host "│  [1] Testar Caso de Uso Especifico (12 cenarios)                           │" -ForegroundColor White
     Write-Host "│  [2] Testar Todos os Casos de Uso SAGA                                     │" -ForegroundColor White
     Write-Host "│                                                                             │" -ForegroundColor Yellow
     Write-Host "└─────────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
@@ -33,11 +33,11 @@ function Show-Menu {
     Write-Host "│  FLUXO DE CAIXA (CQRS + Event-Driven)                                    │" -ForegroundColor Green
     Write-Host "├─────────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Green
     Write-Host "│                                                                             │" -ForegroundColor Green
-    Write-Host "│  [3] Cenário 1: Fluxo Diário Completo                                      │" -ForegroundColor White
-    Write-Host "│  [4] Cenário 2: Alta Frequência de Lançamentos                             │" -ForegroundColor White
-    Write-Host "│  [5] Cenário 3: Performance de Cache                                       │" -ForegroundColor White
-    Write-Host "│  [6] Cenário 4: Validação de Erros                                         │" -ForegroundColor White
-    Write-Host "│  [7] Todos os Cenários de Fluxo de Caixa                                   │" -ForegroundColor White
+    Write-Host "│  [3] Cenario 1: Fluxo Diario Completo                                      │" -ForegroundColor White
+    Write-Host "│  [4] Cenario 2: Alta Frequência de Lancamentos                             │" -ForegroundColor White
+    Write-Host "│  [5] Cenario 3: Performance de Cache                                       │" -ForegroundColor White
+    Write-Host "│  [6] Cenario 4: Validacao de Erros                                         │" -ForegroundColor White
+    Write-Host "│  [7] Todos os Cenarios de Fluxo de Caixa                                   │" -ForegroundColor White
     Write-Host "│                                                                             │" -ForegroundColor Green
     Write-Host "└─────────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Green
 
@@ -48,7 +48,7 @@ function Show-Menu {
     Write-Host "├─────────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Magenta
     Write-Host "│                                                                             │" -ForegroundColor Magenta
     Write-Host "│  [8] Teste de Carga - SAGA + Fluxo de Caixa (60 segundos)                  │" -ForegroundColor White
-    Write-Host "│  [9] Monitor em Tempo Real (atualização a cada 2s)                         │" -ForegroundColor White
+    Write-Host "│  [9] Monitor em Tempo Real (atualizacao a cada 2s)                         │" -ForegroundColor White
     Write-Host "│                                                                             │" -ForegroundColor Magenta
     Write-Host "└─────────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Magenta
 
@@ -58,8 +58,8 @@ function Show-Menu {
     Write-Host "│  🛠️  UTILITÁRIOS                                                             │" -ForegroundColor Cyan
     Write-Host "├─────────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Cyan
     Write-Host "│                                                                             │" -ForegroundColor Cyan
-    Write-Host "│  [10] Verificar Saúde dos Serviços                                         │" -ForegroundColor White
-    Write-Host "│  [11] Ver Estatísticas do RabbitMQ                                         │" -ForegroundColor White
+    Write-Host "│  [10] Verificar Saúde dos Servicos                                         │" -ForegroundColor White
+    Write-Host "│  [11] Ver Estatisticas do RabbitMQ                                         │" -ForegroundColor White
     Write-Host "│  [12] Consultar Consolidado do Dia                                         │" -ForegroundColor White
     Write-Host "│                                                                             │" -ForegroundColor Cyan
     Write-Host "└─────────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Cyan
@@ -67,21 +67,21 @@ function Show-Menu {
     Write-Host ""
     Write-Host "  [0] Sair" -ForegroundColor Red
     Write-Host ""
-    Write-Host "  Escolha uma opção: " -NoNewline -ForegroundColor Yellow
+    Write-Host "  Escolha uma opcao: " -NoNewline -ForegroundColor Yellow
 }
 
 function Test-SagaEspecifico {
     Write-Host ""
-    Write-Host "  Casos de Uso Disponíveis:" -ForegroundColor Cyan
+    Write-Host "  Casos de Uso Disponiveis:" -ForegroundColor Cyan
     Write-Host "  [1] Pedido Normal (Happy Path)" -ForegroundColor White
     Write-Host "  [2] Restaurante Fechado" -ForegroundColor White
-    Write-Host "  [3] Item Indisponível" -ForegroundColor White
-    Write-Host "  [4] Cartão Recusado" -ForegroundColor White
+    Write-Host "  [3] Item Indisponivel" -ForegroundColor White
+    Write-Host "  [4] Cartao Recusado" -ForegroundColor White
     Write-Host "  [5] Sem Entregador" -ForegroundColor White
-    Write-Host "  [6] Cliente Sem Notificação" -ForegroundColor White
+    Write-Host "  [6] Cliente Sem Notificacao" -ForegroundColor White
     Write-Host "  [7] Timeout no Pagamento" -ForegroundColor White
     Write-Host "  [8] Valor Muito Alto (Fraude)" -ForegroundColor White
-    Write-Host "  [9] Endereço Fora de Área" -ForegroundColor White
+    Write-Host "  [9] Endereco Fora de Área" -ForegroundColor White
     Write-Host "  [10] Pedido VIP" -ForegroundColor White
     Write-Host "  [11] Múltiplos Itens" -ForegroundColor White
     Write-Host "  [12] Pedido Complexo" -ForegroundColor White
@@ -94,7 +94,7 @@ function Test-SagaEspecifico {
         & "$PSScriptRoot\testar-casos-de-uso.ps1" -CasoUso $caso
     }
     else {
-        Write-Host "  ❌ Caso inválido!" -ForegroundColor Red
+        Write-Host "  ❌ Caso invalido!" -ForegroundColor Red
     }
 
     Pause
@@ -102,7 +102,7 @@ function Test-SagaEspecifico {
 
 function Test-HealthCheck {
     Write-Host ""
-    Write-Host "  🔍 Verificando saúde dos serviços...`n" -ForegroundColor Yellow
+    Write-Host "  🔍 Verificando saúde dos servicos...`n" -ForegroundColor Yellow
 
     $servicos = @{
         "SAGA API" = "http://localhost:5000/health"
@@ -134,7 +134,7 @@ function Test-HealthCheck {
 
 function Show-RabbitMQStats {
     Write-Host ""
-    Write-Host " Estatísticas do RabbitMQ...`n" -ForegroundColor Yellow
+    Write-Host " Estatisticas do RabbitMQ...`n" -ForegroundColor Yellow
 
     try {
         $cred = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("saga:saga123"))
@@ -154,7 +154,7 @@ function Show-RabbitMQStats {
         }
     }
     catch {
-        Write-Host "  ❌ Não foi possível conectar ao RabbitMQ" -ForegroundColor Red
+        Write-Host "  ❌ Nao foi possivel conectar ao RabbitMQ" -ForegroundColor Red
     }
 
     Write-Host ""
@@ -189,7 +189,7 @@ function Show-ConsolidadoDia {
         Write-Host "  │ Débitos:      R$ " -NoNewline -ForegroundColor White
         Write-Host "$($consolidado.totalDebitos.ToString('N2').PadLeft(10))" -ForegroundColor Red
         Write-Host "  ├─────────────────────────────────────────┤" -ForegroundColor Cyan
-        Write-Host "  │ Saldo Diário: R$ " -NoNewline -ForegroundColor Yellow
+        Write-Host "  │ Saldo Diario: R$ " -NoNewline -ForegroundColor Yellow
         $corSaldo = if ($consolidado.saldoDiario -ge 0) { "Green" } else { "Red" }
         Write-Host "$($consolidado.saldoDiario.ToString('N2').PadLeft(10))" -ForegroundColor $corSaldo
         Write-Host "  ╰─────────────────────────────────────────╯" -ForegroundColor Cyan
@@ -269,7 +269,7 @@ while ($true) {
             exit
         }
         default {
-            Write-Host "`n  ❌ Opção inválida! Escolha um número entre 0 e 12.`n" -ForegroundColor Red
+            Write-Host "`n  ❌ Opcao invalida! Escolha um número entre 0 e 12.`n" -ForegroundColor Red
             Start-Sleep -Seconds 2
         }
     }

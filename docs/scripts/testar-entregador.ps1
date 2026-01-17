@@ -1,5 +1,5 @@
 # Script PowerShell para testar o Contexto de ENTREGADOR
-# Testa alocação de entregadores, disponibilidade e cancelamentos
+# Testa alocacao de entregadores, disponibilidade e cancelamentos
 # Uso: .\testar-entregador.ps1 [-Cenario <numero>] [-DuracaoSegundos <segundos>]
 
 param(
@@ -10,7 +10,7 @@ param(
 
 $apiPedidos = "$BaseUrl/api/pedidos"
 
-# Estatísticas do contexto
+# Estatisticas do contexto
 $stats = @{
     EntregadoresAlocados = 0
     AlocacoesFalhadas = 0
@@ -45,14 +45,14 @@ function Write-Dashboard {
 │ ESTATÍSTICAS DE ALOCAÇÃO                                         │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Entregadores Alocados:   $($stats.EntregadoresAlocados.ToString().PadLeft(3))
-│  Alocações Falhadas:      $($stats.AlocacoesFalhadas.ToString().PadLeft(3)) ❌
-│  Taxa de Alocação:        $([math]::Round(($stats.EntregadoresAlocados / [math]::Max($stats.EntregadoresAlocados + $stats.AlocacoesFalhadas, 1)) * 100, 2))%
+│  Alocacões Falhadas:      $($stats.AlocacoesFalhadas.ToString().PadLeft(3)) ❌
+│  Taxa de Alocacao:        $([math]::Round(($stats.EntregadoresAlocados / [math]::Max($stats.EntregadoresAlocados + $stats.AlocacoesFalhadas, 1)) * 100, 2))%
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │  🚫 MOTIVOS DE FALHA                                                 │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Entregador Indisponível: $($stats.EntregadorIndisponivel.ToString().PadLeft(3))
+│  Entregador Indisponivel: $($stats.EntregadorIndisponivel.ToString().PadLeft(3))
 │  Fora de Área:            $($stats.ForaDeArea.ToString().PadLeft(3))
 └──────────────────────────────────────────────────────────────────────┘
 
@@ -67,18 +67,18 @@ function Write-Dashboard {
 }
 
 function Test-Cenario1-EntregadoresDisponiveis {
-    Write-Header "CENÁRIO 1: Entregadores Disponíveis (Alocação Total)"
+    Write-Header "CENÁRIO 1: Entregadores Disponiveis (Alocacao Total)"
 
     $zonas = @("NORTE", "SUL", "LESTE", "OESTE", "CENTRO")
     $enderecos = @(
         @{ zona = "NORTE"; endereco = "Rua das Palmeiras, 123" }
-        @{ zona = "SUL"; endereco = "Av. das Acácias, 456" }
+        @{ zona = "SUL"; endereco = "Av. das Acacias, 456" }
         @{ zona = "LESTE"; endereco = "Rua do Sol, 789" }
         @{ zona = "OESTE"; endereco = "Av. da Lua, 321" }
-        @{ zona = "CENTRO"; endereco = "Praça Central, 100" }
+        @{ zona = "CENTRO"; endereco = "Praca Central, 100" }
     )
 
-    Write-Host "  Enviando 10 pedidos com entregadores disponíveis...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando 10 pedidos com entregadores disponiveis...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 10; $i++) {
         $local = $enderecos | Get-Random
@@ -122,9 +122,9 @@ function Test-Cenario1-EntregadoresDisponiveis {
 }
 
 function Test-Cenario2-EntregadorIndisponivel {
-    Write-Header "CENÁRIO 2: Sem Entregador Disponível (Falha Esperada)"
+    Write-Header "CENÁRIO 2: Sem Entregador Disponivel (Falha Esperada)"
 
-    Write-Host "  Enviando pedidos quando não há entregadores disponíveis...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando pedidos quando nao ha entregadores disponiveis...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
         $payload = @{
@@ -150,7 +150,7 @@ function Test-Cenario2-EntregadorIndisponivel {
         catch {
             $stats.AlocacoesFalhadas++
             $stats.EntregadorIndisponivel++
-            Write-Host "  [$i/5] ❌ Falha: Nenhum entregador disponível" -ForegroundColor Red
+            Write-Host "  [$i/5] ❌ Falha: Nenhum entregador disponivel" -ForegroundColor Red
         }
 
         Start-Sleep -Milliseconds 500
@@ -163,14 +163,14 @@ function Test-Cenario2-EntregadorIndisponivel {
 }
 
 function Test-Cenario3-ForaDeArea {
-    Write-Header "CENÁRIO 3: Endereço Fora de Área (Falha Esperada)"
+    Write-Header "CENÁRIO 3: Endereco Fora de Área (Falha Esperada)"
 
-    Write-Host "  Enviando pedidos para endereços fora da área de entrega...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando pedidos para enderecos fora da area de entrega...`n" -ForegroundColor Yellow
 
     $enderecosForaDeArea = @(
         "Rua Muito Longe, 9999 - Cidade Distante",
-        "Av. Impossível, 8888 - Estado Remoto",
-        "Travessa Inacessível, 7777 - Interior",
+        "Av. Impossivel, 8888 - Estado Remoto",
+        "Travessa Inacessivel, 7777 - Interior",
         "Rodovia BR-000, Km 500",
         "Ilha Isolada, 1111"
     )
@@ -200,20 +200,20 @@ function Test-Cenario3-ForaDeArea {
         catch {
             $stats.AlocacoesFalhadas++
             $stats.ForaDeArea++
-            Write-Host "  [$i/5] ❌ Falha: Endereço fora de área - $endereco" -ForegroundColor Red
+            Write-Host "  [$i/5] ❌ Falha: Endereco fora de area - $endereco" -ForegroundColor Red
         }
 
         Start-Sleep -Milliseconds 500
     }
 
-    Write-Host "`n Resultado: Todos devem falhar por endereço fora de área`n" -ForegroundColor Yellow
+    Write-Host "`n Resultado: Todos devem falhar por endereco fora de area`n" -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 
     Write-Dashboard
 }
 
 function Test-Cenario4-CargaContinua {
-    Write-Header "CENÁRIO 4: Carga Contínua ($DuracaoSegundos segundos)"
+    Write-Header "CENÁRIO 4: Carga Continua ($DuracaoSegundos segundos)"
 
     Write-Host "  Enviando pedidos continuamente...`n" -ForegroundColor Yellow
     Write-Host "  Pressione Ctrl+C para parar antes do tempo`n" -ForegroundColor Gray
@@ -262,7 +262,7 @@ function Test-Cenario4-CargaContinua {
                 }
             } -ArgumentList $apiPedidos, $payload | Out-Null
 
-            # Processar jobs concluídos
+            # Processar jobs concluidos
             Get-Job | Where-Object { $_.State -eq "Completed" } | ForEach-Object {
                 $resultado = Receive-Job -Job $_
                 if ($resultado -and $cenario.valido) {
@@ -290,7 +290,7 @@ function Test-Cenario4-CargaContinua {
     }
 
     Write-Dashboard
-    Write-Host "`n  Teste de carga concluído!`n" -ForegroundColor Green
+    Write-Host "`n  Teste de carga concluido!`n" -ForegroundColor Green
 }
 
 # ==================== EXECUÇÃO PRINCIPAL ====================
@@ -302,7 +302,7 @@ Write-Host @"
 ║                                                                      ║
 ║              🚴 TESTE DO CONTEXTO: ENTREGADOR 🚴                     ║
 ║                                                                      ║
-║  Testa alocação de entregadores, disponibilidade e cobertura        ║
+║  Testa alocacao de entregadores, disponibilidade e cobertura        ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -312,23 +312,23 @@ Write-Host @"
 Write-Host "  🔍 Verificando conectividade com a API...`n" -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 5 | Out-Null
-    Write-Host "  API está respondendo`n" -ForegroundColor Green
+    Write-Host "  API esta respondendo`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ❌ API não está respondendo em $BaseUrl`n" -ForegroundColor Red
+    Write-Host "  ❌ API nao esta respondendo em $BaseUrl`n" -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 2
 
-# Executar cenário
+# Executar cenario
 switch ($Cenario) {
     1 { Test-Cenario1-EntregadoresDisponiveis }
     2 { Test-Cenario2-EntregadorIndisponivel }
     3 { Test-Cenario3-ForaDeArea }
     4 { Test-Cenario4-CargaContinua }
     default {
-        # Executar todos os cenários
+        # Executar todos os cenarios
         Test-Cenario1-EntregadoresDisponiveis
         Start-Sleep -Seconds 2
         Test-Cenario2-EntregadorIndisponivel
@@ -348,14 +348,14 @@ Write-Host @"
 
 📊 RELATÓRIO DO CONTEXTO ENTREGADOR:
 
-Alocações:
+Alocacões:
   - Entregadores alocados: $($stats.EntregadoresAlocados)
-  - Alocações falhadas: $($stats.AlocacoesFalhadas)
-  - Taxa de alocação: $([math]::Round(($stats.EntregadoresAlocados / [math]::Max($stats.EntregadoresAlocados + $stats.AlocacoesFalhadas, 1)) * 100, 2))%
+  - Alocacões falhadas: $($stats.AlocacoesFalhadas)
+  - Taxa de alocacao: $([math]::Round(($stats.EntregadoresAlocados / [math]::Max($stats.EntregadoresAlocados + $stats.AlocacoesFalhadas, 1)) * 100, 2))%
 
 Motivos de Falha:
-  - Entregador indisponível: $($stats.EntregadorIndisponivel)
-  - Fora de área: $($stats.ForaDeArea)
+  - Entregador indisponivel: $($stats.EntregadorIndisponivel)
+  - Fora de area: $($stats.ForaDeArea)
 
 Valores:
   - Valor total de fretes: R$ $($stats.ValorFretes.ToString('N2'))

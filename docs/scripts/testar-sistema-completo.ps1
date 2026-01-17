@@ -1,5 +1,5 @@
 # Script PowerShell para testar TODO o sistema (SAGA + Fluxo de Caixa)
-# Mostra dashboard em tempo real com estatísticas
+# Mostra dashboard em tempo real com estatisticas
 # Uso: .\testar-sistema-completo.ps1 [-DuracaoSegundos <segundos>]
 
 param(
@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = "SilentlyContinue"
 
-# Estatísticas globais
+# Estatisticas globais
 $stats = @{
     SagaPedidosSucesso = 0
     SagaPedidosFalha = 0
@@ -47,14 +47,14 @@ function Write-Dashboard {
 ┌──────────────────────────────────────────────────────────────────────┐
 │  FLUXO DE CAIXA (CQRS + Event-Driven)                             │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Lançamentos Criados:  $($stats.FluxoCaixaLancamentos.ToString().PadLeft(3)) 📊
-│  Erros de Validação:   $($stats.FluxoCaixaErros.ToString().PadLeft(3)) ⚠️
+│  Lancamentos Criados:  $($stats.FluxoCaixaLancamentos.ToString().PadLeft(3)) 📊
+│  Erros de Validacao:   $($stats.FluxoCaixaErros.ToString().PadLeft(3)) ⚠️
 │  Taxa de Sucesso:      $([math]::Round(($stats.FluxoCaixaLancamentos / [math]::Max($stats.FluxoCaixaLancamentos + $stats.FluxoCaixaErros, 1)) * 100, 2))%
 └──────────────────────────────────────────────────────────────────────┘
 
 "@ -ForegroundColor Cyan
 
-    # Obter estatísticas do RabbitMQ
+    # Obter estatisticas do RabbitMQ
     try {
         $cred = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${RabbitMQUser}:${RabbitMQPass}"))
         $headers = @{ Authorization = "Basic $cred" }
@@ -75,11 +75,11 @@ function Write-Dashboard {
     }
     catch {
         Write-Host "┌──────────────────────────────────────────────────────────────────────┐" -ForegroundColor Red
-        Write-Host "│  ❌ RabbitMQ não acessível                                           │" -ForegroundColor Red
+        Write-Host "│  ❌ RabbitMQ nao acessivel                                           │" -ForegroundColor Red
         Write-Host "└──────────────────────────────────────────────────────────────────────┘" -ForegroundColor Red
     }
 
-    Write-Host "`n⏱️  Próxima atualização em 5 segundos...`n" -ForegroundColor Gray
+    Write-Host "`n⏱️  Próxima atualizacao em 5 segundos...`n" -ForegroundColor Gray
 }
 
 function Send-PedidoSaga {
@@ -135,7 +135,7 @@ function Send-PedidoSaga {
 
 function Send-LancamentoFluxoCaixa {
     $tipos = @("Credito", "Debito")
-    $categorias = @("Vendas", "Fornecedores", "Salários", "Impostos")
+    $categorias = @("Vendas", "Fornecedores", "Salarios", "Impostos")
 
     $tipo = $tipos | Get-Random
     $tipoEnum = if ($tipo -eq "Credito") { 2 } else { 1 }
@@ -147,7 +147,7 @@ function Send-LancamentoFluxoCaixa {
         tipo = $tipoEnum
         valor = $valor
         dataLancamento = (Get-Date -Format "yyyy-MM-dd")
-        descricao = "Teste automático - $tipo"
+        descricao = "Teste automatico - $tipo"
         comerciante = $comerciante
         categoria = $categoria
     } | ConvertTo-Json
@@ -162,7 +162,7 @@ function Send-LancamentoFluxoCaixa {
 }
 
 function Test-Connectivity {
-    Write-Host "🔍 Verificando conectividade dos serviços...`n" -ForegroundColor Yellow
+    Write-Host "🔍 Verificando conectividade dos servicos...`n" -ForegroundColor Yellow
 
     # Testar SAGA
     try {
@@ -171,7 +171,7 @@ function Test-Connectivity {
     }
     catch {
         Write-Host "  ❌ SAGA API: Offline" -ForegroundColor Red
-        Write-Host "     Certifique-se de que a API está rodando em $BaseUrlSaga" -ForegroundColor Red
+        Write-Host "     Certifique-se de que a API esta rodando em $BaseUrlSaga" -ForegroundColor Red
         return $false
     }
 
@@ -182,7 +182,7 @@ function Test-Connectivity {
     }
     catch {
         Write-Host "  ❌ Fluxo de Caixa API: Offline" -ForegroundColor Red
-        Write-Host "     Certifique-se de que a API está rodando em $BaseUrlFluxoCaixa" -ForegroundColor Red
+        Write-Host "     Certifique-se de que a API esta rodando em $BaseUrlFluxoCaixa" -ForegroundColor Red
         return $false
     }
 
@@ -194,7 +194,7 @@ function Test-Connectivity {
         Write-Host "  RabbitMQ: OK" -ForegroundColor Green
     }
     catch {
-        Write-Host "  ⚠️  RabbitMQ: Offline (estatísticas de filas não disponíveis)" -ForegroundColor Yellow
+        Write-Host "  ⚠️  RabbitMQ: Offline (estatisticas de filas nao disponiveis)" -ForegroundColor Yellow
     }
 
     Write-Host "`n✅ Conectividade OK! Iniciando testes...`n" -ForegroundColor Green
@@ -211,20 +211,20 @@ Write-Host @"
 ║          TESTE COMPLETO DO SISTEMA                             ║
 ║                                                                      ║
 ║  SAGA Pattern + Fluxo de Caixa                                       ║
-║  Duração: $DuracaoSegundos segundos                                  ║
+║  Duracao: $DuracaoSegundos segundos                                  ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 "@ -ForegroundColor Cyan
 
 if (-not (Test-Connectivity)) {
-    Write-Host "`n❌ Alguns serviços estão offline. Corrija e tente novamente.`n" -ForegroundColor Red
+    Write-Host "`n❌ Alguns servicos estao offline. Corrija e tente novamente.`n" -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 2
 
-Write-Host "Iniciando geração de carga em 3 segundos..." -ForegroundColor Yellow
+Write-Host "Iniciando geracao de carga em 3 segundos..." -ForegroundColor Yellow
 Start-Sleep -Seconds 3
 
 $tempoFim = (Get-Date).AddSeconds($DuracaoSegundos)
@@ -243,7 +243,7 @@ try {
     while ((Get-Date) -lt $tempoFim) {
         Write-Dashboard
 
-        # Enviar requisições em paralelo
+        # Enviar requisicões em paralelo
         $jobs = @()
 
         # 2 pedidos SAGA
@@ -252,7 +252,7 @@ try {
             & $using:Function:Send-PedidoSaga
         } -ArgumentList $BaseUrlSaga, $stats
 
-        # 3 lançamentos Fluxo de Caixa
+        # 3 lancamentos Fluxo de Caixa
         for ($i = 0; $i -lt 3; $i++) {
             $jobs += Start-Job -ScriptBlock {
                 param($BaseUrl, $stats)
@@ -260,7 +260,7 @@ try {
             } -ArgumentList $BaseUrlFluxoCaixa, $stats
         }
 
-        # Aguardar conclusão
+        # Aguardar conclusao
         $jobs | Wait-Job -Timeout 10 | Out-Null
         $jobs | Remove-Job -Force
 
@@ -290,11 +290,11 @@ SAGA Pattern:
   - Taxa de sucesso: $([math]::Round(($stats.SagaPedidosSucesso / [math]::Max($stats.SagaPedidosSucesso + $stats.SagaPedidosFalha, 1)) * 100, 2))%
 
 Fluxo de Caixa:
-  - Lançamentos criados: $($stats.FluxoCaixaLancamentos)
+  - Lancamentos criados: $($stats.FluxoCaixaLancamentos)
   - Taxa de sucesso: $([math]::Round(($stats.FluxoCaixaLancamentos / [math]::Max($stats.FluxoCaixaLancamentos + $stats.FluxoCaixaErros, 1)) * 100, 2))%
 
 💡 Dicas:
-  - Verifique os logs dos serviços para detalhes
+  - Verifique os logs dos servicos para detalhes
   - Acesse RabbitMQ Management: $RabbitMQUrl
   - Consulte consolidados: GET $BaseUrlFluxoCaixa/api/consolidado/COM001/$(Get-Date -Format 'yyyy-MM-dd')
 

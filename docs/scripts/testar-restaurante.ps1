@@ -1,5 +1,5 @@
 # Script PowerShell para testar o Contexto de RESTAURANTE
-# Testa validações de pedidos, disponibilidade e cancelamentos
+# Testa validacões de pedidos, disponibilidade e cancelamentos
 # Uso: .\testar-restaurante.ps1 [-Cenario <numero>] [-DuracaoSegundos <segundos>]
 
 param(
@@ -10,7 +10,7 @@ param(
 
 $apiPedidos = "$BaseUrl/api/pedidos"
 
-# Estatísticas do contexto
+# Estatisticas do contexto
 $stats = @{
     PedidosValidados = 0
     PedidosRejeitados = 0
@@ -46,14 +46,14 @@ function Write-Dashboard {
 ├──────────────────────────────────────────────────────────────────────┤
 │  Pedidos Validados:       $($stats.PedidosValidados.ToString().PadLeft(3))
 │  Pedidos Rejeitados:      $($stats.PedidosRejeitados.ToString().PadLeft(3)) ❌
-│  Taxa de Aprovação:       $([math]::Round(($stats.PedidosValidados / [math]::Max($stats.PedidosValidados + $stats.PedidosRejeitados, 1)) * 100, 2))%
+│  Taxa de Aprovacao:       $([math]::Round(($stats.PedidosValidados / [math]::Max($stats.PedidosValidados + $stats.PedidosRejeitados, 1)) * 100, 2))%
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │  🚫 MOTIVOS DE REJEIÇÃO                                              │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Restaurante Fechado:     $($stats.RestauranteFechado.ToString().PadLeft(3))
-│  Item Indisponível:       $($stats.ItemIndisponivel.ToString().PadLeft(3))
+│  Item Indisponivel:       $($stats.ItemIndisponivel.ToString().PadLeft(3))
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -67,7 +67,7 @@ function Write-Dashboard {
 }
 
 function Test-Cenario1-PedidosValidos {
-    Write-Header "CENÁRIO 1: Pedidos Válidos (Aprovação Total)"
+    Write-Header "CENÁRIO 1: Pedidos Validos (Aprovacao Total)"
 
     $restaurantes = @("REST001", "REST002", "REST003")
     $produtos = @(
@@ -76,7 +76,7 @@ function Test-Cenario1-PedidosValidos {
         @{ id = "PROD003"; nome = "Sushi Combo"; preco = 68.00 }
     )
 
-    Write-Host "  Enviando 10 pedidos válidos...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando 10 pedidos validos...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 10; $i++) {
         $restaurante = $restaurantes | Get-Random
@@ -120,7 +120,7 @@ function Test-Cenario1-PedidosValidos {
 }
 
 function Test-Cenario2-RestauranteFechado {
-    Write-Header "CENÁRIO 2: Restaurante Fechado (Rejeição Esperada)"
+    Write-Header "CENÁRIO 2: Restaurante Fechado (Rejeicao Esperada)"
 
     Write-Host "  Enviando pedidos para restaurante fechado...`n" -ForegroundColor Yellow
 
@@ -160,9 +160,9 @@ function Test-Cenario2-RestauranteFechado {
 }
 
 function Test-Cenario3-ItemIndisponivel {
-    Write-Header "CENÁRIO 3: Item Indisponível (Estoque Zerado)"
+    Write-Header "CENÁRIO 3: Item Indisponivel (Estoque Zerado)"
 
-    Write-Host "  Enviando pedidos com itens indisponíveis...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando pedidos com itens indisponiveis...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
         $payload = @{
@@ -187,7 +187,7 @@ function Test-Cenario3-ItemIndisponivel {
         catch {
             $stats.PedidosRejeitados++
             $stats.ItemIndisponivel++
-            Write-Host "  [$i/5] ❌ Pedido rejeitado: Item indisponível" -ForegroundColor Red
+            Write-Host "  [$i/5] ❌ Pedido rejeitado: Item indisponivel" -ForegroundColor Red
         }
 
         Start-Sleep -Milliseconds 500
@@ -200,7 +200,7 @@ function Test-Cenario3-ItemIndisponivel {
 }
 
 function Test-Cenario4-CargaContinua {
-    Write-Header "CENÁRIO 4: Carga Contínua ($DuracaoSegundos segundos)"
+    Write-Header "CENÁRIO 4: Carga Continua ($DuracaoSegundos segundos)"
 
     Write-Host "  Enviando pedidos continuamente...`n" -ForegroundColor Yellow
     Write-Host "  Pressione Ctrl+C para parar antes do tempo`n" -ForegroundColor Gray
@@ -248,7 +248,7 @@ function Test-Cenario4-CargaContinua {
                 }
             } -ArgumentList $apiPedidos, $payload | Out-Null
 
-            # Processar jobs concluídos
+            # Processar jobs concluidos
             Get-Job | Where-Object { $_.State -eq "Completed" } | ForEach-Object {
                 $resultado = Receive-Job -Job $_
                 if ($resultado) {
@@ -276,7 +276,7 @@ function Test-Cenario4-CargaContinua {
     }
 
     Write-Dashboard
-    Write-Host "`n  Teste de carga concluído!`n" -ForegroundColor Green
+    Write-Host "`n  Teste de carga concluido!`n" -ForegroundColor Green
 }
 
 # ==================== EXECUÇÃO PRINCIPAL ====================
@@ -298,23 +298,23 @@ Write-Host @"
 Write-Host "  🔍 Verificando conectividade com a API...`n" -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 5 | Out-Null
-    Write-Host "  API está respondendo`n" -ForegroundColor Green
+    Write-Host "  API esta respondendo`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ❌ API não está respondendo em $BaseUrl`n" -ForegroundColor Red
+    Write-Host "  ❌ API nao esta respondendo em $BaseUrl`n" -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 2
 
-# Executar cenário
+# Executar cenario
 switch ($Cenario) {
     1 { Test-Cenario1-PedidosValidos }
     2 { Test-Cenario2-RestauranteFechado }
     3 { Test-Cenario3-ItemIndisponivel }
     4 { Test-Cenario4-CargaContinua }
     default {
-        # Executar todos os cenários
+        # Executar todos os cenarios
         Test-Cenario1-PedidosValidos
         Start-Sleep -Seconds 2
         Test-Cenario2-RestauranteFechado
@@ -334,14 +334,14 @@ Write-Host @"
 
 📊 RELATÓRIO DO CONTEXTO RESTAURANTE:
 
-Validações:
+Validacões:
   - Pedidos validados: $($stats.PedidosValidados)
   - Pedidos rejeitados: $($stats.PedidosRejeitados)
-  - Taxa de aprovação: $([math]::Round(($stats.PedidosValidados / [math]::Max($stats.PedidosValidados + $stats.PedidosRejeitados, 1)) * 100, 2))%
+  - Taxa de aprovacao: $([math]::Round(($stats.PedidosValidados / [math]::Max($stats.PedidosValidados + $stats.PedidosRejeitados, 1)) * 100, 2))%
 
-Motivos de Rejeição:
+Motivos de Rejeicao:
   - Restaurante fechado: $($stats.RestauranteFechado)
-  - Item indisponível: $($stats.ItemIndisponivel)
+  - Item indisponivel: $($stats.ItemIndisponivel)
 
 Valores:
   - Valor total validado: R$ $($stats.ValorTotal.ToString('N2'))

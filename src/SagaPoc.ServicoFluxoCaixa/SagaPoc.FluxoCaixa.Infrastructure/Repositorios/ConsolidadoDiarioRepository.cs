@@ -27,20 +27,22 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
     {
         try
         {
+            var dataUtc = DateTime.SpecifyKind(data.Date, DateTimeKind.Utc);
+
             var consolidado = await _context.Consolidados
                 .FirstOrDefaultAsync(
-                    c => c.Data == data.Date && c.Comerciante == comerciante,
+                    c => c.Data == dataUtc && c.Comerciante == comerciante,
                     ct);
 
             if (consolidado is null)
             {
-                consolidado = ConsolidadoDiario.Criar(data.Date, comerciante);
+                consolidado = ConsolidadoDiario.Criar(dataUtc, comerciante);
                 await _context.Consolidados.AddAsync(consolidado, ct);
                 await _context.SaveChangesAsync(ct);
 
                 _logger.LogInformation(
                     "Consolidado criado para {Data} - Comerciante: {Comerciante}",
-                    data.Date,
+                    dataUtc,
                     comerciante);
             }
 
@@ -62,10 +64,12 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
     {
         try
         {
+            var dataUtc = DateTime.SpecifyKind(data.Date, DateTimeKind.Utc);
+
             var consolidado = await _context.Consolidados
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
-                    c => c.Data == data.Date && c.Comerciante == comerciante,
+                    c => c.Data == dataUtc && c.Comerciante == comerciante,
                     ct);
 
             if (consolidado is null)
@@ -94,11 +98,14 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
     {
         try
         {
+            var inicioUtc = DateTime.SpecifyKind(inicio.Date, DateTimeKind.Utc);
+            var fimUtc = DateTime.SpecifyKind(fim.Date, DateTimeKind.Utc);
+
             var consolidados = await _context.Consolidados
                 .AsNoTracking()
                 .Where(c => c.Comerciante == comerciante
-                         && c.Data >= inicio.Date
-                         && c.Data <= fim.Date)
+                         && c.Data >= inicioUtc
+                         && c.Data <= fimUtc)
                 .OrderBy(c => c.Data)
                 .ToListAsync(ct);
 

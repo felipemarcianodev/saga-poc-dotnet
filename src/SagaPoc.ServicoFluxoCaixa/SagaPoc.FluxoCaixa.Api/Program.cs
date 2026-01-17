@@ -67,7 +67,7 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// Configurar Rebus
+// Configurar Rebus - escuta múltiplas filas
 builder.Services.AddRebus(configure => configure
     .Transport(t => t.UseRabbitMq(
         $"amqp://{builder.Configuration["RabbitMQ:Username"]}:{builder.Configuration["RabbitMQ:Password"]}@{builder.Configuration["RabbitMQ:Host"]}:{builder.Configuration["RabbitMQ:Port"]}",
@@ -75,14 +75,26 @@ builder.Services.AddRebus(configure => configure
     .Routing(r => r.TypeBased()
         .Map<RegistrarLancamento>("fluxocaixa-lancamentos")
         .Map<LancamentoCreditoRegistrado>("fluxocaixa-consolidado")
-        .Map<LancamentoDebitoRegistrado>("fluxocaixa-consolidado")));
+        .Map<LancamentoDebitoRegistrado>("fluxocaixa-consolidado")),
+    onCreated: async bus =>
+    {
+        // Subscrever também à fila de consolidado para processar eventos
+        await bus.Subscribe<LancamentoCreditoRegistrado>();
+        await bus.Subscribe<LancamentoDebitoRegistrado>();
+    });
 
 // Registrar handlers manualmente - Lançamentos
 builder.Services.AddScoped<IHandleMessages<RegistrarLancamento>, RegistrarLancamentoHandler>();
 
+// Registrar handler para mensagens de resposta (limpar fila de mensagens antigas)
+builder.Services.AddScoped<IHandleMessages<SagaPoc.FluxoCaixa.Domain.Respostas.LancamentoRegistradoComSucesso>, SagaPoc.FluxoCaixa.Lancamentos.Handlers.LancamentoRegistradoComSucessoHandler>();
+
 // Registrar handlers manualmente - Consolidado
 builder.Services.AddScoped<IHandleMessages<LancamentoCreditoRegistrado>, LancamentoCreditoRegistradoHandler>();
 builder.Services.AddScoped<IHandleMessages<LancamentoDebitoRegistrado>, LancamentoDebitoRegistradoHandler>();
+
+// Health Checks
+builder.Services.AddHealthChecks();
 
 // Controllers e Swagger
 builder.Services.AddControllers();
@@ -181,6 +193,10 @@ app.UseHttpsRedirection();
 app.UseResponseCaching();
 app.UseRateLimiter();
 app.UseAuthorization();
+
+// Health Check endpoint
+app.MapHealthChecks("/health");
+
 app.MapControllers().RequireRateLimiting("consolidado");
 
 app.Run();

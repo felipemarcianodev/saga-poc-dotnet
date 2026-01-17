@@ -164,7 +164,7 @@ function Show-Dashboard {
             $deliverRate = [math]::Round($messageStats.deliver_get_details.rate, 2)
 
             Write-Host "│  THROUGHPUT:" -ForegroundColor Cyan
-            Write-Host "│    Publicação: " -NoNewline -ForegroundColor White
+            Write-Host "│    Publicacao: " -NoNewline -ForegroundColor White
             Write-Host "$($publishRate.ToString('N2')) msg/s" -ForegroundColor Green
             Write-Host "│    Consumo:    " -NoNewline -ForegroundColor White
             Write-Host "$($deliverRate.ToString('N2')) msg/s" -ForegroundColor Green
@@ -174,7 +174,7 @@ function Show-Dashboard {
         Write-Host "│  Status: " -NoNewline -ForegroundColor White
         Write-Host "❌ OFFLINE" -ForegroundColor Red
         Write-Host "│  " -ForegroundColor Magenta
-        Write-Host "│  Não foi possível conectar ao RabbitMQ Management" -ForegroundColor Red
+        Write-Host "│  Nao foi possivel conectar ao RabbitMQ Management" -ForegroundColor Red
         Write-Host "│  URL: $RabbitMQUrl" -ForegroundColor Gray
     }
 
@@ -200,10 +200,10 @@ function Show-Dashboard {
                     Write-Host "│  $com - $data" -ForegroundColor Cyan
                     Write-Host "│    Créditos:  R$ " -NoNewline -ForegroundColor White
                     Write-Host "$($consolidado.totalCreditos.ToString('N2').PadLeft(12))" -NoNewline -ForegroundColor Green
-                    Write-Host "  ($($consolidado.quantidadeCreditos) lançtos)" -ForegroundColor Gray
+                    Write-Host "  ($($consolidado.quantidadeCreditos) lanctos)" -ForegroundColor Gray
                     Write-Host "│    Débitos:   R$ " -NoNewline -ForegroundColor White
                     Write-Host "$($consolidado.totalDebitos.ToString('N2').PadLeft(12))" -NoNewline -ForegroundColor Red
-                    Write-Host "  ($($consolidado.quantidadeDebitos) lançtos)" -ForegroundColor Gray
+                    Write-Host "  ($($consolidado.quantidadeDebitos) lanctos)" -ForegroundColor Gray
                     Write-Host "│    ─────────────────────────────────" -ForegroundColor Gray
                     Write-Host "│    Saldo:     R$ " -NoNewline -ForegroundColor White
                     Write-Host "$($consolidado.saldoDiario.ToString('N2').PadLeft(12))" -ForegroundColor $saldoCor
@@ -221,13 +221,13 @@ function Show-Dashboard {
         Write-Host "└─────────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Green
     }
 
-    # ==================== Instruções ====================
+    # ==================== Instrucões ====================
     Write-Host "`n" -NoNewline
     Write-Host "  💡 " -NoNewline -ForegroundColor Yellow
     Write-Host "Pressione " -NoNewline -ForegroundColor Gray
     Write-Host "Ctrl+C" -NoNewline -ForegroundColor White
     Write-Host " para sair  |  " -NoNewline -ForegroundColor Gray
-    Write-Host "Próxima atualização em $IntervalSegundos segundos..." -ForegroundColor Gray
+    Write-Host "Próxima atualizacao em $IntervalSegundos segundos..." -ForegroundColor Gray
     Write-Host ""
 }
 
@@ -240,7 +240,7 @@ Write-Host @"
 ║                                                                              ║
 ║                   🔄 INICIANDO MONITOR EM TEMPO REAL...                      ║
 ║                                                                              ║
-║  Intervalo de atualização: $IntervalSegundos segundos                        ║
+║  Intervalo de atualizacao: $IntervalSegundos segundos                        ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -257,5 +257,5 @@ try {
     }
 }
 catch {
-    Write-Host "`n`n✅ Monitor encerrado pelo usuário.`n" -ForegroundColor Green
+    Write-Host "`n`n✅ Monitor encerrado pelo usuario.`n" -ForegroundColor Green
 }

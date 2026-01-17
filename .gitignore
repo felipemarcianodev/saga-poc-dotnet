@@ -140,3 +140,8 @@ appsettings.*.json
 !/docs/boas-praticas.md
 !/docs/diagramas-compensacao.md
 !/docs/plano-execucao/
+!/docs/fluxo-caixa.md
+!/docs/diagramas-fluxo-caixa.md
+!/docs/indice-documentacao.md
+!/docs/swagger-openapi.md
+!/docs/troubleshooting-fluxo-caixa.md

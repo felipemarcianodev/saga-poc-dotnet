@@ -10,7 +10,7 @@ param(
 
 $apiPedidos = "$BaseUrl/api/pedidos"
 
-# Estatísticas do contexto
+# Estatisticas do contexto
 $stats = @{
     PagamentosAprovados = 0
     PagamentosRecusados = 0
@@ -49,13 +49,13 @@ function Write-Dashboard {
 ├──────────────────────────────────────────────────────────────────────┤
 │  Pagamentos Aprovados:    $($stats.PagamentosAprovados.ToString().PadLeft(3))
 │  Pagamentos Recusados:    $($stats.PagamentosRecusados.ToString().PadLeft(3)) ❌
-│  Taxa de Aprovação:       $([math]::Round(($stats.PagamentosAprovados / [math]::Max($stats.PagamentosAprovados + $stats.PagamentosRecusados, 1)) * 100, 2))%
+│  Taxa de Aprovacao:       $([math]::Round(($stats.PagamentosAprovados / [math]::Max($stats.PagamentosAprovados + $stats.PagamentosRecusados, 1)) * 100, 2))%
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │  🚫 MOTIVOS DE RECUSA                                                │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Cartão Recusado:         $($stats.CartaoRecusado.ToString().PadLeft(3))
+│  Cartao Recusado:         $($stats.CartaoRecusado.ToString().PadLeft(3))
 │  Fraude Detectada:        $($stats.FraudeDetectada.ToString().PadLeft(3))
 │  Timeout Gateway:         $($stats.Timeout.ToString().PadLeft(3))
 └──────────────────────────────────────────────────────────────────────┘
@@ -73,9 +73,9 @@ function Write-Dashboard {
 }
 
 function Test-Cenario1-PagamentosAprovados {
-    Write-Header "CENÁRIO 1: Pagamentos Aprovados (Cartões Válidos)"
+    Write-Header "CENÁRIO 1: Pagamentos Aprovados (Cartões Validos)"
 
-    Write-Host "  Processando 10 pagamentos válidos...`n" -ForegroundColor Yellow
+    Write-Host "  Processando 10 pagamentos validos...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 10; $i++) {
         $valor = Get-Random -Minimum 20 -Maximum 200
@@ -118,9 +118,9 @@ function Test-Cenario1-PagamentosAprovados {
 }
 
 function Test-Cenario2-CartaoRecusado {
-    Write-Header "CENÁRIO 2: Cartão Recusado (Saldo Insuficiente)"
+    Write-Header "CENÁRIO 2: Cartao Recusado (Saldo Insuficiente)"
 
-    Write-Host "  Tentando processar com cartão recusado...`n" -ForegroundColor Yellow
+    Write-Host "  Tentando processar com cartao recusado...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
         $payload = @{
@@ -145,7 +145,7 @@ function Test-Cenario2-CartaoRecusado {
         catch {
             $stats.PagamentosRecusados++
             $stats.CartaoRecusado++
-            Write-Host "  [$i/5] ❌ Pagamento recusado: Cartão sem saldo" -ForegroundColor Red
+            Write-Host "  [$i/5] ❌ Pagamento recusado: Cartao sem saldo" -ForegroundColor Red
         }
 
         Start-Sleep -Milliseconds 500
@@ -158,7 +158,7 @@ function Test-Cenario2-CartaoRecusado {
 }
 
 function Test-Cenario3-FraudeDetectada {
-    Write-Header "CENÁRIO 3: Detecção de Fraude (Valor Alto)"
+    Write-Header "CENÁRIO 3: Deteccao de Fraude (Valor Alto)"
 
     Write-Host "  Enviando pedidos com valores suspeitos (> R$ 1000)...`n" -ForegroundColor Yellow
 
@@ -202,7 +202,7 @@ function Test-Cenario3-FraudeDetectada {
 function Test-Cenario4-TimeoutGateway {
     Write-Header "CENÁRIO 4: Timeout no Gateway de Pagamento"
 
-    Write-Host "  Simulando timeout de comunicação...`n" -ForegroundColor Yellow
+    Write-Host "  Simulando timeout de comunicacao...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
         $payload = @{
@@ -227,7 +227,7 @@ function Test-Cenario4-TimeoutGateway {
         catch {
             $stats.PagamentosRecusados++
             $stats.Timeout++
-            Write-Host "  [$i/5] ⏱️  Timeout: Gateway não respondeu" -ForegroundColor Yellow
+            Write-Host "  [$i/5] ⏱️  Timeout: Gateway nao respondeu" -ForegroundColor Yellow
         }
 
         Start-Sleep -Milliseconds 500
@@ -240,15 +240,15 @@ function Test-Cenario4-TimeoutGateway {
 }
 
 function Test-Cenario5-EstornosCompensacao {
-    Write-Header "CENÁRIO 5: Estornos (Compensação de SAGA)"
+    Write-Header "CENÁRIO 5: Estornos (Compensacao de SAGA)"
 
-    Write-Host "  Processando pedidos que gerarão estornos...`n" -ForegroundColor Yellow
+    Write-Host "  Processando pedidos que gerarao estornos...`n" -ForegroundColor Yellow
     Write-Host "  (Pagamento aprovado mas falha posterior)...`n" -ForegroundColor Gray
 
     for ($i = 1; $i -le 5; $i++) {
         $valor = Get-Random -Minimum 50 -Maximum 150
 
-        # Pedido que será aprovado no pagamento mas rejeitado no entregador
+        # Pedido que sera aprovado no pagamento mas rejeitado no entregador
         $payload = @{
             clienteId = "CLI001"
             restauranteId = "REST001"
@@ -274,7 +274,7 @@ function Test-Cenario5-EstornosCompensacao {
 
             Write-Host "  [$i/5] 💳 Pagamento aprovado: R$ $($valor.ToString('N2'))" -ForegroundColor Green
             Write-Host "         ⏳ Aguardando falha no entregador..." -ForegroundColor Yellow
-            Write-Host "         ⬅️  Estorno será executado automaticamente" -ForegroundColor Cyan
+            Write-Host "         ⬅️  Estorno sera executado automaticamente" -ForegroundColor Cyan
         }
         catch {
             $stats.PagamentosRecusados++
@@ -283,14 +283,14 @@ function Test-Cenario5-EstornosCompensacao {
         Start-Sleep -Seconds 2
     }
 
-    Write-Host "`n Processamento concluído. Verifique logs para compensações.`n" -ForegroundColor Yellow
+    Write-Host "`n Processamento concluido. Verifique logs para compensacões.`n" -ForegroundColor Yellow
     Start-Sleep -Seconds 5
 
     Write-Dashboard
 }
 
 function Test-Cenario6-CargaContinua {
-    Write-Header "CENÁRIO 6: Carga Contínua ($DuracaoSegundos segundos)"
+    Write-Header "CENÁRIO 6: Carga Continua ($DuracaoSegundos segundos)"
 
     Write-Host "  Processando pagamentos continuamente...`n" -ForegroundColor Yellow
     Write-Host "  Pressione Ctrl+C para parar antes do tempo`n" -ForegroundColor Gray
@@ -344,7 +344,7 @@ function Test-Cenario6-CargaContinua {
                 }
             } -ArgumentList $apiPedidos, $payload, $valor | Out-Null
 
-            # Processar jobs concluídos
+            # Processar jobs concluidos
             Get-Job | Where-Object { $_.State -eq "Completed" } | ForEach-Object {
                 $resultado = Receive-Job -Job $_
                 if ($resultado.sucesso) {
@@ -371,7 +371,7 @@ function Test-Cenario6-CargaContinua {
     }
 
     Write-Dashboard
-    Write-Host "`n  Teste de carga concluído!`n" -ForegroundColor Green
+    Write-Host "`n  Teste de carga concluido!`n" -ForegroundColor Green
 }
 
 # ==================== EXECUÇÃO PRINCIPAL ====================
@@ -393,16 +393,16 @@ Write-Host @"
 Write-Host "  🔍 Verificando conectividade com a API...`n" -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 5 | Out-Null
-    Write-Host "  API está respondendo`n" -ForegroundColor Green
+    Write-Host "  API esta respondendo`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ❌ API não está respondendo em $BaseUrl`n" -ForegroundColor Red
+    Write-Host "  ❌ API nao esta respondendo em $BaseUrl`n" -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 2
 
-# Executar cenário
+# Executar cenario
 switch ($Cenario) {
     1 { Test-Cenario1-PagamentosAprovados }
     2 { Test-Cenario2-CartaoRecusado }
@@ -411,7 +411,7 @@ switch ($Cenario) {
     5 { Test-Cenario5-EstornosCompensacao }
     6 { Test-Cenario6-CargaContinua }
     default {
-        # Executar cenários principais
+        # Executar cenarios principais
         Test-Cenario1-PagamentosAprovados
         Start-Sleep -Seconds 2
         Test-Cenario2-CartaoRecusado
@@ -434,14 +434,14 @@ Write-Host @"
 Processamento:
   - Pagamentos aprovados: $($stats.PagamentosAprovados)
   - Pagamentos recusados: $($stats.PagamentosRecusados)
-  - Taxa de aprovação: $([math]::Round(($stats.PagamentosAprovados / [math]::Max($stats.PagamentosAprovados + $stats.PagamentosRecusados, 1)) * 100, 2))%
+  - Taxa de aprovacao: $([math]::Round(($stats.PagamentosAprovados / [math]::Max($stats.PagamentosAprovados + $stats.PagamentosRecusados, 1)) * 100, 2))%
 
 Motivos de Recusa:
-  - Cartão recusado: $($stats.CartaoRecusado)
+  - Cartao recusado: $($stats.CartaoRecusado)
   - Fraude detectada: $($stats.FraudeDetectada)
   - Timeout gateway: $($stats.Timeout)
 
-Compensações:
+Compensacões:
   - Estornos executados: $($stats.EstornosExecutados)
   - Valor total estornado: R$ $($stats.ValorTotalEstornado.ToString('N2'))
 
@@ -451,7 +451,7 @@ Valores:
 
 💡 Dicas:
   - Verifique os logs do ServicoPagamento para detalhes
-  - Estornos aparecem quando há compensação de SAGA
-  - Fraudes são detectadas para valores > R$ 1.000
+  - Estornos aparecem quando ha compensacao de SAGA
+  - Fraudes sao detectadas para valores > R$ 1.000
 
 "@ -ForegroundColor Cyan

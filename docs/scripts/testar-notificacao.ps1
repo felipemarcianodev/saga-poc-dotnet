@@ -1,5 +1,5 @@
 # Script PowerShell para testar o Contexto de NOTIFICAÇÃO
-# Testa envio de notificações, canais e tolerância a falhas
+# Testa envio de notificacões, canais e tolerância a falhas
 # Uso: .\testar-notificacao.ps1 [-Cenario <numero>] [-DuracaoSegundos <segundos>]
 
 param(
@@ -10,7 +10,7 @@ param(
 
 $apiPedidos = "$BaseUrl/api/pedidos"
 
-# Estatísticas do contexto
+# Estatisticas do contexto
 $stats = @{
     NotificacoesEnviadas = 0
     NotificacoesFalhadas = 0
@@ -45,8 +45,8 @@ function Write-Dashboard {
 ┌──────────────────────────────────────────────────────────────────────┐
 │ ESTATÍSTICAS DE ENVIO                                            │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Notificações Enviadas:   $($stats.NotificacoesEnviadas.ToString().PadLeft(3))
-│  Notificações Falhadas:   $($stats.NotificacoesFalhadas.ToString().PadLeft(3)) ❌
+│  Notificacões Enviadas:   $($stats.NotificacoesEnviadas.ToString().PadLeft(3))
+│  Notificacões Falhadas:   $($stats.NotificacoesFalhadas.ToString().PadLeft(3)) ❌
 │  Taxa de Sucesso:         $([math]::Round(($stats.NotificacoesEnviadas / [math]::Max($stats.NotificacoesEnviadas + $stats.NotificacoesFalhadas, 1)) * 100, 2))%
 └──────────────────────────────────────────────────────────────────────┘
 
@@ -68,17 +68,17 @@ function Write-Dashboard {
 }
 
 function Test-Cenario1-NotificacoesNormais {
-    Write-Header "CENÁRIO 1: Notificações Normais (Todos os Canais)"
+    Write-Header "CENÁRIO 1: Notificacões Normais (Todos os Canais)"
 
     $clientes = @(
-        @{ id = "CLI001"; canal = "EMAIL"; nome = "João Silva" }
+        @{ id = "CLI001"; canal = "EMAIL"; nome = "Joao Silva" }
         @{ id = "CLI002"; canal = "SMS"; nome = "Maria Santos" }
         @{ id = "CLI003"; canal = "PUSH"; nome = "Pedro Costa" }
         @{ id = "CLI004"; canal = "EMAIL"; nome = "Ana Oliveira" }
         @{ id = "CLI005"; canal = "SMS"; nome = "Carlos Souza" }
     )
 
-    Write-Host "  Enviando 10 pedidos com notificações...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando 10 pedidos com notificacões...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 10; $i++) {
         $cliente = $clientes | Get-Random
@@ -109,11 +109,11 @@ function Test-Cenario1-NotificacoesNormais {
                 "PUSH" { $stats.PushEnviado++ }
             }
 
-            Write-Host "  [$i/10] Notificação enviada - $($cliente.nome) via $($cliente.canal)" -ForegroundColor Green
+            Write-Host "  [$i/10] Notificacao enviada - $($cliente.nome) via $($cliente.canal)" -ForegroundColor Green
         }
         catch {
             $stats.NotificacoesFalhadas++
-            Write-Host "  [$i/10] ❌ Falha ao enviar notificação" -ForegroundColor Red
+            Write-Host "  [$i/10] ❌ Falha ao enviar notificacao" -ForegroundColor Red
         }
 
         Start-Sleep -Milliseconds 500
@@ -126,10 +126,10 @@ function Test-Cenario1-NotificacoesNormais {
 }
 
 function Test-Cenario2-ClienteSemCanal {
-    Write-Header "CENÁRIO 2: Cliente Sem Canal de Notificação"
+    Write-Header "CENÁRIO 2: Cliente Sem Canal de Notificacao"
 
-    Write-Host "  Enviando pedidos para clientes sem canal de notificação...`n" -ForegroundColor Yellow
-    Write-Host "  ⚠️  Pedido deve prosseguir, mas notificação falha (não bloqueia)...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando pedidos para clientes sem canal de notificacao...`n" -ForegroundColor Yellow
+    Write-Host "  ⚠️  Pedido deve prosseguir, mas notificacao falha (nao bloqueia)...`n" -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
         $payload = @{
@@ -150,8 +150,8 @@ function Test-Cenario2-ClienteSemCanal {
         try {
             $response = Invoke-RestMethod -Uri $apiPedidos -Method Post -Body $payload -ContentType "application/json" -TimeoutSec 5
 
-            # Pedido aceito, mas notificação falhou
-            Write-Host "  [$i/5] ⚠️  Pedido aceito - Notificação falhou (cliente sem canal)" -ForegroundColor Yellow
+            # Pedido aceito, mas notificacao falhou
+            Write-Host "  [$i/5] ⚠️  Pedido aceito - Notificacao falhou (cliente sem canal)" -ForegroundColor Yellow
             $stats.NotificacoesFalhadas++
             $stats.ClienteSemCanal++
         }
@@ -162,23 +162,23 @@ function Test-Cenario2-ClienteSemCanal {
         Start-Sleep -Milliseconds 500
     }
 
-    Write-Host "`n Resultado: Pedidos aceitos, mas notificações falharam`n" -ForegroundColor Yellow
+    Write-Host "`n Resultado: Pedidos aceitos, mas notificacões falharam`n" -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 
     Write-Dashboard
 }
 
 function Test-Cenario3-ToleranciaFalhas {
-    Write-Header "CENÁRIO 3: Tolerância a Falhas de Notificação"
+    Write-Header "CENÁRIO 3: Tolerância a Falhas de Notificacao"
 
-    Write-Host "  Testando se falhas de notificação NÃO bloqueiam o pedido...`n" -ForegroundColor Yellow
-    Write-Host "  ⚠️  Notificação é etapa não-crítica (compensável)...`n" -ForegroundColor Yellow
+    Write-Host "  Testando se falhas de notificacao NÃO bloqueiam o pedido...`n" -ForegroundColor Yellow
+    Write-Host "  ⚠️  Notificacao é etapa nao-critica (compensavel)...`n" -ForegroundColor Yellow
 
     $cenarios = @(
-        @{ desc = "Cliente válido"; clienteId = "CLI001"; deveFalhar = $false }
+        @{ desc = "Cliente valido"; clienteId = "CLI001"; deveFalhar = $false }
         @{ desc = "Cliente sem canal"; clienteId = "CLI_SEM_CANAL"; deveFalhar = $false }
-        @{ desc = "Email inválido"; clienteId = "CLI_EMAIL_INVALIDO"; deveFalhar = $false }
-        @{ desc = "SMS indisponível"; clienteId = "CLI_SMS_FALHA"; deveFalhar = $false }
+        @{ desc = "Email invalido"; clienteId = "CLI_EMAIL_INVALIDO"; deveFalhar = $false }
+        @{ desc = "SMS indisponivel"; clienteId = "CLI_SMS_FALHA"; deveFalhar = $false }
     )
 
     for ($i = 0; $i -lt $cenarios.Count; $i++) {
@@ -206,7 +206,7 @@ function Test-Cenario3-ToleranciaFalhas {
 
             if ($cenario.clienteId -like "*SEM_CANAL*" -or $cenario.clienteId -like "*INVALIDO*" -or $cenario.clienteId -like "*FALHA*") {
                 $stats.NotificacoesFalhadas++
-                Write-Host "         ⚠️  Notificação falhou, mas pedido prosseguiu" -ForegroundColor Yellow
+                Write-Host "         ⚠️  Notificacao falhou, mas pedido prosseguiu" -ForegroundColor Yellow
             }
             else {
                 $stats.NotificacoesEnviadas++
@@ -220,7 +220,7 @@ function Test-Cenario3-ToleranciaFalhas {
         Start-Sleep -Milliseconds 500
     }
 
-    Write-Host "`n Resultado: Todos os pedidos devem ser aceitos (notificação não bloqueia)`n" -ForegroundColor Yellow
+    Write-Host "`n Resultado: Todos os pedidos devem ser aceitos (notificacao nao bloqueia)`n" -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 
     Write-Dashboard
@@ -268,7 +268,7 @@ function Test-Cenario4-MultiCanais {
                 "PUSH" { $stats.PushEnviado++ }
             }
 
-            Write-Host "  [$i/9] $($canal.icon) Notificação via $($canal.nome) enviada" -ForegroundColor Green
+            Write-Host "  [$i/9] $($canal.icon) Notificacao via $($canal.nome) enviada" -ForegroundColor Green
         }
         catch {
             $stats.NotificacoesFalhadas++
@@ -285,9 +285,9 @@ function Test-Cenario4-MultiCanais {
 }
 
 function Test-Cenario5-CargaContinua {
-    Write-Header "CENÁRIO 5: Carga Contínua ($DuracaoSegundos segundos)"
+    Write-Header "CENÁRIO 5: Carga Continua ($DuracaoSegundos segundos)"
 
-    Write-Host "  Enviando notificações continuamente...`n" -ForegroundColor Yellow
+    Write-Host "  Enviando notificacões continuamente...`n" -ForegroundColor Yellow
     Write-Host "  Pressione Ctrl+C para parar antes do tempo`n" -ForegroundColor Gray
 
     $tempoFim = (Get-Date).AddSeconds($DuracaoSegundos)
@@ -329,7 +329,7 @@ function Test-Cenario5-CargaContinua {
                 }
             } -ArgumentList $apiPedidos, $payload, $canal | Out-Null
 
-            # Processar jobs concluídos
+            # Processar jobs concluidos
             Get-Job | Where-Object { $_.State -eq "Completed" } | ForEach-Object {
                 $resultado = Receive-Job -Job $_
                 if ($resultado.sucesso) {
@@ -355,7 +355,7 @@ function Test-Cenario5-CargaContinua {
     }
 
     Write-Dashboard
-    Write-Host "`n  Teste de carga concluído!`n" -ForegroundColor Green
+    Write-Host "`n  Teste de carga concluido!`n" -ForegroundColor Green
 }
 
 # ==================== EXECUÇÃO PRINCIPAL ====================
@@ -367,7 +367,7 @@ Write-Host @"
 ║                                                                      ║
 ║              📧 TESTE DO CONTEXTO: NOTIFICAÇÃO 📧                    ║
 ║                                                                      ║
-║  Testa envio de notificações, canais e tolerância a falhas          ║
+║  Testa envio de notificacões, canais e tolerância a falhas          ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -377,16 +377,16 @@ Write-Host @"
 Write-Host "  🔍 Verificando conectividade com a API...`n" -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get -TimeoutSec 5 | Out-Null
-    Write-Host "  API está respondendo`n" -ForegroundColor Green
+    Write-Host "  API esta respondendo`n" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ❌ API não está respondendo em $BaseUrl`n" -ForegroundColor Red
+    Write-Host "  ❌ API nao esta respondendo em $BaseUrl`n" -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 2
 
-# Executar cenário
+# Executar cenario
 switch ($Cenario) {
     1 { Test-Cenario1-NotificacoesNormais }
     2 { Test-Cenario2-ClienteSemCanal }
@@ -394,7 +394,7 @@ switch ($Cenario) {
     4 { Test-Cenario4-MultiCanais }
     5 { Test-Cenario5-CargaContinua }
     default {
-        # Executar todos os cenários
+        # Executar todos os cenarios
         Test-Cenario1-NotificacoesNormais
         Start-Sleep -Seconds 2
         Test-Cenario2-ClienteSemCanal
@@ -417,8 +417,8 @@ Write-Host @"
 📊 RELATÓRIO DO CONTEXTO NOTIFICAÇÃO:
 
 Envios:
-  - Notificações enviadas: $($stats.NotificacoesEnviadas)
-  - Notificações falhadas: $($stats.NotificacoesFalhadas)
+  - Notificacões enviadas: $($stats.NotificacoesEnviadas)
+  - Notificacões falhadas: $($stats.NotificacoesFalhadas)
   - Taxa de sucesso: $([math]::Round(($stats.NotificacoesEnviadas / [math]::Max($stats.NotificacoesEnviadas + $stats.NotificacoesFalhadas, 1)) * 100, 2))%
 
 Canais Utilizados:
@@ -431,7 +431,7 @@ Motivos de Falha:
 
 💡 Dicas:
   - Verifique os logs do ServicoNotificacao para detalhes
-  - Notificações são não-bloqueantes (não impedem o pedido)
+  - Notificacões sao nao-bloqueantes (nao impedem o pedido)
   - Acompanhe as filas no RabbitMQ Management: http://localhost:15672
 
 "@ -ForegroundColor Cyan

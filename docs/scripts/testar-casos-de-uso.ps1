@@ -35,7 +35,7 @@ function Invoke-TestarCaso {
         Write-Host "`n📊 PedidoId: $($response.pedidoId)" -ForegroundColor Magenta
         Write-Host "Status: $($response.status)" -ForegroundColor Magenta
 
-        Write-Host "`n⏳ Aguarde 5 segundos para verificar os logs dos serviços...`n" -ForegroundColor Yellow
+        Write-Host "`n⏳ Aguarde 5 segundos para verificar os logs dos servicos...`n" -ForegroundColor Yellow
         Start-Sleep -Seconds 5
     }
     catch {
@@ -81,7 +81,7 @@ $caso2 = @{
 }
 
 # ========================================
-# CASO 3: Item Indisponível
+# CASO 3: Item Indisponivel
 # ========================================
 $caso3 = @{
     clienteId = "CLI002"
@@ -112,12 +112,12 @@ $caso4 = @{
             precoUnitario = 89.90
         }
     )
-    enderecoEntrega = "Rua das Acácias, 321"
+    enderecoEntrega = "Rua das Acacias, 321"
     formaPagamento = "CREDITO"
 }
 
 # ========================================
-# CASO 5: Sem Entregador Disponível
+# CASO 5: Sem Entregador Disponivel
 # ========================================
 $caso5 = @{
     clienteId = "CLI003"
@@ -143,7 +143,7 @@ $caso6 = @{
     itens = @(
         @{
             produtoId = "PROD005"
-            nome = "Açaí 500ml"
+            nome = "Acai 500ml"
             quantidade = 1
             precoUnitario = 18.90
         }
@@ -201,7 +201,7 @@ $caso8 = @{
 }
 
 # ========================================
-# CASO 9: Endereço Longe
+# CASO 9: Endereco Longe
 # ========================================
 $caso9 = @{
     clienteId = "CLI005"
@@ -219,7 +219,7 @@ $caso9 = @{
 }
 
 # ========================================
-# CASO 10: Falha na Notificação
+# CASO 10: Falha na Notificacao
 # ========================================
 $caso10 = @{
     clienteId = "CLI_SEM_NOTIFICACAO"
@@ -245,7 +245,7 @@ $caso11 = @{
     itens = @(
         @{
             produtoId = "PROD007"
-            nome = "Bolo de Aniversário"
+            nome = "Bolo de Aniversario"
             quantidade = 1
             precoUnitario = 85.00
         }
@@ -255,7 +255,7 @@ $caso11 = @{
 }
 
 # ========================================
-# CASO 12: Compensação Total
+# CASO 12: Compensacao Total
 # ========================================
 $caso12 = @{
     clienteId = "CLI007"
@@ -263,12 +263,12 @@ $caso12 = @{
     itens = @(
         @{
             produtoId = "PROD008"
-            nome = "Combo Família"
+            nome = "Combo Familia"
             quantidade = 1
             precoUnitario = 150.00
         }
     )
-    enderecoEntrega = "Endereço MUITO LONGE E DISTANTE"
+    enderecoEntrega = "Endereco MUITO LONGE E DISTANTE"
     formaPagamento = "CREDITO"
 }
 
@@ -292,36 +292,36 @@ if ($CasoUso -eq 0) {
 
     Invoke-TestarCaso -Numero 1 -Nome "Pedido Normal (Happy Path)" -Payload $caso1
     Invoke-TestarCaso -Numero 2 -Nome "Restaurante Fechado" -Payload $caso2
-    Invoke-TestarCaso -Numero 3 -Nome "Item Indisponível" -Payload $caso3
+    Invoke-TestarCaso -Numero 3 -Nome "Item Indisponivel" -Payload $caso3
     Invoke-TestarCaso -Numero 4 -Nome "Pagamento Recusado" -Payload $caso4
-    Invoke-TestarCaso -Numero 5 -Nome "Sem Entregador Disponível" -Payload $caso5
+    Invoke-TestarCaso -Numero 5 -Nome "Sem Entregador Disponivel" -Payload $caso5
     Invoke-TestarCaso -Numero 6 -Nome "Timeout no Pagamento" -Payload $caso6
     Invoke-TestarCaso -Numero 7 -Nome "Pedido Premium (VIP)" -Payload $caso7
     Invoke-TestarCaso -Numero 8 -Nome "Múltiplos Itens" -Payload $caso8
-    Invoke-TestarCaso -Numero 9 -Nome "Endereço Longe" -Payload $caso9
-    Invoke-TestarCaso -Numero 10 -Nome "Falha na Notificação" -Payload $caso10
+    Invoke-TestarCaso -Numero 9 -Nome "Endereco Longe" -Payload $caso9
+    Invoke-TestarCaso -Numero 10 -Nome "Falha na Notificacao" -Payload $caso10
     Invoke-TestarCaso -Numero 11 -Nome "Pedido Agendado" -Payload $caso11
-    Invoke-TestarCaso -Numero 12 -Nome "Compensação Total" -Payload $caso12
+    Invoke-TestarCaso -Numero 12 -Nome "Compensacao Total" -Payload $caso12
 
     Write-Host "`n Todos os 12 casos foram executados!" -ForegroundColor Green
 }
 else {
-    # Testar caso específico
+    # Testar caso especifico
     switch ($CasoUso) {
         1 { Invoke-TestarCaso -Numero 1 -Nome "Pedido Normal (Happy Path)" -Payload $caso1 }
         2 { Invoke-TestarCaso -Numero 2 -Nome "Restaurante Fechado" -Payload $caso2 }
-        3 { Invoke-TestarCaso -Numero 3 -Nome "Item Indisponível" -Payload $caso3 }
+        3 { Invoke-TestarCaso -Numero 3 -Nome "Item Indisponivel" -Payload $caso3 }
         4 { Invoke-TestarCaso -Numero 4 -Nome "Pagamento Recusado" -Payload $caso4 }
-        5 { Invoke-TestarCaso -Numero 5 -Nome "Sem Entregador Disponível" -Payload $caso5 }
+        5 { Invoke-TestarCaso -Numero 5 -Nome "Sem Entregador Disponivel" -Payload $caso5 }
         6 { Invoke-TestarCaso -Numero 6 -Nome "Timeout no Pagamento" -Payload $caso6 }
         7 { Invoke-TestarCaso -Numero 7 -Nome "Pedido Premium (VIP)" -Payload $caso7 }
         8 { Invoke-TestarCaso -Numero 8 -Nome "Múltiplos Itens" -Payload $caso8 }
-        9 { Invoke-TestarCaso -Numero 9 -Nome "Endereço Longe" -Payload $caso9 }
-        10 { Invoke-TestarCaso -Numero 10 -Nome "Falha na Notificação" -Payload $caso10 }
+        9 { Invoke-TestarCaso -Numero 9 -Nome "Endereco Longe" -Payload $caso9 }
+        10 { Invoke-TestarCaso -Numero 10 -Nome "Falha na Notificacao" -Payload $caso10 }
         11 { Invoke-TestarCaso -Numero 11 -Nome "Pedido Agendado" -Payload $caso11 }
-        12 { Invoke-TestarCaso -Numero 12 -Nome "Compensação Total" -Payload $caso12 }
-        default { Write-Host "❌ Caso de uso inválido. Use valores de 1 a 12." -ForegroundColor Red }
+        12 { Invoke-TestarCaso -Numero 12 -Nome "Compensacao Total" -Payload $caso12 }
+        default { Write-Host "❌ Caso de uso invalido. Use valores de 1 a 12." -ForegroundColor Red }
     }
 }
 
-Write-Host "`n📝 Para ver os logs detalhados, verifique o console dos serviços em execução.`n" -ForegroundColor Yellow
+Write-Host "`n📝 Para ver os logs detalhados, verifique o console dos servicos em execucao.`n" -ForegroundColor Yellow

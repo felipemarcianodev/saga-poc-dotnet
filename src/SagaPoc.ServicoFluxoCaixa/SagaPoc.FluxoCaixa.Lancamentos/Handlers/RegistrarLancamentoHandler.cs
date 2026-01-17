@@ -47,10 +47,11 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
                 "Falha ao criar lançamento: {Erro}",
                 resultadoCriacao.Erro.Mensagem);
 
-            await _bus.Reply(new LancamentoRejeitado(
-                comando.CorrelationId,
-                resultadoCriacao.Erro.Codigo,
-                resultadoCriacao.Erro.Mensagem));
+            // Arquitetura fire-and-forget: não enviamos reply
+            // await _bus.Reply(new LancamentoRejeitado(
+            //     comando.CorrelationId,
+            //     resultadoCriacao.Erro.Codigo,
+            //     resultadoCriacao.Erro.Mensagem));
 
             return;
         }
@@ -66,10 +67,11 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
                 "Falha ao persistir lançamento: {Erro}",
                 resultadoPersistencia.Erro.Mensagem);
 
-            await _bus.Reply(new LancamentoRejeitado(
-                comando.CorrelationId,
-                resultadoPersistencia.Erro.Codigo,
-                resultadoPersistencia.Erro.Mensagem));
+            // Arquitetura fire-and-forget: não enviamos reply
+            // await _bus.Reply(new LancamentoRejeitado(
+            //     comando.CorrelationId,
+            //     resultadoPersistencia.Erro.Codigo,
+            //     resultadoPersistencia.Erro.Mensagem));
 
             return;
         }
@@ -82,18 +84,20 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
         }
 
         // Publicar eventos de domínio
+        _logger.LogInformation("Publicando {Count} eventos de domínio", lancamento.EventosDominio.Count);
         foreach (var evento in lancamento.EventosDominio)
         {
+            _logger.LogInformation("Publicando evento: {EventoTipo}", evento.GetType().Name);
             await _bus.Publish(evento);
         }
 
-        // Responder com sucesso
-        await _bus.Reply(new LancamentoRegistradoComSucesso(
-            comando.CorrelationId,
-            lancamento.Id,
-            lancamento.Tipo,
-            lancamento.Valor,
-            lancamento.DataLancamento));
+        // Arquitetura fire-and-forget: não enviamos reply
+        // await _bus.Reply(new LancamentoRegistradoComSucesso(
+        //     comando.CorrelationId,
+        //     lancamento.Id,
+        //     lancamento.Tipo,
+        //     lancamento.Valor,
+        //     lancamento.DataLancamento));
 
         _logger.LogInformation(
             "Lançamento {LancamentoId} registrado e confirmado com sucesso",
