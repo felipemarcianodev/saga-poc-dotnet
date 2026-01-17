@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Esta fase marca o início da implementação de um **novo domínio** baseado no **Desafio Backend** apresentado. O sistema de fluxo de caixa será implementado seguindo os mesmos princípios arquiteturais da POC SAGA (SOLID, DDD, Clean Code, Design Patterns), mas focado em requisitos específicos de controle financeiro.
+Esta fase marca o início da implementação de um **novo domínio** no projeto. O sistema de fluxo de caixa será implementado seguindo os mesmos princípios arquiteturais da POC SAGA (SOLID, DDD, Clean Code, Design Patterns), mas focado em requisitos específicos de controle financeiro.
 
 ## Objetivos
 
@@ -12,7 +12,7 @@ Esta fase marca o início da implementação de um **novo domínio** baseado no 
 - Garantir atendimento aos requisitos não-funcionais (NFRs)
 - Criar diagrama de componentes e interações
 
-## Descrição da Solução (Baseado no Desafio)
+## Descrição da Solução
 
 **Contexto de Negócio:**
 Um comerciante precisa controlar o seu fluxo de caixa diário com os lançamentos (débitos e créditos) e necessita de um relatório que disponibilize o saldo diário consolidado.

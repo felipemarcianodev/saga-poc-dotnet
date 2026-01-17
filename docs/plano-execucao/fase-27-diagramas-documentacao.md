@@ -549,7 +549,7 @@ MIT License
 
 ## Contato
 
-Criado como parte do Desafio Backend - Fluxo de Caixa
+Sistema de Fluxo de Caixa - POC SAGA Pattern
 ```
 
 ### 6. **Swagger/OpenAPI - Anotações**
@@ -612,9 +612,9 @@ builder.Services.AddSwaggerGen(options =>
 - [ ] Documentação de APIs atualizada
 - [ ] Todos os requisitos obrigatórios do desafio atendidos
 
-## Checklist de Requisitos do Desafio
+## Checklist de Requisitos Implementados
 
-### Requisitos Técnicos Obrigatórios
+### Requisitos Técnicos
 
 - [x] Desenho da solução (diagrama de componentes e interações)
 - [x] Implementado em C#

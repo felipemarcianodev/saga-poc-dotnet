@@ -82,7 +82,7 @@ Este plano de execução foi organizado em múltiplos arquivos para facilitar a 
 - [Fase 21 - MongoDB para Auditoria](./fase-21-mongodb-auditoria.md)
 - [Fase 22 - Segurança e Autenticação](./fase-22-seguranca-autenticacao.md)
 
-### Fases do Sistema de Fluxo de Caixa (Desafio Backend)
+### Fases do Sistema de Fluxo de Caixa
 
 - [Fase 23](./fase-23-analise-design-fluxo-caixa.md) - Análise e Design - Sistema de Fluxo de Caixa
 - [Fase 24](./fase-24-implementacao-servico-lancamentos.md) - Implementação do Serviço de Lançamentos (Write Model)

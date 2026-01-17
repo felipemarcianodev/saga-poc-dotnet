@@ -89,6 +89,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
+    // Habilitar anotações do Swagger (SwaggerSchema, etc.)
+    options.EnableAnnotations();
+
     options.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "API de Fluxo de Caixa",
@@ -108,6 +111,15 @@ builder.Services.AddSwaggerGen(options =>
             - POST /api/lancamentos - Registrar lançamento (débito ou crédito)
             - GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
             - GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
+
+            **Tipos de Lançamento:**
+            - 1 = Débito (saída de caixa)
+            - 2 = Crédito (entrada de caixa)
+
+            **Status de Lançamento:**
+            - Pendente = Aguardando processamento
+            - Confirmado = Processado com sucesso
+            - Cancelado = Lançamento cancelado
             ",
         Contact = new OpenApiContact
         {
