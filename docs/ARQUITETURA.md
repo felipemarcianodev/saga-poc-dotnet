@@ -407,10 +407,10 @@ SagaPoc.ServicoFluxoCaixa/
 - **Comunicação**: RabbitMQ para mensageria assíncrona entre Write e Read
 
 **NFRs Atendidos**:
-- ✅ Disponibilidade independente (Lançamentos não depende do Consolidado)
-- ✅ 50 requisições/segundo no Consolidado (com cache)
-- ✅ < 5% de perda de requisições
-- ✅ Latência P95 < 50ms (com cache em 3 camadas)
+- Disponibilidade independente (Lançamentos não depende do Consolidado)
+- 50 requisições/segundo no Consolidado (com cache)
+- < 5% de perda de requisições
+- Latência P95 < 50ms (com cache em 3 camadas)
 
 **Endpoints**:
 ```csharp

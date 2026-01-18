@@ -575,10 +575,8 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ### Documentos Principais
 
 - **[casos-uso.md](casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
-- **[PLANO-EXECUCAO.md](PLANO-EXECUCAO.md)** - Plano de execução do projeto
+- **[plano-execucao.md](plano-execucao/plano-execucao.md)** - Plano de execução do projeto
 - **[arquitetura.md](arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
-- **[guia-rebus.md](guia-rebus.md)** - Guia de uso do Rebus
-- **[MIGRACAO-MASSTRANSIT-PARA-REBUS.md](MIGRACAO-MASSTRANSIT-PARA-REBUS.md)** - Documento da migração de MassTransit para Rebus
 
 ### Documentação Operacional (Fase 14)
 
@@ -667,12 +665,6 @@ Sistema de controle de lançamentos com consolidado diário, demonstrando CQRS e
 - Request/Response via Rebus (Send/Reply)
 - Roteamento baseado em tipos
 - Dead Letter Queue automática
-
-### Aprenda Mais
-
-Para entender como implementar corretamente cada conceito, consulte:
-- **[Boas Práticas](boas-praticas.md)** - Os 10 mandamentos da SAGA, com exemplos de código
-- **[Diagramas de Compensação](diagramas-compensacao.md)** - Visualização completa dos fluxos
 
 ---
 
@@ -777,8 +769,6 @@ Esta POC é **educacional**. Para produção, considere:
 - Testes de integração automatizados
 - Testes de carga (NBomber)
 - Chaos Engineering
-
-Veja mais detalhes em [plano-execucao.md - Seção 9](plano-execucao.md).
 
 ---
 
