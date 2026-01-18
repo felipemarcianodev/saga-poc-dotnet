@@ -663,7 +663,7 @@ Para cada caso de uso, validar:
 ## Próximos Passos
 
 1. **Testes Automatizados**: Criar testes de integração para cada caso de uso
-2. **Collection Postman/Insomnia**: Exportar coleção com todos os 12 cenários
+2. **Collection Postman/Insomnia**: Exportar coleção com todos os cenários
 3. **Testes de Carga**: Validar comportamento com 100+ pedidos simultâneos
 4. **Chaos Engineering**: Derrubar serviços aleatoriamente e verificar recuperação
 

@@ -4,6 +4,7 @@ using Rebus.Serilog;
 using SagaPoc.Observability;
 using SagaPoc.Common.Mensagens.Comandos;
 using Serilog;
+using WebHost.Extensions;
 
 
 try
@@ -14,23 +15,10 @@ try
 
     // Add services to the container
     builder.Services.AddControllers();
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen(c =>
-    {
-        c.SwaggerDoc("v1", new() {
-            Title = "SAGA POC - Sistema de Delivery",
-            Version = "v1",
-            Description = "POC de SAGA Pattern com Rebus e RabbitMQ para sistema de delivery de comida"
-        });
-
-        // Incluir comentários XML na documentação
-        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-        if (File.Exists(xmlPath))
-        {
-            c.IncludeXmlComments(xmlPath);
-        }
-    });
+    builder.Services.AddSwaggerConfiguration(
+        title: "SAGA POC - Sistema de Delivery",
+        version: "v1",
+        description: "POC de SAGA Pattern com Rebus e RabbitMQ para sistema de delivery de comida");
 
     // ==================== REBUS COM RABBITMQ (ONE-WAY CLIENT) ====================
     // A API apenas envia mensagens, não recebe (One-Way Client)

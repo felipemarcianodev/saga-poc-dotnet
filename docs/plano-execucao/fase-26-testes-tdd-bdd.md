@@ -16,20 +16,24 @@
 
 ```
 tests/
-├── SagaPoc.FluxoCaixa.Domain.Tests/           # Testes Unitários
+├── SagaPoc.FluxoCaixa.Domain.Tests/           # Testes Unitários do Domínio
 │   ├── Agregados/
 │   │   ├── LancamentoTests.cs
 │   │   └── ConsolidadoDiarioTests.cs
 │   └── ValueObjects/
-│       └── TipoLancamentoTests.cs
+│       └── EnumTipoLancamentoTests.cs
 │
-├── SagaPoc.FluxoCaixa.Application.Tests/      # Testes de Serviços
+├── SagaPoc.FluxoCaixa.Lancamentos.Tests/      # Testes do Serviço de Lançamentos
+│   └── Handlers/
+│       ├── RegistrarLancamentoHandlerTests.cs
+│       └── LancamentoRegistradoComSucessoHandlerTests.cs
+│
+├── SagaPoc.FluxoCaixa.Consolidado.Tests/      # Testes do Serviço de Consolidado
 │   ├── Handlers/
-│   │   ├── RegistrarLancamentoHandlerTests.cs
-│   │   ├── LancamentoCreditoHandlerTests.cs
-│   │   └── LancamentoDebitoHandlerTests.cs
+│   │   ├── LancamentoCreditoRegistradoHandlerTests.cs
+│   │   └── LancamentoDebitoRegistradoHandlerTests.cs
 │   └── Servicos/
-│       └── ConsolidacaoServicoTests.cs
+│       └── RedisCacheServiceTests.cs
 │
 ├── SagaPoc.FluxoCaixa.Integration.Tests/      # Testes de Integração
 │   ├── Api/

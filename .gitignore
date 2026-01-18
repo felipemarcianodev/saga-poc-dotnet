@@ -130,6 +130,8 @@ appsettings.*.json
 /docs/*
 
 # Mas permite arquivos de documentação
+!/docs/plano-execucao/
+!/docs/decisoes-arquiteturais
 !/docs/README.md
 !/docs/arquitetura.md
 !/docs/guia-masstransit.md
@@ -139,7 +141,6 @@ appsettings.*.json
 !/docs/runbook-troubleshooting.md
 !/docs/boas-praticas.md
 !/docs/diagramas-compensacao.md
-!/docs/plano-execucao/
 !/docs/fluxo-caixa.md
 !/docs/diagramas-fluxo-caixa.md
 !/docs/indice-documentacao.md

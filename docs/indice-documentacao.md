@@ -18,7 +18,7 @@ Guia completo da documentação do repositório, organizando todos os documentos
 - **[Diagramas de Compensação](diagramas-compensacao.md)** - Fluxos visuais de compensação em cascata
 
 ### Operação e Uso
-- **[Casos de Uso](casos-uso.md)** - 12 cenários implementados com exemplos
+- **[Casos de Uso](casos-uso.md)** - Cenários implementados com exemplos
 - **[Boas Práticas](boas-praticas.md)** - Os 10 mandamentos da SAGA
 - **[Runbook Troubleshooting](runbook-troubleshooting.md)** - Guia operacional de diagnóstico e resolução
 
@@ -104,7 +104,7 @@ docs/
 │
 ├── arquitetura.md                      # Arquitetura do SAGA
 ├── boas-praticas.md                   # Boas práticas SAGA
-├── casos-uso.md                       # 12 cenários SAGA
+├── casos-uso.md                       # Cenários SAGA
 ├── diagramas-compensacao.md           # Diagramas de compensação SAGA
 ├── runbook-troubleshooting.md         # Troubleshooting SAGA
 │

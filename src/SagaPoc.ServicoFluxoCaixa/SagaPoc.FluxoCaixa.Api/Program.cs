@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Rebus.Config;
+using WebHost.Extensions;
 using Rebus.Handlers;
 using Rebus.Routing.TypeBased;
 using SagaPoc.FluxoCaixa.Consolidado.Handlers;
@@ -98,68 +99,40 @@ builder.Services.AddHealthChecks();
 
 // Controllers e Swagger
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
+builder.Services.AddSwaggerConfiguration(new SwaggerConfiguration
 {
-    // Habilitar anotações do Swagger (SwaggerSchema, etc.)
-    options.EnableAnnotations();
+    Title = "API de Fluxo de Caixa",
+    Version = "v1",
+    EnableAnnotations = true,
+    Description = @"
+API para controle de fluxo de caixa com lançamentos e consolidado diário.
 
-    options.SwaggerDoc("v1", new OpenApiInfo
+**Arquitetura:** CQRS + Event-Driven
+
+**NFRs Atendidos:**
+- 50 requisições/segundo no consolidado
+- Disponibilidade independente entre serviços
+- < 5% de perda de requisições
+- Latência P95 < 10ms (com cache)
+
+**Endpoints Principais:**
+- POST /api/lancamentos - Registrar lançamento (débito ou crédito)
+- GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
+- GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
+
+**Tipos de Lançamento:**
+- 1 = Débito (saída de caixa)
+- 2 = Crédito (entrada de caixa)
+
+**Status de Lançamento:**
+- Pendente = Aguardando processamento
+- Confirmado = Processado com sucesso
+- Cancelado = Lançamento cancelado",
+    Contact = new OpenApiContact
     {
-        Title = "API de Fluxo de Caixa",
-        Version = "v1",
-        Description = @"
-            API para controle de fluxo de caixa com lançamentos e consolidado diário.
-
-            **Arquitetura:** CQRS + Event-Driven
-
-            **NFRs Atendidos:**
-            - 50 requisições/segundo no consolidado
-            - Disponibilidade independente entre serviços
-            - < 5% de perda de requisições
-            - Latência P95 < 10ms (com cache)
-
-            **Endpoints Principais:**
-            - POST /api/lancamentos - Registrar lançamento (débito ou crédito)
-            - GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
-            - GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
-
-            **Tipos de Lançamento:**
-            - 1 = Débito (saída de caixa)
-            - 2 = Crédito (entrada de caixa)
-
-            **Status de Lançamento:**
-            - Pendente = Aguardando processamento
-            - Confirmado = Processado com sucesso
-            - Cancelado = Lançamento cancelado
-            ",
-        Contact = new OpenApiContact
-        {
-            Name = "Equipe Backend",
-            Email = "backend@empresa.com"
-        }
-    });
-
-    // Incluir comentários XML
-    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath))
-    {
-        options.IncludeXmlComments(xmlPath);
+        Name = "Equipe Backend",
+        Email = "backend@empresa.com"
     }
-
-    // Adicionar servidores
-    //options.AddServer(new OpenApiServer
-    //{
-    //    Url = "http://localhost:5102",
-    //    Description = "Desenvolvimento Local"
-    //});
-
-    //options.AddServer(new OpenApiServer
-    //{
-    //    Url = "https://api-fluxocaixa.empresa.com",
-    //    Description = "Produção"
-    //});
 });
 
 var applicationName = builder.Environment.ApplicationName;

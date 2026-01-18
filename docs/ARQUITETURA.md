@@ -8,7 +8,94 @@ Este documento detalha a arquitetura da POC, decisões técnicas, padrões utili
 
 ### Arquitetura de Alto Nível
 
-![Diagrama da arquitetura](./images/diagrama-arquitetura.png)
+```mermaid
+flowchart TB
+    subgraph entrada["CAMADA DE ENTRADA"]
+        api["<b>SagaPoc.Api</b><br/>(ASP.NET Core Web API)<br/>:5000<br/><br/>• POST /api/pedidos<br/>• GET /api/pedidos/{id}<br/>• GET /health<br/>• GET /swagger"]
+        apifc["<b>FluxoCaixa.Api</b><br/>(ASP.NET Core Web API)<br/>:5100<br/><br/>• POST /api/lancamentos<br/>• GET /api/consolidado<br/>• GET /health"]
+    end
+
+    subgraph orquestracao["CAMADA DE ORQUESTRAÇÃO"]
+        orch["<b>SagaPoc.Orquestrador</b><br/>(Rebus Saga)"]
+
+        subgraph saga["PedidoSaga (Rebus)"]
+            direction TB
+            s1["Estados:<br/>• [Initial] → ValidandoRestaurante<br/>• ValidandoRestaurante → ProcessandoPagamento<br/>• ProcessandoPagamento → AlocandoEntregador<br/>• AlocandoEntregador → NotificandoCliente<br/>• NotificandoCliente → [Final: PedidoConfirmado]<br/>• Qualquer Estado → [Final: PedidoCancelado]"]
+            s2["<br/>Compensações (Ordem Reversa):<br/>• LiberarEntregador → EstornarPagamento →<br/>  CancelarPedidoRestaurante"]
+        end
+    end
+
+    subgraph bus["RABBITMQ MESSAGE BROKER :5672"]
+        direction LR
+        transport["Transport Layer"]
+        q1["Queue: Restaurante"]
+        q2["Queue: Pagamento"]
+        q3["Queue: Entregador"]
+        q4["Queue: Notificação"]
+        q5["Queue: FluxoCaixa"]
+    end
+
+    subgraph servicos["CAMADA DE SERVIÇOS (SAGA)"]
+        direction LR
+        rest["<b>Serviço Restaurante</b><br/><br/>• Validar pedido<br/>• Cancelar pedido<br/><br/>(Handlers)"]
+        pag["<b>Serviço Pagamento</b><br/><br/>• Processar pagamento<br/>• Estornar pagamento<br/><br/>(Handlers)"]
+        ent["<b>Serviço Entregador</b><br/><br/>• Alocar entregador<br/>• Liberar entregador<br/><br/>(Handlers)"]
+        notif["<b>Serviço Notificação</b><br/><br/>• Enviar notificação<br/><br/>(Handler)"]
+    end
+
+    subgraph fluxocaixa["SERVIÇO FLUXO CAIXA (CQRS)"]
+        direction TB
+        lancamentos["<b>Lançamentos</b><br/>(Write Model)<br/>• Registrar lançamento<br/>• Confirmar/Cancelar"]
+        consolidado["<b>Consolidado</b><br/>(Read Model)<br/>• Calcular saldo diário<br/>• Atualizar agregado"]
+    end
+
+    subgraph databases["DATABASES"]
+        pg1[(PostgreSQL<br/>SAGA :5432)]
+        pg2[(PostgreSQL<br/>Lançamentos :5433)]
+        pg3[(PostgreSQL<br/>Consolidado :5434)]
+        redis[(Redis<br/>Cache :6379)]
+    end
+
+    subgraph observability["OBSERVABILIDADE"]
+        seq["SEQ :5342<br/>Logs Estruturados"]
+        jaeger["Jaeger :16686<br/>Distributed Tracing"]
+    end
+
+    api -->|"Publish: IniciarPedido"| orch
+    apifc -->|"Publish: RegistrarLancamento"| q5
+    orch --> transport
+    transport --> q1
+    transport --> q2
+    transport --> q3
+    transport --> q4
+    q5 --> lancamentos
+    lancamentos --> consolidado
+    q1 --> rest
+    q2 --> pag
+    q3 --> ent
+    q4 --> notif
+    orch --> pg1
+    lancamentos --> pg2
+    consolidado --> pg3
+    consolidado --> redis
+
+    style entrada fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style orquestracao fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style saga fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style bus fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style servicos fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style fluxocaixa fill:#e0f7fa,stroke:#00838f,stroke-width:2px
+    style databases fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style observability fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style apifc fill:#b2ebf2,stroke:#00838f,stroke-width:2px
+    style orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style transport fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style notif fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+```
 ---
 
 ## Componentes Principais
@@ -58,7 +145,58 @@ GET    /health                   # Health check
 
 **Estados da SAGA**:
 
-![Diagrama de estados do SAGA](./images/diagrama-estados-saga.png)
+```mermaid
+stateDiagram-v2
+    [*] --> Initial
+    Initial --> ValidandoRestaurante: IniciarPedido
+
+    ValidandoRestaurante --> ProcessandoPagamento: PedidoRestauranteValidado ✓
+    ValidandoRestaurante --> PedidoCancelado: RestauranteFechado ✗
+    ValidandoRestaurante --> PedidoCancelado: ItemIndisponível ✗
+
+    ProcessandoPagamento --> AlocandoEntregador: PagamentoProcessado ✓
+    ProcessandoPagamento --> CompensandoPagamento: PagamentoRecusado ✗
+    ProcessandoPagamento --> CompensandoPagamento: TimeoutPagamento ✗
+
+    AlocandoEntregador --> NotificandoCliente: EntregadorAlocado ✓
+    AlocandoEntregador --> CompensandoEntregador: SemEntregadorDisponível ✗
+
+    NotificandoCliente --> PedidoConfirmado: NotificacaoEnviada ✓
+    NotificandoCliente --> PedidoConfirmado: FalhaNotificacao (continua)
+
+    CompensandoPagamento --> CompensandoRestaurante: EstornoPagamento ↩️
+    CompensandoEntregador --> CompensandoPagamento: LiberarEntregador ↩️
+    CompensandoRestaurante --> PedidoCancelado: CancelarPedido ↩️
+
+    PedidoConfirmado --> [*]
+    PedidoCancelado --> [*]
+
+    note right of ValidandoRestaurante
+        Valida se restaurante
+        está aberto e item disponível
+    end note
+
+    note right of ProcessandoPagamento
+        Processa pagamento
+        com gateway
+    end note
+
+    note right of AlocandoEntregador
+        Aloca entregador
+        disponível
+    end note
+
+    note right of CompensandoPagamento
+        Compensação em ordem reversa:
+        Estorna → Cancela
+    end note
+
+    style PedidoConfirmado fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style PedidoCancelado fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+    style CompensandoPagamento fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style CompensandoEntregador fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style CompensandoRestaurante fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+```
 
 **Eventos Tratados**:
 - `IniciarPedido` → Inicia a SAGA
@@ -218,21 +356,145 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
 ```
 ---
 
+### 3.5 **SagaPoc.ServicoFluxoCaixa** (Sistema CQRS)
+
+**Responsabilidade**: Controle de fluxo de caixa com arquitetura CQRS (Command Query Responsibility Segregation).
+
+**Estrutura de Projetos**:
+```
+SagaPoc.ServicoFluxoCaixa/
+├── SagaPoc.FluxoCaixa.Api/           # API REST (:5100)
+│   ├── Controllers/
+│   │   ├── LancamentosController.cs
+│   │   └── ConsolidadoController.cs
+│   └── DTOs/
+│
+├── SagaPoc.FluxoCaixa.Domain/        # Domínio (Agregados, Eventos)
+│   ├── Agregados/
+│   │   ├── Lancamento.cs
+│   │   └── ConsolidadoDiario.cs
+│   ├── Eventos/
+│   │   ├── LancamentoCreditoRegistrado.cs
+│   │   └── LancamentoDebitoRegistrado.cs
+│   └── ValueObjects/
+│       └── EnumTipoLancamento.cs
+│
+├── SagaPoc.FluxoCaixa.Infrastructure/ # Persistência
+│   ├── Persistencia/
+│   │   ├── FluxoCaixaDbContext.cs
+│   │   └── ConsolidadoDbContext.cs
+│   └── Repositorios/
+│       ├── LancamentoRepository.cs
+│       └── ConsolidadoDiarioRepository.cs
+│
+├── SagaPoc.FluxoCaixa.Lancamentos/   # Write Model (Handlers)
+│   └── Handlers/
+│       ├── RegistrarLancamentoHandler.cs
+│       └── LancamentoRegistradoComSucessoHandler.cs
+│
+└── SagaPoc.FluxoCaixa.Consolidado/   # Read Model (Handlers + Cache)
+    ├── Handlers/
+    │   ├── LancamentoCreditoRegistradoHandler.cs
+    │   └── LancamentoDebitoRegistradoHandler.cs
+    └── Servicos/
+        ├── ICacheService.cs
+        └── RedisCacheService.cs
+```
+
+**Arquitetura CQRS**:
+- **Write Model**: Lançamentos são registrados via comandos e persistidos em banco separado
+- **Read Model**: Consolidado é atualizado via eventos de domínio e usa cache Redis
+- **Comunicação**: RabbitMQ para mensageria assíncrona entre Write e Read
+
+**NFRs Atendidos**:
+- ✅ Disponibilidade independente (Lançamentos não depende do Consolidado)
+- ✅ 50 requisições/segundo no Consolidado (com cache)
+- ✅ < 5% de perda de requisições
+- ✅ Latência P95 < 50ms (com cache em 3 camadas)
+
+**Endpoints**:
+```csharp
+POST   /api/lancamentos                    # Registrar lançamento
+GET    /api/lancamentos/{id}               # Obter lançamento por ID
+GET    /api/consolidado/{comerciante}/{data}    # Consultar consolidado diário
+GET    /api/consolidado/{comerciante}/periodo   # Consultar período
+GET    /health                             # Health check
+```
+
+---
+
 ### 4. **BuildingBlocks** (Camada Compartilhada)
 
 **Responsabilidade**: Contratos, modelos e utilitários compartilhados entre todos os serviços.
 
 **Projetos**:
 - **SagaPoc.Common** - Result Pattern, mensagens, modelos compartilhados
-- **SagaPoc.Observability** - OpenTelemetry, métricas, rastreamento
-- **WebHost** - Configurações comuns de host e healthchecks
+- **SagaPoc.Observability** - OpenTelemetry, Serilog, métricas, rastreamento
+- **WebHost** - Configurações comuns de host, healthchecks e Extensions (SwaggerExtensions)
 - **SagaPoc.Infrastructure** - Implementações de infraestrutura
 - **SagaPoc.Infrastructure.Core** - Abstrações e interfaces core
 
+**Estrutura do WebHost**:
+```
+WebHost/
+├── Extensions/
+│   └── SwaggerExtensions.cs     # Configuração centralizada do Swagger
+└── WebHost.csproj
+```
+
 **Estrutura**:
 
-![Diagrama de estrutura](./images//diagrama-estrutura.png)
+```mermaid
+graph TD
+    Root[📁 saga-poc-dotnet]
+    Root --> Sln[📄 SagaPoc.sln]
 
+    Root --> Docs[📂 docs/]
+    Docs --> Doc1[📄 plano-execucao/]
+    Doc1 --> Doc2[📄 arquitetura.md]
+    Doc2 --> Doc3[📄 guia-rebus.md]
+    Doc3 --> Doc4[⭐ casos-uso.md<br/> Cenários]
+
+    Root --> Docker[📂 docker/]
+    Docker --> DC[📄 docker-compose.yml]
+
+    Root --> Src[📂 src/]
+
+    Src --> BB[📂 BuildingBlocks/]
+    BB --> Common[📦 SagaPoc.Common<br/>Result Pattern, Mensagens]
+    BB --> Obs[📦 SagaPoc.Observability<br/>OpenTelemetry, Serilog]
+    BB --> Infra[📦 SagaPoc.Infrastructure<br/>Implementações]
+    BB --> InfraCore[📦 SagaPoc.Infrastructure.Core<br/>Interfaces]
+    BB --> WebHost[📦 WebHost<br/>Extensions, Swagger]
+
+    Src --> Api[🌐 SagaPoc.Api<br/>:5000 - API SAGA]
+    Src --> Orch[🎭 SagaPoc.Orquestrador<br/>SAGA State Machine]
+    Src --> Rest[🏪 SagaPoc.ServicoRestaurante]
+    Src --> Pag[💳 SagaPoc.ServicoPagamento]
+    Src --> Ent[🚚 SagaPoc.ServicoEntregador]
+    Src --> Not[🔔 SagaPoc.ServicoNotificacao]
+
+    Src --> FC[📂 SagaPoc.ServicoFluxoCaixa/]
+    FC --> FCApi[🌐 FluxoCaixa.Api<br/>:5100 - API CQRS]
+    FC --> FCDomain[📦 FluxoCaixa.Domain<br/>Agregados, Eventos]
+    FC --> FCInfra[📦 FluxoCaixa.Infrastructure<br/>Repositórios, DbContext]
+    FC --> FCLanc[⚡ FluxoCaixa.Lancamentos<br/>Write Handlers]
+    FC --> FCCons[📊 FluxoCaixa.Consolidado<br/>Read Handlers, Cache]
+
+    style Root fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Docs fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Docker fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Src fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style BB fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style FC fill:#e0f7fa,stroke:#00838f,stroke-width:2px
+    style Api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style FCApi fill:#b2ebf2,stroke:#00838f,stroke-width:2px
+    style Orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style Rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Not fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+```
 ---
 
 ## 🔄 Padrões de Design Implementados
@@ -705,7 +967,7 @@ Total Trace Duration: 1075ms
 
 ### 3. Logs Estruturados (Serilog + SEQ)
 
-**URL SEQ**: http://localhost:5341 (admin/admin123)
+**URL SEQ**: http://localhost:5342 (admin/admin123)
 
 **Configuração do Serilog**:
 ```csharp
@@ -835,10 +1097,10 @@ builder.AddSagaOpenTelemetryForHost(
 **docker-compose.yml** inclui:
 - SEQ (logs estruturados)
 - Jaeger (distributed tracing)
-- RabbitMQ (message broker)
-- PostgreSQL (bancos de dados)
-- Redis (cache)
-- Todos os 6 serviços .NET
+- RabbitMQ 3.13 (message broker)
+- PostgreSQL 16 (3 instâncias: sagapoc, fluxocaixa_lancamentos, fluxocaixa_consolidado)
+- Redis 7 (cache distribuído)
+- 7 serviços .NET (6 SAGA + 1 FluxoCaixa API)
 
 **Iniciar toda a stack**:
 ```bash
@@ -847,10 +1109,21 @@ docker-compose up -d
 ```
 
 **URLs de Acesso**:
-- SEQ: http://localhost:5341 (admin/admin123)
-- Jaeger: http://localhost:16686
-- RabbitMQ: http://localhost:15672 (saga/saga123)
-- API: http://localhost:5000
+| Serviço | URL | Credenciais |
+|---------|-----|-------------|
+| SEQ | http://localhost:5342 | admin/admin123 |
+| Jaeger | http://localhost:16686 | - |
+| RabbitMQ | http://localhost:15672 | saga/saga123 |
+| API SAGA | http://localhost:5000 | - |
+| API FluxoCaixa | http://localhost:5100 | - |
+
+**Portas dos Bancos**:
+| Banco | Porta | Database |
+|-------|-------|----------|
+| PostgreSQL SAGA | 5432 | sagapoc |
+| PostgreSQL Lançamentos | 5433 | fluxocaixa_lancamentos |
+| PostgreSQL Consolidado | 5434 | fluxocaixa_consolidado |
+| Redis | 6379 | - |
 
 ---
 
@@ -908,13 +1181,13 @@ Configurar RabbitMQ com persistência criptografada usando plugins.
 
 - **[plano-execucao.md](./plano-execucao/plano-execucao.md.md)** - Plano completo do projeto
 - **[guia-rebus.md](./guia-rebus.md)** - Guia do Rebus
-- **[casos-uso.md](./casos-uso.md)** - 12 cenários implementados
+- **[casos-uso.md](./casos-uso.md)** - Cenários implementados
 - **[Rebus Documentation](https://github.com/rebus-org/Rebus)** - Documentação oficial
 - **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
 
 ---
 
 **Documento criado em**: 2026-01-07
-**Versão**: 2.0
-**Última atualização**: 2026-01-08 - Atualizado para Rebus (migração do MassTransit concluída)
+**Versão**: 3.0
+**Última atualização**: 2026-01-17 - Adicionado Sistema de Fluxo de Caixa (CQRS), BuildingBlocks atualizado com WebHost/Extensions, portas e stack atualizadas
 **Status**: Completo

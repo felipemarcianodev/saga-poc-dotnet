@@ -1,12 +1,18 @@
-# POC SAGA Pattern com Rebus e RabbitMQ
+# POC SAGA Pattern + CQRS com Rebus e RabbitMQ
 
 ![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)
 ![C#](https://img.shields.io/badge/C%23-13-239120?logo=csharp)
 ![Rebus](https://img.shields.io/badge/Rebus-8.9-blue)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 
-**Proof of Concept** demonstrando a implementação do **padrão SAGA Orquestrado** utilizando **Rebus** e **RabbitMQ** para comunicação entre microsserviços, com aplicação do **Result Pattern** para tratamento estruturado de erros.
+**Proof of Concept educacional** demonstrando:
+- **SAGA Orquestrado** para Delivery com compensações em cascata
+- **CQRS + Event-Driven** para Fluxo de Caixa com cache em 3 camadas
+
+Utilizando **Rebus** e **RabbitMQ** para comunicação entre microsserviços, com **Result Pattern** para tratamento estruturado de erros.
 
 ---
 ## Por que esse repositório existe
@@ -113,18 +119,139 @@ Demonstrar como implementar:
 
 ### Fluxo da SAGA
 
-![Diagrama Visual do Fluxo](./images/diagrama-visual-fluxo.png)
+```mermaid
+flowchart TD
+    Cliente([Cliente/Postman]) -->|POST /api/pedidos| API[🌐 API REST<br/>SagaPoc.Api]
+
+    API -->|Envia comando<br/>IniciarPedido| SAGA[🎭 SAGA Orquestrador<br/>Rebus Saga]
+
+    subgraph estados[Estados da SAGA]
+        direction TB
+        E1[1️⃣ ValidandoRestaurante]
+        E2[2️⃣ ProcessandoPagamento]
+        E3[3️⃣ AlocandoEntregador]
+        E4[4️⃣ NotificandoCliente]
+        E5A[✅ PedidoConfirmado]
+        E5B[❌ PedidoCancelado]
+
+        E1 --> E2 --> E3 --> E4 --> E5A
+        E1 -.->|Falha| E5B
+        E2 -.->|Falha| E5B
+        E3 -.->|Falha| E5B
+    end
+
+    SAGA --> estados
+
+    SAGA -->|Send via| BUS{🐰 RabbitMQ<br/>Message Broker}
+
+    BUS -->|ValidarPedidoRestaurante| S1[🏪 Serviço Restaurante]
+    BUS -->|ProcessarPagamento| S2[💳 Serviço Pagamento]
+    BUS -->|AlocarEntregador| S3[🚚 Serviço Entregador]
+    BUS -->|NotificarCliente| S4[🔔 Serviço Notificação]
+
+    S1 -->|Reply/Compensação| BUS
+    S2 -->|Reply/Compensação| BUS
+    S3 -->|Reply/Compensação| BUS
+    S4 -->|Reply| BUS
+
+    BUS -.->|Atualiza estado| SAGA
+
+    style API fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style SAGA fill:#e1bee7,stroke:#7b1fa2,stroke-width:3px
+    style BUS fill:#ffe0b2,stroke:#f57c00,stroke-width:3px
+    style S1 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S2 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S3 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style S4 fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style estados fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style E5A fill:#a5d6a7,stroke:#2e7d32,stroke-width:3px
+    style E5B fill:#ef9a9a,stroke:#c62828,stroke-width:3px
+```
 
 ### Compensações em Cascata
 
 Quando ocorre uma falha em qualquer etapa, as compensações são executadas **em ordem reversa**:
 
-![Diagrama de compensação em cascata](./images/diagrama-compensacao-saga-cascata.png)
+```mermaid
+flowchart TD
+    Start[❌ Falha em Qualquer Etapa] --> Decision{Qual etapa<br/>falhou?}
+
+    Decision -->|Validação Restaurante| C1[✅ Sem compensação<br/>SAGA Cancelada]
+
+    Decision -->|Pagamento| C2A[⬅️ Cancelar Pedido<br/>no Restaurante]
+    C2A --> C2B[✅ SAGA Cancelada]
+
+    Decision -->|Alocação Entregador| C3A[⬅️ 1. Estornar Pagamento]
+    C3A --> C3B[⬅️ 2. Cancelar Pedido<br/>no Restaurante]
+    C3B --> C3C[✅ SAGA Cancelada]
+
+    Decision -->|Notificação| C4[⚠️ Pedido continua OK<br/>Sem compensação]
+
+    style Start fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+    style C1 fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style C2B fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style C3C fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style C4 fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style C2A fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style C3A fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style C3B fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style Decision fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+```
 ---
 
 ## Estrutura do Projeto
 
-![Diagrama da Estrutura do Projeto](./images/diagrama-estrutura-projeto.png)
+```mermaid
+graph TD
+    Root[📁 saga-poc-dotnet]
+    Root --> Sln[📄 SagaPoc.sln]
+
+    Root --> Docs[📂 docs/]
+    Docs --> Doc1[📄 plano-execucao/]
+    Doc1 --> Doc2[📄 arquitetura.md]
+    Doc2 --> Doc3[📄 guia-rebus.md]
+    Doc3 --> Doc4[⭐ casos-uso.md<br/> Cenários]
+
+    Root --> Docker[📂 docker/]
+    Docker --> DC[📄 docker-compose.yml]
+
+    Root --> Src[📂 src/]
+
+    Src --> BB[📂 BuildingBlocks/]
+    BB --> Common[📦 SagaPoc.Common<br/>Result Pattern, Mensagens]
+    BB --> Obs[📦 SagaPoc.Observability<br/>OpenTelemetry, Serilog]
+    BB --> Infra[📦 SagaPoc.Infrastructure<br/>Implementações]
+    BB --> InfraCore[📦 SagaPoc.Infrastructure.Core<br/>Interfaces]
+    BB --> WebHost[📦 WebHost<br/>Extensions, Swagger]
+
+    Src --> Api[🌐 SagaPoc.Api<br/>:5000 - API SAGA]
+    Src --> Orch[🎭 SagaPoc.Orquestrador<br/>SAGA State Machine]
+    Src --> Rest[🏪 SagaPoc.ServicoRestaurante]
+    Src --> Pag[💳 SagaPoc.ServicoPagamento]
+    Src --> Ent[🚚 SagaPoc.ServicoEntregador]
+    Src --> Not[🔔 SagaPoc.ServicoNotificacao]
+
+    Src --> FC[📂 SagaPoc.ServicoFluxoCaixa/]
+    FC --> FCApi[🌐 FluxoCaixa.Api<br/>:5100 - API CQRS]
+    FC --> FCDomain[📦 FluxoCaixa.Domain<br/>Agregados, Eventos]
+    FC --> FCInfra[📦 FluxoCaixa.Infrastructure<br/>Repositórios, DbContext]
+    FC --> FCLanc[⚡ FluxoCaixa.Lancamentos<br/>Write Handlers]
+    FC --> FCCons[📊 FluxoCaixa.Consolidado<br/>Read Handlers, Cache]
+
+    style Root fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Docs fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Docker fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Src fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style BB fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style FC fill:#e0f7fa,stroke:#00838f,stroke-width:2px
+    style Api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+    style FCApi fill:#b2ebf2,stroke:#00838f,stroke-width:2px
+    style Orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
+    style Rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style Not fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+```
 ---
 
 ## Como Executar
@@ -153,9 +280,13 @@ docker-compose up -d
 
 Isso irá iniciar toda a stack:
 - **RabbitMQ 3.13** (Message Broker) - porta 5672 (AMQP) e 15672 (Management UI)
+- **PostgreSQL 16** (3 instâncias) - portas 5432, 5433, 5434
+- **Redis 7** (Cache distribuído) - porta 6379
 - **SEQ** (Logs Estruturados) - porta 5341 (UI)
 - **Jaeger** (Distributed Tracing) - porta 16686 (UI)
-- **Todos os 6 serviços .NET** (API + Orquestrador + 4 Workers)
+- **9 serviços .NET**:
+  - SAGA: API (5000) + Orquestrador + 4 Workers
+  - Fluxo de Caixa: API (5100) + Lançamentos + Consolidado
 
 **OU** executar apenas o RabbitMQ (para rodar os serviços .NET manualmente):
 
@@ -218,10 +349,11 @@ cd docker
 docker-compose up -d
 ```
 
-#### Opção 2: Manualmente (6 terminais - Para desenvolvimento local)
+#### Opção 2: Manualmente (9 terminais - Para desenvolvimento local)
 
+**SAGA Delivery (6 serviços):**
 ```bash
-# Terminal 1: API
+# Terminal 1: API SAGA
 cd src/SagaPoc.Api
 dotnet run
 
@@ -246,10 +378,30 @@ cd src/SagaPoc.ServicoNotificacao
 dotnet run
 ```
 
-### 5. Acessar a API
+**Fluxo de Caixa - CQRS (3 serviços):**
+```bash
+# Terminal 7: API Fluxo de Caixa
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api
+dotnet run
 
-- **Swagger UI**: http://localhost:5000 ou http://localhost:5000/swagger
+# Terminal 8: Lançamentos (Write Model)
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Lancamentos
+dotnet run
+
+# Terminal 9: Consolidado (Read Model)
+cd src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado
+dotnet run
+```
+
+### 5. Acessar as APIs
+
+**SAGA Delivery:**
+- **Swagger UI**: http://localhost:5000/swagger
 - **Health Check**: http://localhost:5000/health
+
+**Fluxo de Caixa (CQRS):**
+- **Swagger UI**: http://localhost:5100/swagger
+- **Health Check**: http://localhost:5100/health
 
 ### 6. Monitorar as Filas no RabbitMQ
 
@@ -257,11 +409,18 @@ Acesse o **RabbitMQ Management UI** em http://localhost:15672 e clique na aba **
 
 Você verá as seguintes filas sendo criadas automaticamente pelo Rebus:
 
+**SAGA Delivery:**
 - **`fila-orquestrador`** - Mensagens para a SAGA (Orquestrador)
 - **`fila-restaurante`** - Mensagens para validação de pedidos no restaurante
 - **`fila-pagamento`** - Mensagens para processamento de pagamentos
 - **`fila-entregador`** - Mensagens para alocação de entregadores
 - **`fila-notificacao`** - Mensagens para notificações aos clientes
+
+**Fluxo de Caixa (CQRS):**
+- **`fila-lancamentos`** - Comandos de registro de lançamentos (Write Model)
+- **`fila-consolidado`** - Eventos para atualização do consolidado (Read Model)
+
+**Comum:**
 - **`fila-error`** - Mensagens que falharam após todas as tentativas de retry (Dead Letter Queue)
 
 Ao fazer requisições à API, você poderá ver em tempo real:
@@ -290,9 +449,17 @@ Pressione `Ctrl+C` em cada terminal.
 
 ## Testando os Casos de Uso
 
-### 12 Cenários Implementados
+### 18 Cenários Implementados
 
-![12 Cenários implementados](./images/12-cenarios-implementados.png)
+O projeto possui **18 cenários de teste** divididos em dois contextos:
+
+| Contexto | Cenários | Descrição |
+|----------|----------|-----------|
+| **SAGA Delivery** | 1-12 | Pedidos, falhas, compensações |
+| **Fluxo de Caixa** | 13-18 | Lançamentos, consolidado, cache |
+
+![18 Cenários implementados](./images/18-cenarios-implementados.png)
+
 ---
 
 ### Via Scripts Automatizados
@@ -300,15 +467,17 @@ Pressione `Ctrl+C` em cada terminal.
 #### Windows (PowerShell):
 ```powershell
 cd docs/scripts
-.\testar-casos-de-uso.ps1        # Testa todos os 12 casos
-.\testar-casos-de-uso.ps1 5      # Testa apenas o caso 5
+.\testar-casos-de-uso.ps1        # Testa todos os 18 casos
+.\testar-casos-de-uso.ps1 5      # Testa apenas o caso 5 (SAGA)
+.\testar-casos-de-uso.ps1 15     # Testa apenas o caso 15 (Fluxo de Caixa)
 ```
 
 #### Linux/Mac (Bash):
 ```bash
 cd docs/scripts
-./testar-casos-de-uso.sh         # Testa todos os 12 casos
-./testar-casos-de-uso.sh 5       # Testa apenas o caso 5
+./testar-casos-de-uso.sh         # Testa todos os 18 casos
+./testar-casos-de-uso.sh 5       # Testa apenas o caso 5 (SAGA)
+./testar-casos-de-uso.sh 15      # Testa apenas o caso 15 (Fluxo de Caixa)
 ```
 
 ### Via curl (Exemplo: Caso 1 - Pedido Normal)
@@ -338,6 +507,49 @@ curl -X POST http://localhost:5000/api/pedidos \
   "pedidoId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "mensagem": "Pedido recebido e está sendo processado.",
   "status": "Pendente"
+}
+```
+
+### Via curl (Exemplo: Caso 13 - Lançamento Crédito)
+
+```bash
+curl -X POST http://localhost:5100/api/lancamentos \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tipo": "Credito",
+    "valor": 150.00,
+    "descricao": "Venda de produto",
+    "comerciante": "COM001",
+    "categoria": "Vendas"
+  }'
+```
+
+**Resposta esperada**:
+```json
+{
+  "id": "b2c3d4e5-f6a7-8901-bcde-f23456789012",
+  "mensagem": "Lançamento registrado com sucesso.",
+  "status": "Pendente"
+}
+```
+
+### Via curl (Exemplo: Caso 15 - Consultar Consolidado)
+
+```bash
+curl -X GET "http://localhost:5100/api/consolidado?comerciante=COM001&data=2026-01-17"
+```
+
+**Resposta esperada**:
+```json
+{
+  "comerciante": "COM001",
+  "data": "2026-01-17",
+  "totalCreditos": 150.00,
+  "totalDebitos": 0.00,
+  "saldoDiario": 150.00,
+  "quantidadeCreditos": 1,
+  "quantidadeDebitos": 0,
+  "cacheHit": true
 }
 ```
 
@@ -599,4 +811,4 @@ Criado como material educacional sobre padrões de microsserviços.
 - [Chris Richardson](https://microservices.io/patterns/data/saga.html) - Padrão SAGA
 - [Docker](https://www.docker.com/) - Containerização e simplificação de deploy
 
-**Última atualização**: 2026-01-08 - Migração de MassTransit para Rebus concluída
+**Última atualização**: 2026-01-17 - Fluxo de Caixa (CQRS) integrado com 18 cenários de teste
