@@ -205,7 +205,7 @@ stateDiagram-v2
 - `EntregadorAlocado` → Resultado da alocação
 - `NotificacaoEnviada` → Confirmação de notificação
 
-**Decisões Arquiteturais**:
+**Escolhas de Design**:
 1. **Por que Rebus Sagas?**
    - Controle centralizado do fluxo via handlers
    - Implementação explícita e clara
@@ -358,7 +358,7 @@ if (ClienteId == "CLI_SEM_NOTIFICACAO")
 
 ### 3.5 **SagaPoc.ServicoFluxoCaixa** (Sistema CQRS)
 
-**Responsabilidade**: Controle de fluxo de caixa com arquitetura CQRS (Command Query Responsibility Segregation).
+**Responsabilidade**: Controle de fluxo de caixa utilizando o padrão CQRS (Command Query Responsibility Segregation).
 
 **Estrutura de Projetos**:
 ```
@@ -401,7 +401,7 @@ SagaPoc.ServicoFluxoCaixa/
         └── RedisCacheService.cs
 ```
 
-**Arquitetura CQRS**:
+**Padrão CQRS**:
 - **Write Model**: Lançamentos são registrados via comandos e persistidos em banco separado
 - **Read Model**: Consolidado é atualizado via eventos de domínio e usa cache Redis
 - **Comunicação**: RabbitMQ para mensageria assíncrona entre Write e Read
@@ -497,167 +497,16 @@ graph TD
 ```
 ---
 
-## 🔄 Padrões de Design Implementados
+## Padroes de Design
 
-### 1. **SAGA Orquestrado (Orchestrated SAGA)**
+Para detalhes sobre os padroes de design utilizados (SAGA, Result Pattern, CQRS, etc.), consulte:
 
-**O que é?**
-- Padrão para transações distribuídas em microsserviços
-- Um orquestrador central coordena o fluxo
-- Cada serviço executa sua operação local
-
-**Por que Orquestrado (vs Coreografado)?**
-
-| Orquestrado | Coreografado |
-|-------------|--------------|
-| Controle centralizado | ❌ Lógica espalhada |
-| Fácil debug e rastreamento | ❌ Difícil rastrear fluxo completo |
-| Compensações explícitas | ❌ Cada serviço conhece os outros |
-| Orquestrador é ponto único | Sem ponto único de falha |
-
-**Trade-off**: Escolhemos orquestrado porque:
-- POC educacional (mais fácil de entender)
-- Fluxo linear claro
-- Melhor observabilidade
+- **[Padroes Utilizados](design/padroes-utilizados.md)** - Descricao dos padroes e trade-offs
+- **[Escolhas Tecnicas](design/escolhas-tecnicas.md)** - Por que escolhemos cada tecnologia
 
 ---
 
-### 2. **Result Pattern**
-
-**O que é?**
-Padrão funcional para encapsular sucesso/falha **sem exceções**.
-
-**Estrutura**:
-```csharp
-public class Resultado<T>
-{
-    public bool EhSucesso { get; }
-    public bool EhFalha => !EhSucesso;
-    public T Valor { get; }
-    public Erro Erro { get; }
-
-    public static Resultado<T> Sucesso(T valor) => new(valor, null);
-    public static Resultado<T> Falha(string mensagem) => new(default, new Erro(mensagem));
-}
-```
-
-**Por que Result Pattern?**
-
-**Sem Result Pattern** (exceções):
-```csharp
-try
-{
-    var pagamento = await ProcessarPagamento();
-    var entregador = await AlocarEntregador();
-}
-catch (PagamentoException ex)
-{
-    await EstornarPagamento();
-    throw;
-}
-```
-
-**Com Result Pattern**:
-```csharp
-var resultadoPagamento = await ProcessarPagamento();
-if (resultadoPagamento.EhFalha)
-{
-    await EstornarPagamento();
-    return Resultado.Falha(resultadoPagamento.Erro.Mensagem);
-}
-
-var resultadoEntregador = await AlocarEntregador();
-// ...
-```
-
-**Benefícios**:
-- Sem try/catch (código mais limpo)
-- Erros explícitos no tipo de retorno
-- Composição fluente (`Map`, `Bind`)
-- Performance (sem overhead de exceções)
-
----
-
-### 3. **Request/Response Pattern** (Rebus)
-
-**O que é?**
-Comunicação síncrona sobre infraestrutura assíncrona usando Reply.
-
-**Fluxo**:
-```
-[Orquestrador]
-    ↓ Send: ValidarPedidoRestaurante
-    ↓ (via RabbitMQ)
-[Serviço Restaurante]
-    ↓ Processa validação
-    ↓ Reply: PedidoRestauranteValidado
-[Orquestrador]
-    ↓ Recebe resposta e continua SAGA
-```
-
-**Configuração (Rebus)**:
-```csharp
-// No Orquestrador (Saga):
-await _bus.Send(new ValidarPedidoRestaurante(...));
-
-// No Serviço (Handler):
-await _bus.Reply(new PedidoRestauranteValidado(...));
-```
-
-**Por que Request/Response?**
-- Saga precisa esperar resposta para decidir próximo passo
-- Rebus gerencia automaticamente o roteamento da resposta
-- Alternativa seria Publish/Subscribe (assíncrono completo)
-
----
-
-### 4. **Compensating Transaction Pattern**
-
-**O que é?**
-Desfazer operações já executadas quando ocorre falha.
-
-**Exemplo (Caso 5 - Sem Entregador)**:
-```
-1. Restaurante validou → Pedido criado
-2. Pagamento aprovado → Cobrança feita
-3. Entregador indisponível → FALHA
-
-Compensações (ordem reversa):
-   2. Estornar pagamento
-   1. Cancelar pedido no restaurante
-```
-
-**Implementação na Saga (Rebus)**:
-```csharp
-public async Task Handle(EntregadorAlocado mensagem)
-{
-    if (mensagem.Alocado)
-    {
-        // Sucesso: continua para notificação
-        Data.EntregadorId = mensagem.EntregadorId;
-        Data.EstadoAtual = "NotificandoCliente";
-        await _bus.Send(new NotificarCliente(...));
-    }
-    else
-    {
-        // COMPENSAÇÃO: Estornar pagamento
-        IniciarCompensacao();
-        await _bus.Send(new EstornarPagamento(
-            CorrelacaoId: Data.Id,
-            TransacaoId: Data.TransacaoId!
-        ));
-    }
-}
-```
-
-**Características das Compensações**:
-- **Idempotente**: Rodar 2x não causa efeitos colaterais
-- **Best-effort**: Tenta executar, mas pode falhar
-- **Logged**: Todas as compensações são logadas
-
----
-
-## 🔌 Comunicação e Mensageria
+## Comunicacao e Mensageria
 
 ### RabbitMQ (Transport Layer)
 
@@ -1127,7 +976,7 @@ docker-compose up -d
 
 ---
 
-## Decisões Arquiteturais
+## Escolhas Técnicas
 
 ### Por que Rebus (e não outros)?
 

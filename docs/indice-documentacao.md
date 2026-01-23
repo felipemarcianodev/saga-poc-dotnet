@@ -31,10 +31,10 @@ Guia completo da documentação do repositório, organizando todos os documentos
 
 ### Arquitetura e Design
 - **[Diagramas Mermaid](diagramas-fluxo-caixa.md)** - Diagramas de arquitetura, sequência e deployment
-- **[ADRs - Decisões Arquiteturais](decisoes-arquiteturais/README.md)**
-  - [ADR-001: CQRS](decisoes-arquiteturais/001-cqrs.md)
-  - [ADR-002: Cache em 3 Camadas](decisoes-arquiteturais/002-cache.md)
-  - [ADR-003: PostgreSQL](decisoes-arquiteturais/003-postgresql.md)
+- **[Decisões Técnicas](decisoes-tecnicas/README.md)**
+  - [ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)
+  - [ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)
+  - [ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)
 
 ### API e Documentação
 - **[Swagger/OpenAPI](swagger-openapi.md)** - Documentação da API REST
@@ -113,7 +113,7 @@ docs/
 ├── swagger-openapi.md                 # Documentação API REST
 ├── troubleshooting-fluxo-caixa.md    # Troubleshooting FluxoCaixa
 │
-├── decisoes-arquiteturais/            # ADRs
+├── decisoes-tecnicas/            # ADRs
 │   ├── 001-cqrs.md
 │   ├── 002-cache.md
 │   └── 003-postgresql.md
@@ -141,9 +141,9 @@ docs/
 #### Arquitetura
 - [Arquitetura SAGA](arquitetura.md)
 - [Diagramas Fluxo de Caixa](diagramas-fluxo-caixa.md)
-- [ADR-001: CQRS](decisoes-arquiteturais/001-cqrs.md)
-- [ADR-002: Cache](decisoes-arquiteturais/002-cache.md)
-- [ADR-003: PostgreSQL](decisoes-arquiteturais/003-postgresql.md)
+- [ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)
+- [ADR-002: Cache](decisoes-tecnicas/002-cache.md)
+- [ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)
 
 #### Operação
 - [Troubleshooting SAGA](runbook-troubleshooting.md)
@@ -210,9 +210,9 @@ Conteúdo...
 
 **Adicionado**:
 - [Diagramas Mermaid FluxoCaixa](diagramas-fluxo-caixa.md)
-- [ADR-001: CQRS](decisoes-arquiteturais/001-cqrs.md)
-- [ADR-002: Cache em 3 Camadas](decisoes-arquiteturais/002-cache.md)
-- [ADR-003: PostgreSQL](decisoes-arquiteturais/003-postgresql.md)
+- [ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)
+- [ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)
+- [ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)
 - [Swagger/OpenAPI](swagger-openapi.md)
 - [Troubleshooting FluxoCaixa](troubleshooting-fluxo-caixa.md)
 - [Índice de Documentação](INDICE-DOCUMENTACAO.md) (este arquivo)

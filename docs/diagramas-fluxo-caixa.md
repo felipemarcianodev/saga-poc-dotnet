@@ -226,7 +226,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Diagrama de Arquitetura CQRS
+## 5. Diagrama do Padrão CQRS
 
 ```mermaid
 graph LR

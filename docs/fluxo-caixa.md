@@ -11,9 +11,9 @@ O sistema FluxoCaixa implementa o padrão CQRS com separação clara entre:
 ### Documentação Relacionada
 
 - **[Diagramas de Arquitetura](diagramas-fluxo-caixa.md)** - Diagramas Mermaid completos
-- **[ADR-001: CQRS](decisoes-arquiteturais/001-cqrs.md)** - Decisão de usar CQRS
-- **[ADR-002: Cache em 3 Camadas](decisoes-arquiteturais/002-cache.md)** - Estratégia de cache
-- **[ADR-003: PostgreSQL](decisoes-arquiteturais/003-postgresql.md)** - Escolha do banco de dados
+- **[ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)** - Decisão de usar CQRS
+- **[ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)** - Estratégia de cache
+- **[ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)** - Escolha do banco de dados
 
 ## Arquitetura
 
@@ -418,7 +418,7 @@ O consolidado utiliza uma estratégia de cache agressiva para atender ao NFR de 
 2. **L2 - Redis**: TTL 5 minutos, latência <10ms
 3. **L3 - HTTP Response Cache**: TTL 60 segundos, CDN-friendly
 
-Ver [ADR-002](decisoes-arquiteturais/002-cache.md) para detalhes.
+Ver [ADR-002](decisoes-tecnicas/002-cache.md) para detalhes.
 
 ## Conformidade com as Especificações do Desafio
 
@@ -516,13 +516,13 @@ Principais diagramas disponíveis:
 - Diagrama de Cache em 3 Camadas
 - Diagrama de Deployment
 
-## Decisões Arquiteturais
+## Decisões Técnicas
 
-As principais decisões arquiteturais estão documentadas como ADRs:
+As principais decisões técnicas estão documentadas:
 
-- **[ADR-001: CQRS](decisoes-arquiteturais/001-cqrs.md)** - Por que separar Write e Read Models
-- **[ADR-002: Cache em 3 Camadas](decisoes-arquiteturais/002-cache.md)** - Estratégia de cache para performance
-- **[ADR-003: PostgreSQL](decisoes-arquiteturais/003-postgresql.md)** - Escolha do banco de dados
+- **[ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)** - Por que separar Write e Read Models
+- **[ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)** - Estratégia de cache para performance
+- **[ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)** - Escolha do banco de dados
 
 ## Observabilidade
 

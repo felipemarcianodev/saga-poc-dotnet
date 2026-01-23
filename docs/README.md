@@ -74,6 +74,20 @@ Elas fazem parte do aprendizado.
 
 ---
 
+## Limitações Conhecidas
+
+Este código possui limitações intencionais e não intencionais:
+
+- **Sem testes automatizados**: A POC não possui cobertura de testes unitários ou de integração
+- **Estado em memória**: SAGAs perdem estado ao reiniciar (InMemory storage)
+- **Sem autenticação**: APIs expostas sem segurança
+- **Sem outbox pattern**: Mensagens podem ser perdidas se o RabbitMQ cair após commit do banco
+- **Métricas não validadas**: Os NFRs (50 req/s, P95 < 10ms) não foram testados com carga real
+- **Acoplamento temporal**: Handlers dependem de ordem de mensagens
+- **Sem reconciliação**: Não há mecanismo para corrigir dessincronização entre Write e Read Model
+
+---
+
 ## Sobre contratos e versionamento
 
 Mensagens aqui são versionadas.
@@ -201,57 +215,8 @@ flowchart TD
 
 ## Estrutura do Projeto
 
-```mermaid
-graph TD
-    Root[📁 saga-poc-dotnet]
-    Root --> Sln[📄 SagaPoc.sln]
+Ver diagrama completo em **[arquitetura.md](arquitetura.md)**.
 
-    Root --> Docs[📂 docs/]
-    Docs --> Doc1[📄 plano-execucao/]
-    Doc1 --> Doc2[📄 arquitetura.md]
-    Doc2 --> Doc3[📄 guia-rebus.md]
-    Doc3 --> Doc4[⭐ casos-uso.md<br/> Cenários]
-
-    Root --> Docker[📂 docker/]
-    Docker --> DC[📄 docker-compose.yml]
-
-    Root --> Src[📂 src/]
-
-    Src --> BB[📂 BuildingBlocks/]
-    BB --> Common[📦 SagaPoc.Common<br/>Result Pattern, Mensagens]
-    BB --> Obs[📦 SagaPoc.Observability<br/>OpenTelemetry, Serilog]
-    BB --> Infra[📦 SagaPoc.Infrastructure<br/>Implementações]
-    BB --> InfraCore[📦 SagaPoc.Infrastructure.Core<br/>Interfaces]
-    BB --> WebHost[📦 WebHost<br/>Extensions, Swagger]
-
-    Src --> Api[🌐 SagaPoc.Api<br/>:5000 - API SAGA]
-    Src --> Orch[🎭 SagaPoc.Orquestrador<br/>SAGA State Machine]
-    Src --> Rest[🏪 SagaPoc.ServicoRestaurante]
-    Src --> Pag[💳 SagaPoc.ServicoPagamento]
-    Src --> Ent[🚚 SagaPoc.ServicoEntregador]
-    Src --> Not[🔔 SagaPoc.ServicoNotificacao]
-
-    Src --> FC[📂 SagaPoc.ServicoFluxoCaixa/]
-    FC --> FCApi[🌐 FluxoCaixa.Api<br/>:5100 - API CQRS]
-    FC --> FCDomain[📦 FluxoCaixa.Domain<br/>Agregados, Eventos]
-    FC --> FCInfra[📦 FluxoCaixa.Infrastructure<br/>Repositórios, DbContext]
-    FC --> FCLanc[⚡ FluxoCaixa.Lancamentos<br/>Write Handlers]
-    FC --> FCCons[📊 FluxoCaixa.Consolidado<br/>Read Handlers, Cache]
-
-    style Root fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Docs fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style Docker fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style Src fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style BB fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-    style FC fill:#e0f7fa,stroke:#00838f,stroke-width:2px
-    style Api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-    style FCApi fill:#b2ebf2,stroke:#00838f,stroke-width:2px
-    style Orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
-    style Rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Not fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-```
 ---
 
 ## Como Executar
@@ -616,22 +581,17 @@ Sistema de controle de lançamentos com consolidado diário, demonstrando CQRS e
 **Documentação**:
 - **[Fluxo de Caixa](fluxo-caixa.md)** - Documentação completa do contexto
 - **[Diagramas Mermaid](diagramas-fluxo-caixa.md)** - Diagramas de arquitetura
-- **[ADRs](decisoes-arquiteturais/)** - Decisões arquiteturais documentadas
+- **[ADRs](decisoes-tecnicas/)** - Decisões arquiteturais documentadas
 
 **Características**:
 - CQRS: Write Model (Lançamentos) e Read Model (Consolidado)
 - Cache em 3 camadas (Memory + Redis + HTTP Response)
-- Performance: 50+ req/s com latência P95 < 10ms
 - Event-Driven: Sincronização assíncrona via RabbitMQ
 - Observabilidade: Serilog + SEQ + Jaeger (OpenTelemetry)
 
 **Serviços**: API, Lançamentos, Consolidado
 
-**NFRs Atendidos**:
-- Disponibilidade independente entre Lançamentos e Consolidado
-- 50 req/s no Consolidado com < 5% de perda
-- Escalabilidade horizontal
-- Resiliência com retry automático
+**Nota**: Os NFRs (50 req/s, latência P95) são objetivos, não foram validados com testes de carga.
 
 ---
 
@@ -670,73 +630,17 @@ Sistema de controle de lançamentos com consolidado diário, demonstrando CQRS e
 
 ## Observabilidade
 
-### Stack Completa Implementada (Fase 12)
+A POC inclui observabilidade com **Serilog + SEQ** (logs) e **Jaeger** (tracing).
 
-A POC inclui observabilidade completa com **Serilog**, **SEQ** e **Jaeger**.
+| Ferramenta | URL | Credenciais |
+|------------|-----|-------------|
+| SEQ | http://localhost:5341 | admin/admin123 |
+| Jaeger | http://localhost:16686 | - |
+| RabbitMQ | http://localhost:15672 | saga/saga123 |
 
-#### 1. **Logs Estruturados (Serilog + SEQ)**
+Ver detalhes em **[arquitetura.md](arquitetura.md#observabilidade)**.
 
-- **URL SEQ**: http://localhost:5341 (admin/admin123)
-- Logs estruturados em tempo real com queries poderosas
-- Correlação por **CorrelationId** (rastreamento end-to-end)
-- Visualização de:
-  - **Transições de estado** da SAGA
-  - **Compensações executadas**
-  - **Eventos de domínio** e **Comandos**
-
-**Exemplo de query no SEQ:**
-```sql
-Application = "SagaPoc.Orquestrador" AND CorrelationId = "a1b2c3d4-e5f6-7890"
-```
-
-#### 2. **Distributed Tracing (Jaeger + OpenTelemetry)**
-
-- **URL**: http://localhost:16686
-- Rastreamento end-to-end de todas as requisições
-- Propagação de contexto através do RabbitMQ
-- Visualização de latências por serviço
-- Spans customizados para operações críticas
-
-**Exemplo de uso:**
-1. Acesse o Jaeger UI
-2. Selecione o serviço `SagaPoc.Api`
-3. Visualize o trace completo da SAGA
-4. Identifique bottlenecks e falhas
-
-#### 3. **RabbitMQ Management**
-
-- **URL**: http://localhost:15672 (saga/saga123)
-- Visualize filas, mensagens e consumers
-- Monitore throughput e performance
-- Gerencie exchanges e bindings
-
-### Instrumentação Implementada
-
-**OpenTelemetry (Jaeger):**
-- **AspNetCore Instrumentation** - Traces HTTP automáticos
-- **HttpClient Instrumentation** - Traces de chamadas externas
-- **EntityFramework Instrumentation** - Traces de queries SQL
-- **Rebus Integration** - Propagação de contexto via mensageria
-- **Custom Spans** - Para operações de negócio críticas
-
-**Serilog (SEQ):**
-- **Enrichers** - Machine name, environment, thread, process
-- **Structured Logging** - Properties extraíveis para queries
-- **Correlation** - CorrelationId em todos os logs
-- **Contexto** - Application, Service, Environment
-
-### Troubleshooting
-
-Para diagnosticar e resolver problemas comuns, consulte o **[Runbook de Troubleshooting](runbook-troubleshooting.md)** que cobre:
-- SAGA travada
-- Mensagens em Dead Letter Queue
-- Compensação falhou
-- Alta latência nas SAGAs
-- Circuit breaker aberto
-- Perda de mensagens
-- Duplicação de pedidos
-
-E muitos outros cenários com diagnóstico passo a passo e ações corretivas.
+Para problemas comuns, consulte o **[Runbook de Troubleshooting](runbook-troubleshooting.md)**.
 
 ---
 
