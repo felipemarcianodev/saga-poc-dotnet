@@ -20,7 +20,7 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
         _logger = logger;
     }
 
-    public async Task<Resultado<ConsolidadoDiario>> ObterOuCriarAsync(
+    public async Task<Resultado<ConsolidadoDiario?>> ObterAsync(
         DateTime data,
         string comerciante,
         CancellationToken ct = default)
@@ -34,26 +34,38 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
                     c => c.Data == dataUtc && c.Comerciante == comerciante,
                     ct);
 
-            if (consolidado is null)
-            {
-                consolidado = ConsolidadoDiario.Criar(dataUtc, comerciante);
-                await _context.Consolidados.AddAsync(consolidado, ct);
-                await _context.SaveChangesAsync(ct);
+            return Resultado<ConsolidadoDiario?>.Sucesso(consolidado);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao obter consolidado");
+            return Resultado<ConsolidadoDiario?>.Falha(Erro.Tecnico(
+                "Consolidado.ErroObtencao",
+                "Erro ao obter consolidado diario"));
+        }
+    }
 
-                _logger.LogInformation(
-                    "Consolidado criado para {Data} - Comerciante: {Comerciante}",
-                    dataUtc,
-                    comerciante);
-            }
+    public async Task<Resultado<ConsolidadoDiario>> AdicionarAsync(
+        ConsolidadoDiario consolidado,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await _context.Consolidados.AddAsync(consolidado, ct);
+
+            _logger.LogInformation(
+                "Consolidado adicionado ao contexto para {Data} - Comerciante: {Comerciante}",
+                consolidado.Data,
+                consolidado.Comerciante);
 
             return Resultado<ConsolidadoDiario>.Sucesso(consolidado);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao obter ou criar consolidado");
+            _logger.LogError(ex, "Erro ao adicionar consolidado");
             return Resultado<ConsolidadoDiario>.Falha(Erro.Tecnico(
-                "Consolidado.ErroObtencao",
-                "Erro ao obter consolidado diário"));
+                "Consolidado.ErroAdicionar",
+                "Erro ao adicionar consolidado diario"));
         }
     }
 
@@ -120,28 +132,27 @@ public class ConsolidadoDiarioRepository : IConsolidadoDiarioRepository
         }
     }
 
-    public async Task<Resultado<Unit>> SalvarAsync(
+    public Task<Resultado<Unit>> AtualizarAsync(
         ConsolidadoDiario consolidado,
         CancellationToken ct = default)
     {
         try
         {
             _context.Consolidados.Update(consolidado);
-            await _context.SaveChangesAsync(ct);
 
             _logger.LogInformation(
-                "Consolidado atualizado: {Data} - Saldo: {Saldo}",
+                "Consolidado marcado para atualizacao: {Data} - Saldo: {Saldo}",
                 consolidado.Data,
                 consolidado.SaldoDiario);
 
-            return Resultado.Sucesso();
+            return Task.FromResult(Resultado.Sucesso());
         }
-        catch (DbUpdateException ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao salvar consolidado");
-            return Resultado<Unit>.Falha(Erro.Tecnico(
+            _logger.LogError(ex, "Erro ao atualizar consolidado");
+            return Task.FromResult(Resultado<Unit>.Falha(Erro.Tecnico(
                 "Consolidado.ErroSalvar",
-                "Erro ao salvar consolidado"));
+                "Erro ao salvar consolidado")));
         }
     }
 }

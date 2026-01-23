@@ -27,22 +27,21 @@ public class LancamentoRepository : ILancamentoRepository
         try
         {
             await _context.Lancamentos.AddAsync(lancamento, ct);
-            await _context.SaveChangesAsync(ct);
 
             _logger.LogInformation(
-                "Lançamento {LancamentoId} adicionado com sucesso. Tipo: {Tipo}, Valor: {Valor}",
+                "Lancamento {LancamentoId} adicionado ao contexto. Tipo: {Tipo}, Valor: {Valor}",
                 lancamento.Id,
                 lancamento.Tipo,
                 lancamento.Valor);
 
             return Resultado<Lancamento>.Sucesso(lancamento);
         }
-        catch (DbUpdateException ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao adicionar lançamento {LancamentoId}", lancamento.Id);
+            _logger.LogError(ex, "Erro ao adicionar lancamento {LancamentoId}", lancamento.Id);
             return Resultado<Lancamento>.Falha(Erro.Tecnico(
                 "Lancamento.ErroPersistencia",
-                "Erro ao persistir o lançamento no banco de dados"));
+                "Erro ao persistir o lancamento no banco de dados"));
         }
     }
 
@@ -112,25 +111,24 @@ public class LancamentoRepository : ILancamentoRepository
         return await ObterPorPeriodoAsync(comerciante, data.Date, data.Date, ct);
     }
 
-    public async Task<Resultado<Unit>> AtualizarAsync(
+    public Task<Resultado<Unit>> AtualizarAsync(
         Lancamento lancamento,
         CancellationToken ct = default)
     {
         try
         {
             _context.Lancamentos.Update(lancamento);
-            await _context.SaveChangesAsync(ct);
 
-            _logger.LogInformation("Lançamento {LancamentoId} atualizado com sucesso", lancamento.Id);
+            _logger.LogInformation("Lancamento {LancamentoId} marcado para atualizacao", lancamento.Id);
 
-            return Resultado.Sucesso();
+            return Task.FromResult(Resultado.Sucesso());
         }
-        catch (DbUpdateException ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao atualizar lançamento {LancamentoId}", lancamento.Id);
-            return Resultado<Unit>.Falha(Erro.Tecnico(
+            _logger.LogError(ex, "Erro ao atualizar lancamento {LancamentoId}", lancamento.Id);
+            return Task.FromResult(Resultado<Unit>.Falha(Erro.Tecnico(
                 "Lancamento.ErroAtualizacao",
-                "Erro ao atualizar o lançamento"));
+                "Erro ao atualizar o lancamento")));
         }
     }
 }

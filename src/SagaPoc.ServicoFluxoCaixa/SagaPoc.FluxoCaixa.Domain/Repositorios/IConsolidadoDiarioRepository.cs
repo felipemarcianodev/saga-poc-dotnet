@@ -5,9 +5,13 @@ namespace SagaPoc.FluxoCaixa.Domain.Repositorios;
 
 public interface IConsolidadoDiarioRepository
 {
-    Task<Resultado<ConsolidadoDiario>> ObterOuCriarAsync(
+    Task<Resultado<ConsolidadoDiario?>> ObterAsync(
         DateTime data,
         string comerciante,
+        CancellationToken ct = default);
+
+    Task<Resultado<ConsolidadoDiario>> AdicionarAsync(
+        ConsolidadoDiario consolidado,
         CancellationToken ct = default);
 
     Task<Resultado<ConsolidadoDiario>> ObterPorDataAsync(
@@ -21,7 +25,7 @@ public interface IConsolidadoDiarioRepository
         DateTime fim,
         CancellationToken ct = default);
 
-    Task<Resultado<Unit>> SalvarAsync(
+    Task<Resultado<Unit>> AtualizarAsync(
         ConsolidadoDiario consolidado,
         CancellationToken ct = default);
 }

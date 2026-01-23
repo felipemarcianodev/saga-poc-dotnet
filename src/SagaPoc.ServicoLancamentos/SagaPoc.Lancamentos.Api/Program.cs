@@ -1,16 +1,15 @@
 using WebHost.Extensions;
-using SagaPoc.FluxoCaixa.Api.Extensions;
+using SagaPoc.Lancamentos.Api.Extensions;
 using SagaPoc.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Services
 builder.Services
-    .AddConsolidadoInfrastructure(builder.Configuration)
-    .AddConsolidadoCaching(builder.Configuration)
-    .AddConsolidadoApplicationServices()
-    .AddConsolidadoRateLimiting()
-    .AddConsolidadoSwagger()
+    .AddLancamentosInfrastructure(builder.Configuration)
+    .AddLancamentosApplicationServices()
+    .AddLancamentosMessaging(builder.Configuration)
+    .AddLancamentosSwagger()
     .AddHealthChecks();
 
 builder.Services.AddControllers();
@@ -22,7 +21,7 @@ builder.Host.UseCustomSerilog();
 var app = builder.Build();
 
 // Startup
-app.MigrateConsolidadoDatabase();
+app.MigrateLancamentosDatabase();
 
 // Pipeline
 app.UseGlobalExceptionHandler();
@@ -34,10 +33,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseResponseCaching();
-app.UseRateLimiter();
 app.UseAuthorization();
 app.MapHealthChecks("/health");
-app.MapControllers().RequireRateLimiting("consolidado");
+app.MapControllers();
 
 app.Run();

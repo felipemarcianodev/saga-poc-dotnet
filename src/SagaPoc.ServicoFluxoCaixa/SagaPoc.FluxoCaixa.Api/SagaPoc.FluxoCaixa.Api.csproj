@@ -8,10 +8,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\WebHost\WebHost.csproj" />
-    <ProjectReference Include="..\SagaPoc.FluxoCaixa.Consolidado\SagaPoc.FluxoCaixa.Consolidado.csproj" />
+    <ProjectReference Include="..\SagaPoc.FluxoCaixa.Application\SagaPoc.FluxoCaixa.Application.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Domain\SagaPoc.FluxoCaixa.Domain.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Infrastructure\SagaPoc.FluxoCaixa.Infrastructure.csproj" />
-    <ProjectReference Include="..\SagaPoc.FluxoCaixa.Lancamentos\SagaPoc.FluxoCaixa.Lancamentos.csproj" />
   </ItemGroup>
 
 </Project>

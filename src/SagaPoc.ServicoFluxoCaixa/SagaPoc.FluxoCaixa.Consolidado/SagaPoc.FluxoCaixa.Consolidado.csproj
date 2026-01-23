@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\SagaPoc.Infrastructure.Core\SagaPoc.Infrastructure.Core.csproj" />
+    <ProjectReference Include="..\SagaPoc.FluxoCaixa.Application\SagaPoc.FluxoCaixa.Application.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Domain\SagaPoc.FluxoCaixa.Domain.csproj" />
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Infrastructure\SagaPoc.FluxoCaixa.Infrastructure.csproj" />
   </ItemGroup>
