@@ -31,7 +31,7 @@ public class Lancamento : AggregateRoot
     {
         // Validações de domínio
         var validacao = ValidarParametros(tipo, valor, descricao, comerciante);
-        if (validacao.EhFalha)
+        if (!validacao.EhSucesso)
             return Resultado<Lancamento>.Falha(validacao.Erro);
 
         var lancamento = new Lancamento

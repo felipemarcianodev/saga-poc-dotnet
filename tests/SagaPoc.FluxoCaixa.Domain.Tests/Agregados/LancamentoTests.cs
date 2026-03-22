@@ -43,7 +43,7 @@ public class LancamentoTests
             "COM001");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.ValorInvalido");
     }
 
@@ -59,7 +59,7 @@ public class LancamentoTests
             "COM001");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.DescricaoObrigatoria");
     }
 
@@ -78,7 +78,7 @@ public class LancamentoTests
             "COM001");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.DescricaoMuitoLonga");
     }
 
@@ -94,7 +94,7 @@ public class LancamentoTests
             "");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.ComercianteObrigatorio");
     }
 
@@ -110,7 +110,7 @@ public class LancamentoTests
             "COM001");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.ValorExcessivo");
     }
 
@@ -151,7 +151,7 @@ public class LancamentoTests
         var resultado = lancamento.Confirmar();
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.JaConfirmado");
     }
 
@@ -172,7 +172,7 @@ public class LancamentoTests
         var resultado = lancamento.Confirmar();
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.Cancelado");
     }
 
@@ -212,7 +212,7 @@ public class LancamentoTests
         var resultado = lancamento.Cancelar("");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.MotivoObrigatorio");
     }
 
@@ -233,7 +233,7 @@ public class LancamentoTests
         var resultado = lancamento.Cancelar("Segundo cancelamento");
 
         // Assert
-        resultado.EhFalha.Should().BeTrue();
+        resultado.EhSucesso.Should().BeFalse();
         resultado.Erro.Codigo.Should().Be("Lancamento.JaCancelado");
     }
 

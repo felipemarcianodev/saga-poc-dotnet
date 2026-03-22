@@ -54,7 +54,7 @@ public class ConsolidadoAppService : IConsolidadoAppService
         // Camada 3: Banco de dados
         var resultado = await _repository.ObterPorDataAsync(data.Date, comerciante, ct);
 
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
         {
             _logger.LogWarning(
                 "Consolidado nao encontrado: {Comerciante} - {Data}",

@@ -29,7 +29,7 @@ public static class ResultadoExtensions
     {
         var lista = resultados.ToList();
 
-        var primeiraFalha = lista.FirstOrDefault(r => r.EhFalha);
+        var primeiraFalha = lista.FirstOrDefault(r => !r.EhSucesso);
         if (primeiraFalha != null)
             return Resultado<List<T>>.Falha(primeiraFalha.Erro);
 
@@ -47,7 +47,7 @@ public static class ResultadoExtensions
     {
         var lista = resultados.ToList();
 
-        var erros = lista.Where(r => r.EhFalha).SelectMany(r => r.Erros).ToList();
+        var erros = lista.Where(r => !r.EhSucesso).SelectMany(r => r.Erros).ToList();
 
         if (erros.Any())
             return Resultado<List<T>>.Falha(erros);
@@ -125,7 +125,7 @@ public static class ResultadoExtensions
         Func<T, bool> predicado,
         Erro erro)
     {
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return resultado;
 
         return predicado(resultado.Valor)
@@ -144,13 +144,13 @@ public static class ResultadoExtensions
         this Resultado<T> resultado,
         params Func<T, Resultado<T>>[] validadores)
     {
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return resultado;
 
         foreach (var validador in validadores)
         {
             resultado = validador(resultado.Valor);
-            if (resultado.EhFalha)
+            if (!resultado.EhSucesso)
                 return resultado;
         }
 
@@ -188,7 +188,7 @@ public static class ResultadoExtensions
         if (resultado.EhSucesso && acaoSucesso != null)
             acaoSucesso(resultado.Valor);
 
-        if (resultado.EhFalha && acaoFalha != null)
+        if (!resultado.EhSucesso && acaoFalha != null)
             acaoFalha(resultado.Erro);
 
         return resultado;
@@ -240,7 +240,7 @@ public static class ResultadoExtensions
         Func<T, bool> predicado,
         Erro erroSeFalhar)
     {
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return resultado;
 
         return predicado(resultado.Valor)

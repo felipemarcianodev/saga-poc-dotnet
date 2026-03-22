@@ -42,7 +42,7 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
             comando.Comerciante,
             comando.Categoria);
 
-        if (resultadoCriacao.EhFalha)
+        if (!resultadoCriacao.EhSucesso)
         {
             _logger.LogWarning(
                 "Falha ao criar lancamento: {Erro}",
@@ -58,7 +58,7 @@ public class RegistrarLancamentoHandler : IHandleMessages<RegistrarLancamento>
 
             var resultadoPersistencia = await _repository.AdicionarAsync(lancamento);
 
-            if (resultadoPersistencia.EhFalha)
+            if (!resultadoPersistencia.EhSucesso)
             {
                 _logger.LogError(
                     "Falha ao persistir lancamento: {Erro}",

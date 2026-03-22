@@ -45,14 +45,14 @@ public class ServicoEntregador : IServicoEntregador
         // Validação em cascata (Railway-Oriented Programming)
         // 1. Validar taxa de entrega
         var resultadoTaxa = ValidarTaxaEntrega(taxaEntrega);
-        if (resultadoTaxa.EhFalha)
+        if (!resultadoTaxa.EhSucesso)
             return Resultado<DadosAlocacao>.Falha(resultadoTaxa.Erro);
 
         // 2. Validar endereço (encadeamento com BindAsync)
         var resultadoEndereco = await resultadoTaxa
             .BindAsync(_ => ValidarEnderecoAsync(enderecoEntrega));
 
-        if (resultadoEndereco.EhFalha)
+        if (!resultadoEndereco.EhSucesso)
             return Resultado<DadosAlocacao>.Falha(resultadoEndereco.Erro);
 
         // 3. Buscar e alocar entregador (encadeamento com BindAsync)

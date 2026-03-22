@@ -876,7 +876,7 @@ public class ServicoRestaurante
             activity?.SetTag("resultado.sucesso", resultado.EhSucesso);
             activity?.SetTag("valor_total", resultado.Valor?.ValorTotal);
 
-            if (resultado.EhFalha)
+            if (!resultado.EhSucesso)
             {
                 activity?.SetStatus(ActivityStatusCode.Error, resultado.Erro.Mensagem);
             }

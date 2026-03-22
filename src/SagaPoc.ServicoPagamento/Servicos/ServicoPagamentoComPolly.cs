@@ -40,7 +40,7 @@ public class ServicoPagamentoComPolly : IServicoPagamento
 
                 // Retry apenas em erros transitórios
                 ShouldHandle = new PredicateBuilder<Resultado<DadosTransacao>>()
-                    .HandleResult(r => r.EhFalha && r.Erro.Tipo == TipoErro.Timeout)
+                    .HandleResult(r => !r.EhSucesso && r.Erro.Tipo == TipoErro.Timeout)
                     .Handle<HttpRequestException>()
                     .Handle<TimeoutException>(),
 
@@ -67,7 +67,7 @@ public class ServicoPagamentoComPolly : IServicoPagamento
                 BreakDuration = TimeSpan.FromMinutes(2), // Permanecer aberto por 2 minutos
 
                 ShouldHandle = new PredicateBuilder<Resultado<DadosTransacao>>()
-                    .HandleResult(r => r.EhFalha)
+                    .HandleResult(r => !r.EhSucesso)
                     .Handle<Exception>(),
 
                 OnOpened = args =>

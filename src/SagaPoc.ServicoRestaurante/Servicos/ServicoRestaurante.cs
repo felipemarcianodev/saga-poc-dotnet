@@ -38,14 +38,14 @@ public class ServicoRestaurante : IServicoRestaurante
         // Validação em cascata usando Bind/BindAsync (Railway-Oriented Programming)
         // 1. Validar restaurante
         var resultadoValidacao = await ValidarRestauranteAsync(restauranteId);
-        if (resultadoValidacao.EhFalha)
+        if (!resultadoValidacao.EhSucesso)
             return Resultado<DadosValidacaoPedido>.Falha(resultadoValidacao.Erro);
 
         // 2. Validar itens (encadeamento com BindAsync)
         var resultadoItens = await resultadoValidacao
             .BindAsync(_ => ValidarItensAsync(restauranteId, itens));
 
-        if (resultadoItens.EhFalha)
+        if (!resultadoItens.EhSucesso)
             return Resultado<DadosValidacaoPedido>.Falha(resultadoItens.Erro);
 
         // 3. Calcular valores finais (encadeamento com BindAsync)

@@ -66,7 +66,7 @@ public class LancamentosController : ControllerBase
     {
         var resultado = await _lancamentoService.ObterPorIdAsync(id, ct);
 
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return NotFound(new { erro = resultado.Erro.Mensagem });
 
         var lancamento = resultado.Valor;
@@ -105,7 +105,7 @@ public class LancamentosController : ControllerBase
             dataFim,
             ct);
 
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return BadRequest(new { erro = resultado.Erro.Mensagem });
 
         var lancamentos = resultado.Valor.Select(l => new LancamentoResponse

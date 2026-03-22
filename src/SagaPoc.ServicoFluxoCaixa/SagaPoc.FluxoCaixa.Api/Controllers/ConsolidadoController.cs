@@ -33,7 +33,7 @@ public class ConsolidadoController : ControllerBase
     {
         var resultado = await _consolidadoService.ObterPorDataAsync(comerciante, data, ct);
 
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
         {
             _logger.LogWarning(
                 "Consolidado nao encontrado: {Comerciante} - {Data}",
@@ -72,7 +72,7 @@ public class ConsolidadoController : ControllerBase
         var resultado = await _consolidadoService.ObterPorPeriodoAsync(
             comerciante, inicio, fim, ct);
 
-        if (resultado.EhFalha)
+        if (!resultado.EhSucesso)
             return BadRequest(new { erro = resultado.Erro.Mensagem });
 
         var consolidados = resultado.Valor.Select(c => new ConsolidadoResponse

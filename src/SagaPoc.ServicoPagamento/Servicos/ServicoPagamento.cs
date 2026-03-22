@@ -39,12 +39,12 @@ public class ServicoPagamento : IServicoPagamento
         // Validação em cascata (Railway-Oriented Programming)
         // 1. Validar valor
         var resultadoValor = ValidarValor(valorTotal);
-        if (resultadoValor.EhFalha)
+        if (!resultadoValor.EhSucesso)
             return Resultado<DadosTransacao>.Falha(resultadoValor.Erro);
 
         // 2. Validar forma de pagamento (encadeamento com Bind)
         var resultadoForma = resultadoValor.Bind(_ => ValidarFormaPagamento(formaPagamento));
-        if (resultadoForma.EhFalha)
+        if (!resultadoForma.EhSucesso)
             return Resultado<DadosTransacao>.Falha(resultadoForma.Erro);
 
         // 3. Processar pagamento no gateway (encadeamento com BindAsync)

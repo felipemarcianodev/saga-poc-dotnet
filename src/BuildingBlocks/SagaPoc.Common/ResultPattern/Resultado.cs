@@ -23,15 +23,6 @@ public sealed class Resultado<T>
     public bool EhSucesso { get; }
 
     /// <summary>
-    /// Indica se a operação falhou.
-    /// </summary>
-    [MemberNotNullWhen(false, nameof(_valor))]
-    [MemberNotNullWhen(false, nameof(Valor))]
-    [MemberNotNullWhen(true, nameof(_erro))]
-    [MemberNotNullWhen(true, nameof(Erro))]
-    public bool EhFalha => !EhSucesso;
-
-    /// <summary>
     /// Obtém o valor retornado pela operação (disponível apenas em caso de sucesso).
     /// </summary>
     /// <exception cref="InvalidOperationException">Lançada quando acessada em caso de falha.</exception>
@@ -39,7 +30,7 @@ public sealed class Resultado<T>
     {
         get
         {
-            if (EhFalha)
+            if (!EhSucesso)
                 throw new InvalidOperationException("Não é possível acessar o valor de um resultado com falha.");
 
             return _valor;
@@ -205,7 +196,7 @@ public sealed class Resultado<T>
     /// <returns>O próprio resultado (para encadeamento).</returns>
     public Resultado<T> EmFalha(Action<Erro> acao)
     {
-        if (EhFalha)
+        if (!EhSucesso)
             acao(Erro);
 
         return this;

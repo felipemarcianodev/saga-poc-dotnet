@@ -43,7 +43,7 @@ public class LancamentoCreditoRegistradoHandler
                 evento.DataLancamento,
                 evento.Comerciante);
 
-            if (resultadoConsolidado.EhFalha)
+            if (!resultadoConsolidado.EhSucesso)
             {
                 _logger.LogError(
                     "Falha ao obter consolidado: {Erro}",
