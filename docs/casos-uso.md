@@ -671,9 +671,7 @@ Para cada caso de uso, validar:
 
 ## Referências
 
-- [plano-execucao.md](./plano-execucao/plano-execucao.md.md) - Plano geral do projeto
 - [arquitetura.md](./arquitetura.md) - Detalhes da arquitetura
-- [guia-masstransit.md](./guia-masstransit.md) - Guia do MassTransit
 
 ---
 

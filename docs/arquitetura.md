@@ -450,10 +450,8 @@ graph TD
     Root --> Sln[📄 SagaPoc.sln]
 
     Root --> Docs[📂 docs/]
-    Docs --> Doc1[📄 plano-execucao/]
-    Doc1 --> Doc2[📄 arquitetura.md]
-    Doc2 --> Doc3[📄 guia-rebus.md]
-    Doc3 --> Doc4[⭐ casos-uso.md<br/> Cenários]
+    Docs --> Doc2[📄 arquitetura.md]
+    Doc2 --> Doc4[⭐ casos-uso.md<br/> Cenários]
 
     Root --> Docker[📂 docker/]
     Docker --> DC[📄 docker-compose.yml]
@@ -1028,8 +1026,6 @@ Configurar RabbitMQ com persistência criptografada usando plugins.
 
 ## Referências
 
-- **[plano-execucao.md](./plano-execucao/plano-execucao.md.md)** - Plano completo do projeto
-- **[guia-rebus.md](./guia-rebus.md)** - Guia do Rebus
 - **[casos-uso.md](./casos-uso.md)** - Cenários implementados
 - **[Rebus Documentation](https://github.com/rebus-org/Rebus)** - Documentação oficial
 - **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**

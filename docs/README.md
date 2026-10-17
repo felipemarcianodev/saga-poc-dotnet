@@ -540,7 +540,6 @@ Cada serviço gera logs estruturados com Serilog. Exemplo de fluxo completo:
 ### Documentos Principais
 
 - **[casos-uso.md](casos-uso.md)** - Detalhamento completo dos 12 cenários com payloads
-- **[plano-execucao.md](plano-execucao/plano-execucao.md)** - Plano de execução do projeto
 - **[arquitetura.md](arquitetura.md)** - Detalhes da arquitetura e decisões técnicas
 
 ### Documentação Operacional (Fase 14)
