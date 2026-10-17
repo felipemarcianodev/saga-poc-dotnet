@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Rebus.Config;
 using SagaPoc.FluxoCaixa.Application.Services;
 using SagaPoc.FluxoCaixa.Consolidado.Handlers;
+using SagaPoc.FluxoCaixa.Domain.Eventos;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
 using SagaPoc.FluxoCaixa.Infrastructure.Servicos;
 using SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
@@ -34,8 +35,15 @@ try
             builder.Configuration["ConnectionStrings:ConsolidadoConnection"]!)
         .AddScoped<IConsolidadoDiarioRepository, ConsolidadoDiarioRepository>()
         .AddScoped<IUnitOfWork, UnitOfWork<ConsolidadoDbContext>>()
-        .AddDistributedMemoryCache()
         .AddScoped<ICacheService, RedisCacheService>();
+
+    // Mesmo Redis e mesmo prefixo da API de consulta: a invalidação feita aqui
+    // precisa apagar a chave que a API gravou.
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = builder.Configuration["ConnectionStrings:Redis"];
+        options.InstanceName = "FluxoCaixa:";
+    });
 
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
@@ -46,7 +54,18 @@ try
             Host = builder.Configuration["RabbitMQ:Host"]!,
             Username = builder.Configuration["RabbitMQ:Username"]!,
             Password = builder.Configuration["RabbitMQ:Password"]!,
-            QueueName = "fluxocaixa-consolidado"
+            QueueName = "fluxocaixa-consolidado",
+            // Uma mensagem por vez: a linha do consolidado não tem controle de
+            // concorrência, e dois eventos do mesmo dia em paralelo perderiam
+            // uma das atualizações (ler-alterar-gravar).
+            MaxParallelism = 1
+        },
+        // O worker de lançamentos usa Publish; sem a assinatura, o RabbitMQ
+        // descarta os eventos por não haver fila ligada ao tópico.
+        onCreated: async bus =>
+        {
+            await bus.Subscribe<LancamentoCreditoRegistrado>();
+            await bus.Subscribe<LancamentoDebitoRegistrado>();
         });
 
     builder.Services.AutoRegisterHandlersFromAssemblyOf<LancamentoCreditoRegistradoHandler>();

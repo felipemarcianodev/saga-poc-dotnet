@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Rebus.Config;
-using SagaPoc.FluxoCaixa.Domain.Eventos;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
 using SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
 using SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
@@ -37,10 +36,9 @@ try
             Username = builder.Configuration["RabbitMQ:Username"]!,
             Password = builder.Configuration["RabbitMQ:Password"]!,
             QueueName = "fluxocaixa-lancamentos"
-        },
-        routing => routing
-            .Map<LancamentoCreditoRegistrado>("fluxocaixa-consolidado")
-            .Map<LancamentoDebitoRegistrado>("fluxocaixa-consolidado"));
+        });
+    // Os eventos saem por Publish (tópico no RabbitMQ); quem os recebe é o
+    // Consolidado, que assina LancamentoCreditoRegistrado e LancamentoDebitoRegistrado.
 
     builder.Services.AutoRegisterHandlersFromAssemblyOf<RegistrarLancamentoHandler>();
 

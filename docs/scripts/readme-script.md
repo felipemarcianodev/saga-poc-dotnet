@@ -86,77 +86,31 @@ BASE_URL=http://localhost:8080 TEMPO_MAXIMO=90 ./testar-casos-de-uso.sh
 
 ## Scripts do Fluxo de Caixa
 
-### 2. `testar-fluxo-caixa.ps1` 🆕
+### 2. `testar-fluxo-caixa.sh`
 
-Testa o sistema de Fluxo de Caixa (CQRS + Event-Driven) com visualização em tempo real.
+Testa o fluxo de caixa (CQRS) de ponta a ponta e confere o resultado real: lançamentos pela API de escrita (porta 5200), gravação e publicação pelo worker, aplicação dos eventos pelo Consolidado e leitura pela API de consulta (porta 5100).
 
-**Uso:**
+O 202 da API de lançamentos não prova nada. O script espera as filas `fluxocaixa-lancamentos` e `fluxocaixa-consolidado` esvaziarem e só então confere os lançamentos gravados e os valores do consolidado. Cada cenário usa um comerciante novo, então o cache da API de consulta não interfere entre rodadas.
 
-```powershell
-# Testar TODOS os cenários
-.\testar-fluxo-caixa.ps1
+**Uso (Git Bash ou Linux, com a stack no ar):**
 
-# Testar cenário específico (1-4)
-.\testar-fluxo-caixa.ps1 -Cenario 1
+```bash
+bash docs/scripts/testar-fluxo-caixa.sh
 
-# Alterar URL da API
-.\testar-fluxo-caixa.ps1 -BaseUrl "http://localhost:5100"
+# Outras URLs ou tempo de espera
+LANCAMENTOS_URL=http://localhost:5200 CONSULTA_URL=http://localhost:5100 TEMPO_MAXIMO=90 bash docs/scripts/testar-fluxo-caixa.sh
 ```
 
-**Cenários Disponíveis:**
+| Cenário | O que envia | O que confere |
+|---|---|---|
+| 1 | Crédito de 150,50 e débito de 40,25 no mesmo dia | 2 lançamentos confirmados; saldo 110,25 |
+| 2 | 5 créditos (100 a 500) e 3 débitos (50, 75, 125) | 8 lançamentos; créditos 1500, débitos 250, saldo 1250 |
+| 3 | Crédito de 1000 ontem e débito de 250 hoje | Dois consolidados separados: saldo 1000 ontem e -250 hoje |
+| 4 | Valor zero, descrição e comerciante curtos demais | HTTP 400 e nenhum lançamento gravado |
 
-**Cenário 1: Fluxo Diário Completo**
-- Simula um dia completo de operações
-- Créditos: Vendas pela manhã e noite
-- Débitos: Compras de insumos
-- Mostra consolidado ao final
+Ao final, confere que nenhuma mensagem nova caiu na fila `error`. Sai com código 1 se qualquer verificação falhar.
 
-**Cenário 2: Alta Frequência de Lançamentos**
-- Envia 10 lançamentos em sequência rápida
-- Testa throughput do sistema
-- Valida se todos foram consolidados
-
-**Cenário 3: Performance de Cache**
-- Compara latência com/sem cache
-- 1ª requisição: MISS (consulta banco)
-- 2ª e 3ª: HIT (cache L1)
-- Mostra melhoria de performance em %
-
-**Cenário 4: Validação de Erros**
-- Testa validações de dados
-- Valor negativo (deve falhar)
-- Comerciante vazio (deve falhar)
-- Descrição muito longa (deve falhar)
-
-**Exemplo de Saída:**
-
-```
-╔═══════════════════════════════════════════════════════════════╗
-║ CENÁRIO 1: Fluxo Diário Completo (Happy Path)                ║
-╚═══════════════════════════════════════════════════════════════╝
-
-  Registrando lançamento de Credito...
-  ℹ️  Comerciante: COM001
-  Valor: R$ 150,00
-  ℹ️  Descrição: Venda produto A
-  Lançamento registrado com sucesso!
-
-  ...
-
- CONSULTANDO CONSOLIDADO DO DIA
-
-  ╭─────────────────────────────────────────╮
-  │         CONSOLIDADO DIÁRIO              │
-  ├─────────────────────────────────────────┤
-  │ Data: 2026-01-15                        │
-  │ Comerciante: COM001                     │
-  ├─────────────────────────────────────────┤
-  │ Créditos:     R$     700,50             │
-  │ Débitos:      R$      80,00             │
-  ├─────────────────────────────────────────┤
-  │ Saldo Diário: R$     620,50             │
-  ╰─────────────────────────────────────────╯
-```
+**`testar-fluxo-caixa.ps1` (legado):** usa uma única URL para as duas APIs e não confere o resultado; será revisto na fase 6 do plano de retomada. Use o `.sh`.
 
 ---
 

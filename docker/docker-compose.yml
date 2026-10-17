@@ -372,6 +372,104 @@ services:
         condition: service_healthy
       seq:
         condition: service_started
+      # Dono do schema do consolidado (aplica a migration ao subir)
+      fluxocaixa-consolidado:
+        condition: service_started
+    restart: unless-stopped
+
+  # ===================================
+  # FLUXO CAIXA - API de Lançamentos (escrita)
+  # ===================================
+  lancamentos-api:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Api/Dockerfile
+    container_name: lancamentos-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__LancamentosDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
+    networks:
+      - saga-network
+    ports:
+      - "5200:8080"
+    depends_on:
+      postgres-fluxocaixa:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+      # Dono do schema de lançamentos (aplica a migration ao subir)
+      lancamentos-worker:
+        condition: service_started
+    restart: unless-stopped
+
+  # ===================================
+  # FLUXO CAIXA - Worker de Lançamentos (grava e publica os eventos)
+  # ===================================
+  lancamentos-worker:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Worker/Dockerfile
+    container_name: lancamentos-worker
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - ConnectionStrings__FluxoCaixaConnection=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+      - Jaeger__Enabled=true
+      - Jaeger__AgentHost=jaeger
+      - Jaeger__AgentPort=6831
+      - Jaeger__Endpoint=http://jaeger:14268/api/traces
+      - Seq__Url=http://seq:80
+      - Seq__ApiKey=
+    networks:
+      - saga-network
+    depends_on:
+      postgres-fluxocaixa:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seq:
+        condition: service_started
+    restart: unless-stopped
+
+  # ===================================
+  # FLUXO CAIXA - Consolidado (assina os eventos e mantém o saldo diário)
+  # ===================================
+  fluxocaixa-consolidado:
+    build:
+      context: ..
+      dockerfile: src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Dockerfile
+    container_name: fluxocaixa-consolidado
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - ConnectionStrings__ConsolidadoConnection=Host=postgres-consolidado;Port=5432;Database=fluxocaixa_consolidado;Username=saga;Password=saga123
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=saga
+      - RabbitMQ__Password=saga123
+    networks:
+      - saga-network
+    depends_on:
+      postgres-consolidado:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

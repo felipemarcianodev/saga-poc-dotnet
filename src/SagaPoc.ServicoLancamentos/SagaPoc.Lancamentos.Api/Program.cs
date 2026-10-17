@@ -20,8 +20,7 @@ builder.Host.UseCustomSerilog();
 
 var app = builder.Build();
 
-// Startup
-app.MigrateLancamentosDatabase();
+// O schema de lançamentos é migrado pelo SagaPoc.Lancamentos.Worker, dono da escrita.
 
 // Pipeline
 app.UseGlobalExceptionHandler();
