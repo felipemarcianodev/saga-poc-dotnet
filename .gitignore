@@ -126,23 +126,6 @@ appsettings.*.json
 *.tmp
 *.temp
 
-# Ignora tudo dentro da pasta docs
-/docs/*
-
-# Mas permite arquivos de documentação
-!/docs/plano-execucao/
-!/docs/decisoes-arquiteturais
-!/docs/README.md
-!/docs/arquitetura.md
-!/docs/guia-masstransit.md
-!/docs/casos-uso.md
-!/docs/images/
-!/docs/scripts/
-!/docs/runbook-troubleshooting.md
-!/docs/boas-praticas.md
-!/docs/diagramas-compensacao.md
-!/docs/fluxo-caixa.md
-!/docs/diagramas-fluxo-caixa.md
-!/docs/indice-documentacao.md
-!/docs/swagger-openapi.md
-!/docs/troubleshooting-fluxo-caixa.md
+# Rascunhos locais de documentação (prompts de geração de imagem, planos de trabalho)
+/docs/gerador-imagens*.md
+/docs/rascunhos/
