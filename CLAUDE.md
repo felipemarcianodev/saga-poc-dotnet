@@ -21,12 +21,21 @@ O trabalho segue o **Plano de retomada** (fim deste arquivo), uma fase por vez:
    - `dotnet test` com 100% aprovado
    - se a fase mexe em serviço, mensageria ou compose: stack no Docker + `docs/scripts/testar-casos-de-uso.sh` com saída 0
 4. Commit em pt-BR com acentuação, no formato `tipo(escopo): descrição` (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`). **Nunca** incluir assinatura ou atribuição de IA (`Co-Authored-By` etc.).
-5. Push da branch, PR para a `main` e merge quando os portões passarem. A `main` do GitHub é **protegida** e só aceita PR; nunca tentar push direto nem `--force`.
+5. Push da branch, PR para a `main` e merge quando os portões passarem. A `main` do GitHub é **protegida** e só aceita PR; nunca tentar push direto na `main`.
 6. Atualizar o status da fase neste arquivo no mesmo PR.
 
 Falha nos portões → corrigir até ficar verde; não abrir PR vermelho.
 
-Para criar PR, o token do MCP do GitHub precisa da permissão *Pull requests: Read and write* neste repositório (em 2026-10-17 ele devolvia 403). Alternativa: `gh auth login` e `gh pr create`.
+**Merge:** sempre squash, com a branch apagada em seguida. A exclusão automática está desligada no repositório, então passar a flag:
+
+```bash
+gh pr create --base main --head fase/N-slug --title "tipo(escopo): descrição" --body-file corpo.md
+gh pr merge <número> --squash --delete-branch --subject "tipo(escopo): descrição (#<número>)"
+```
+
+O squash cria na `main` um commit novo, então a branch da fase seguinte (criada em cima da anterior) precisa ser rebaseada antes do PR dela: `git rebase --onto origin/main <último-commit-da-fase-anterior> fase/N-slug`, conferir com `git diff` que o conteúdo não mudou e publicar com `git push --force-with-lease` (só na branch da fase, nunca na `main`). Um PR fechado não pode ser reaberto depois de force-push; nesse caso, abrir um novo.
+
+Use o `gh` (autenticado) para PR e merge; o token do MCP do GitHub só tem permissão de leitura neste repositório.
 
 ---
 
@@ -122,9 +131,9 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 
 | Fase | Branch | Status |
 |---|---|---|
-| 1. SAGA funcionando: build corrigido, Rebus como dono do estado da SAGA (EF removido do orquestrador) | `fase/1-saga-rebus` | ✅ Feita — PR pendente |
-| 2. Script de casos de uso que confere o desfecho real; correção do pool do entregador | `fase/2-script-testes` | ✅ Feita — PR pendente |
-| 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Feita — PR pendente |
+| 1. SAGA funcionando: build corrigido, Rebus como dono do estado da SAGA (EF removido do orquestrador) | `fase/1-saga-rebus` | ✅ Na `main` (#1) |
+| 2. Script de casos de uso que confere o desfecho real; correção do pool do entregador | `fase/2-script-testes` | ✅ Na `main` (#3) |
+| 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Na `main` (este PR) |
 | 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ⏳ Pendente |
 | 4. Migração para .NET 10 | `fase/4-dotnet-10` | ⏳ Pendente |
 | 5. CI no GitHub Actions | `fase/5-ci` | ⏳ Pendente |
