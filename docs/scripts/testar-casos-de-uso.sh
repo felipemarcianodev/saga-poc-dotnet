@@ -1,59 +1,35 @@
 #!/bin/bash
 
-# Script Bash para testar todos os 12 casos de uso da POC SAGA
+# Testa os 12 casos de uso da POC SAGA e confere o desfecho real de cada pedido.
+#
 # Uso: ./testar-casos-de-uso.sh [numero-do-caso]
-# Exemplo: ./testar-casos-de-uso.sh 1  (testa apenas o caso 1)
-# Exemplo: ./testar-casos-de-uso.sh     (testa todos os casos)
+#   ./testar-casos-de-uso.sh      testa todos os casos
+#   ./testar-casos-de-uso.sh 4    testa apenas o caso 4
+#
+# A API responde 202 assim que aceita o pedido; isso não prova que a SAGA
+# terminou. Por isso, depois de enviar os pedidos, o script lê os logs do
+# orquestrador (docker logs) e classifica cada pedido em CONCLUIDO, CANCELADO
+# ou COMPENSADO, comparando com o desfecho esperado do caso.
+#
+# Variáveis de ambiente:
+#   BASE_URL           URL da API (padrão: http://localhost:5000)
+#   ORQUESTRADOR       container do orquestrador (padrão: saga-orquestrador)
+#   TEMPO_MAXIMO       segundos de espera pelos desfechos (padrão: 60)
+#
+# Código de saída: 0 se todos os casos tiveram o desfecho esperado; 1 caso contrário.
 
 BASE_URL="${BASE_URL:-http://localhost:5000}"
 API_ENDPOINT="$BASE_URL/api/pedidos"
+ORQUESTRADOR="${ORQUESTRADOR:-saga-orquestrador}"
+TEMPO_MAXIMO="${TEMPO_MAXIMO:-60}"
 
 # Cores
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-MAGENTA='\033[0;35m'
 GRAY='\033[0;37m'
-NC='\033[0m' # No Color
-
-testar_caso() {
-    local numero=$1
-    local nome=$2
-    local payload=$3
-
-    echo -e "\n${CYAN}========================================"
-    echo -e "CASO $numero : $nome"
-    echo -e "========================================${NC}\n"
-
-    echo -e "${YELLOW}Payload:${NC}"
-    echo -e "${GRAY}$payload${NC}"
-
-    response=$(curl -s -X POST "$API_ENDPOINT" \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        -w "\nHTTP_STATUS:%{http_code}")
-
-    http_status=$(echo "$response" | grep "HTTP_STATUS" | cut -d':' -f2)
-    body=$(echo "$response" | sed '/HTTP_STATUS/d')
-
-    if [ "$http_status" == "200" ] || [ "$http_status" == "201" ] || [ "$http_status" == "202" ]; then
-        echo -e "\n${GREEN} Resposta (HTTP $http_status):${NC}"
-        echo -e "${GREEN}$body${NC}" | jq '.' 2>/dev/null || echo "$body"
-
-        pedido_id=$(echo "$body" | jq -r '.pedidoId' 2>/dev/null)
-        status=$(echo "$body" | jq -r '.status' 2>/dev/null)
-
-        echo -e "\n${MAGENTA}📊 PedidoId: $pedido_id${NC}"
-        echo -e "${MAGENTA}Status: $status${NC}"
-
-        echo -e "\n${YELLOW}⏳ Aguarde 5 segundos para verificar os logs dos serviços...${NC}\n"
-        sleep 5
-    else
-        echo -e "\n${RED}❌ Erro ao chamar API (HTTP $http_status):${NC}"
-        echo -e "${RED}$body${NC}"
-    fi
-}
+NC='\033[0m'
 
 # ========================================
 # Payloads dos Casos de Uso
@@ -252,58 +228,131 @@ CASO_12='{
 }'
 
 # ========================================
+# Casos: nome e desfecho esperado
+# ========================================
+
+NOMES=("" "Pedido Normal (Happy Path)" "Restaurante Fechado" "Item Indisponível"
+    "Pagamento Recusado" "Sem Entregador Disponível" "Timeout no Pagamento"
+    "Pedido Premium (VIP)" "Múltiplos Itens" "Endereço Longe"
+    "Falha na Notificação" "Pedido Agendado" "Compensação Total")
+
+ESPERADO=("" CONCLUIDO CANCELADO CANCELADO COMPENSADO COMPENSADO COMPENSADO
+    CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO COMPENSADO)
+
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+declare -A PEDIDO_ID
+
+# Envia o payload como arquivo para preservar o UTF-8: passar JSON com acento
+# direto no argumento do curl corrompe o texto no Git Bash do Windows.
+enviar_caso() {
+    local numero=$1
+    local var="CASO_$numero"
+    local arquivo="$TMP_DIR/caso$numero.json"
+    printf '%s' "${!var}" > "$arquivo"
+
+    local resposta http_status corpo
+    resposta=$(curl -s -X POST "$API_ENDPOINT" \
+        -H "Content-Type: application/json; charset=utf-8" \
+        --data-binary @"$arquivo" \
+        -w $'\n%{http_code}')
+    http_status=$(echo "$resposta" | tail -n1)
+    corpo=$(echo "$resposta" | sed '$d')
+
+    if [ "$http_status" == "202" ]; then
+        PEDIDO_ID[$numero]=$(echo "$corpo" | sed -n 's/.*"pedidoId":"\([^"]*\)".*/\1/p')
+        echo -e "${GRAY}Caso $numero (${NOMES[$numero]}): aceito, pedido ${PEDIDO_ID[$numero]}${NC}"
+    else
+        echo -e "${RED}Caso $numero (${NOMES[$numero]}): HTTP $http_status${NC}"
+        echo -e "${RED}$corpo${NC}"
+    fi
+}
+
+# Classifica o desfecho de um pedido a partir das linhas [SAGA] do orquestrador.
+classificar() {
+    local linhas=$1
+    if echo "$linhas" | grep -q 'CONCLUÍDO COM SUCESSO'; then echo CONCLUIDO
+    elif echo "$linhas" | grep -q 'COMPENSAÇÃO CONCLUÍDA'; then echo COMPENSADO
+    elif echo "$linhas" | grep -q 'Cancelado:'; then echo CANCELADO
+    elif [ -z "$linhas" ]; then echo SEM_REGISTRO
+    else echo EM_ANDAMENTO
+    fi
+}
+
+# ========================================
 # EXECUÇÃO
 # ========================================
 
-echo -e "${CYAN}"
-cat << "EOF"
-╔════════════════════════════════════════════════════════════╗
-║                                                            ║
-║     TESTES DOS CASOS DE USO - POC SAGA PATTERN             ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
-EOF
-echo -e "${NC}"
-
-echo -e "${CYAN}API: $API_ENDPOINT${NC}\n"
-
 CASO_USO=${1:-0}
-
-if [ "$CASO_USO" -eq 0 ]; then
-    # Testar todos os casos
-    echo -e "${GREEN}🚀 Testando TODOS os 12 casos de uso...${NC}\n"
-
-    testar_caso 1 "Pedido Normal (Happy Path)" "$CASO_1"
-    testar_caso 2 "Restaurante Fechado" "$CASO_2"
-    testar_caso 3 "Item Indisponível" "$CASO_3"
-    testar_caso 4 "Pagamento Recusado" "$CASO_4"
-    testar_caso 5 "Sem Entregador Disponível" "$CASO_5"
-    testar_caso 6 "Timeout no Pagamento" "$CASO_6"
-    testar_caso 7 "Pedido Premium (VIP)" "$CASO_7"
-    testar_caso 8 "Múltiplos Itens" "$CASO_8"
-    testar_caso 9 "Endereço Longe" "$CASO_9"
-    testar_caso 10 "Falha na Notificação" "$CASO_10"
-    testar_caso 11 "Pedido Agendado" "$CASO_11"
-    testar_caso 12 "Compensação Total" "$CASO_12"
-
-    echo -e "\n${GREEN} Todos os 12 casos foram executados!${NC}"
+if [ "$CASO_USO" -eq 0 ] 2>/dev/null; then
+    CASOS=$(seq 1 12)
+elif [ "$CASO_USO" -ge 1 ] 2>/dev/null && [ "$CASO_USO" -le 12 ]; then
+    CASOS=$CASO_USO
 else
-    # Testar caso específico
-    case $CASO_USO in
-        1) testar_caso 1 "Pedido Normal (Happy Path)" "$CASO_1" ;;
-        2) testar_caso 2 "Restaurante Fechado" "$CASO_2" ;;
-        3) testar_caso 3 "Item Indisponível" "$CASO_3" ;;
-        4) testar_caso 4 "Pagamento Recusado" "$CASO_4" ;;
-        5) testar_caso 5 "Sem Entregador Disponível" "$CASO_5" ;;
-        6) testar_caso 6 "Timeout no Pagamento" "$CASO_6" ;;
-        7) testar_caso 7 "Pedido Premium (VIP)" "$CASO_7" ;;
-        8) testar_caso 8 "Múltiplos Itens" "$CASO_8" ;;
-        9) testar_caso 9 "Endereço Longe" "$CASO_9" ;;
-        10) testar_caso 10 "Falha na Notificação" "$CASO_10" ;;
-        11) testar_caso 11 "Pedido Agendado" "$CASO_11" ;;
-        12) testar_caso 12 "Compensação Total" "$CASO_12" ;;
-        *) echo -e "${RED}❌ Caso de uso inválido. Use valores de 1 a 12.${NC}" ;;
-    esac
+    echo -e "${RED}Caso de uso inválido. Use valores de 1 a 12.${NC}"
+    exit 1
 fi
 
-echo -e "\n${YELLOW}📝 Para ver os logs detalhados, verifique o console dos serviços em execução.${NC}\n"
+if ! docker inspect "$ORQUESTRADOR" >/dev/null 2>&1; then
+    echo -e "${RED}Container '$ORQUESTRADOR' não encontrado. Suba a stack com: docker compose -f docker/docker-compose.yml up -d${NC}"
+    exit 1
+fi
+
+echo -e "${CYAN}Testes dos casos de uso - POC SAGA Pattern${NC}"
+echo -e "${CYAN}API: $API_ENDPOINT${NC}\n"
+
+inicio=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+for n in $CASOS; do enviar_caso "$n"; done
+
+# Aguarda até todos os pedidos aceitos terem desfecho ou o tempo acabar.
+echo -e "\n${YELLOW}Aguardando os desfechos (até ${TEMPO_MAXIMO}s)...${NC}"
+for _ in $(seq 1 "$TEMPO_MAXIMO"); do
+    logs=$(docker logs "$ORQUESTRADOR" --since "$inicio" 2>&1 | grep '\[SAGA\]')
+    pendentes=0
+    for n in $CASOS; do
+        [ -z "${PEDIDO_ID[$n]}" ] && continue
+        d=$(classificar "$(echo "$logs" | grep -F "${PEDIDO_ID[$n]}")")
+        [[ "$d" == SEM_REGISTRO || "$d" == EM_ANDAMENTO ]] && pendentes=$((pendentes + 1))
+    done
+    [ "$pendentes" -eq 0 ] && break
+    sleep 1
+done
+
+# Relatório
+falhas=0
+avisos=0
+echo
+printf "%-5s %-28s %-13s %-13s %s\n" CASO NOME ESPERADO OBTIDO RESULTADO
+for n in $CASOS; do
+    if [ -z "${PEDIDO_ID[$n]}" ]; then
+        obtido="NAO_ACEITO"; linhas=""
+    else
+        linhas=$(echo "$logs" | grep -F "${PEDIDO_ID[$n]}")
+        obtido=$(classificar "$linhas")
+    fi
+
+    if [ "$obtido" == "${ESPERADO[$n]}" ]; then
+        resultado="${GREEN}OK${NC}"
+    elif [ "${ESPERADO[$n]}" == "CONCLUIDO" ] && [ "$obtido" == "COMPENSADO" ] \
+        && echo "$linhas" | grep -q 'Tente novamente em alguns minutos'; then
+        # O serviço de entregador simula horário de pico (12h-14h UTC) com 30%
+        # de chance de não haver entregador: desfecho válido, mas não o esperado.
+        resultado="${YELLOW}AVISO (horário de pico simulado)${NC}"
+        avisos=$((avisos + 1))
+    else
+        resultado="${RED}FALHOU${NC}"
+        falhas=$((falhas + 1))
+    fi
+    printf "%-5s %-28s %-13s %-13s " "$n" "${NOMES[$n]:0:28}" "${ESPERADO[$n]}" "$obtido"
+    echo -e "$resultado"
+done
+
+echo
+if [ "$falhas" -eq 0 ]; then
+    echo -e "${GREEN}Todos os casos tiveram o desfecho esperado.${NC} Avisos: $avisos"
+    exit 0
+fi
+echo -e "${RED}$falhas caso(s) com desfecho diferente do esperado.${NC} Avisos: $avisos"
+echo -e "${YELLOW}Detalhes: docker logs $ORQUESTRADOR | grep '\[SAGA\]'${NC}"
+exit 1

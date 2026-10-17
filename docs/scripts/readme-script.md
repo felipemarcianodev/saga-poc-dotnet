@@ -33,36 +33,54 @@ cd C:\Projetos\saga-poc-dotnet\docs\scripts
 
 ## Scripts do SAGA Pattern
 
-### 1. `testar-casos-de-uso.ps1` / `testar-casos-de-uso.sh`
+### 1. `testar-casos-de-uso.sh` / `testar-casos-de-uso.ps1`
 
-Testa os 12 casos de uso do SAGA Pattern (Delivery de Comida).
+Testa os 12 casos de uso do SAGA Pattern (delivery de comida).
 
-**Uso:**
+A versão Bash confere o **desfecho real** de cada pedido. A API responde 202 assim que aceita o pedido, o que não prova que a SAGA terminou; por isso o script lê os logs do orquestrador (`docker logs saga-orquestrador`) e compara o desfecho de cada pedido com o esperado. Sai com código 1 se algum caso divergir, então serve para validação automatizada.
+
+**Uso (Bash, inclusive Git Bash no Windows):**
+
+```bash
+# Testar todos os casos
+./testar-casos-de-uso.sh
+
+# Testar um caso específico (1-12)
+./testar-casos-de-uso.sh 5
+
+# Outra URL de API ou outro tempo máximo de espera
+BASE_URL=http://localhost:8080 TEMPO_MAXIMO=90 ./testar-casos-de-uso.sh
+```
+
+**Uso (PowerShell):**
 
 ```powershell
-# Testar TODOS os casos
 .\testar-casos-de-uso.ps1
-
-# Testar caso específico (1-12)
 .\testar-casos-de-uso.ps1 5
-
-# Alterar URL da API
 .\testar-casos-de-uso.ps1 -BaseUrl "http://localhost:8080"
 ```
 
-**Casos Disponíveis:**
-1. Pedido Normal (Happy Path)
-2. ❌ Restaurante Fechado
-3. ❌ Item Indisponível
-4. ❌ Cartão Recusado
-5. ❌ Sem Entregador
-6. ⚠️ Cliente Sem Notificação
-7. ❌ Timeout no Pagamento
-8. ❌ Valor Muito Alto (Fraude)
-9. ❌ Endereço Fora de Área
-10. Pedido VIP
-11. Múltiplos Itens
-12. Pedido Complexo
+**Casos e desfecho esperado:**
+
+| Caso | Cenário | Desfecho esperado |
+|---|---|---|
+| 1 | Pedido normal (happy path) | Concluído |
+| 2 | Restaurante fechado | Cancelado |
+| 3 | Item indisponível | Cancelado |
+| 4 | Pagamento recusado | Compensado |
+| 5 | Sem entregador (endereço fora da área) | Compensado |
+| 6 | Timeout no pagamento | Compensado |
+| 7 | Pedido premium (VIP) | Concluído |
+| 8 | Múltiplos itens | Concluído |
+| 9 | Endereço longe | Concluído |
+| 10 | Falha na notificação | Concluído |
+| 11 | Pedido agendado | Concluído |
+| 12 | Compensação total | Compensado |
+
+- **Cancelado:** a SAGA para antes de qualquer passo que precise ser desfeito.
+- **Compensado:** um passo falhou depois de outros terem sido executados, e a SAGA desfez os anteriores (estorno, liberação do entregador, cancelamento no restaurante).
+
+> **Horário de pico simulado:** entre 12h e 14h (UTC), o serviço de entregador recusa 30% das alocações. Nessa janela, um caso que deveria concluir pode terminar compensado; o script marca isso como **AVISO**, e não como falha.
 
 ---
 
