@@ -21,8 +21,7 @@ builder.Host.UseCustomSerilog();
 
 var app = builder.Build();
 
-// Startup
-app.MigrateConsolidadoDatabase();
+// O schema do consolidado é migrado pelo SagaPoc.FluxoCaixa.Consolidado, dono da escrita.
 
 // Pipeline
 app.UseGlobalExceptionHandler();

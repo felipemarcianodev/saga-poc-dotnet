@@ -35,54 +35,58 @@ public class LancamentoCreditoRegistradoHandler
             evento.Valor,
             evento.DataLancamento);
 
+        ConsolidadoDiario? consolidado = null;
+
         try
         {
-            await _unitOfWork.BeginTransactionAsync();
-
-            var resultadoConsolidado = await _repository.ObterAsync(
-                evento.DataLancamento,
-                evento.Comerciante);
-
-            if (!resultadoConsolidado.EhSucesso)
+            await _unitOfWork.ExecutarEmTransacaoAsync(async () =>
             {
-                _logger.LogError(
-                    "Falha ao obter consolidado: {Erro}",
-                    resultadoConsolidado.Erro.Mensagem);
-                await _unitOfWork.RollbackAsync();
-                throw new InvalidOperationException(resultadoConsolidado.Erro.Mensagem);
-            }
-
-            var consolidado = resultadoConsolidado.Valor;
-
-            if (consolidado is null)
-            {
-                var dataUtc = DateTime.SpecifyKind(evento.DataLancamento.Date, DateTimeKind.Utc);
-                consolidado = ConsolidadoDiario.Criar(dataUtc, evento.Comerciante);
-                await _repository.AdicionarAsync(consolidado);
-
-                _logger.LogInformation(
-                    "Consolidado criado para {Data} - Comerciante: {Comerciante}",
-                    dataUtc,
+                var resultadoConsolidado = await _repository.ObterAsync(
+                    evento.DataLancamento,
                     evento.Comerciante);
-            }
 
-            consolidado.AplicarCredito(evento.Valor);
-            await _repository.AtualizarAsync(consolidado);
+                if (!resultadoConsolidado.EhSucesso)
+                    throw new InvalidOperationException(resultadoConsolidado.Erro.Mensagem);
 
-            await _unitOfWork.CommitAsync();
+                consolidado = resultadoConsolidado.Valor;
 
-            await _cache.RemoveAsync(
-                $"consolidado:{evento.Comerciante}:{evento.DataLancamento:yyyy-MM-dd}");
+                if (consolidado is null)
+                {
+                    var dataUtc = DateTime.SpecifyKind(evento.DataLancamento.Date, DateTimeKind.Utc);
+                    consolidado = ConsolidadoDiario.Criar(dataUtc, evento.Comerciante);
+                    await _repository.AdicionarAsync(consolidado);
 
-            _logger.LogInformation(
-                "Consolidado atualizado com credito. Saldo atual: {Saldo}",
-                consolidado.SaldoDiario);
+                    _logger.LogInformation(
+                        "Consolidado criado para {Data} - Comerciante: {Comerciante}",
+                        dataUtc,
+                        evento.Comerciante);
+
+                    consolidado.AplicarCredito(evento.Valor);
+                }
+                else
+                {
+                    consolidado.AplicarCredito(evento.Valor);
+                    // Update só no registro que já existia; no recém-adicionado
+                    // viraria UPDATE de uma linha que ainda não está no banco.
+                    await _repository.AtualizarAsync(consolidado);
+                }
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao processar credito. Realizando rollback.");
-            await _unitOfWork.RollbackAsync();
+            // Relança para o Rebus repetir; dois eventos do mesmo dia podem criar o
+            // consolidado ao mesmo tempo, e a segunda tentativa encontra o registro.
+            _logger.LogError(ex,
+                "Erro ao processar credito {LancamentoId}",
+                evento.LancamentoId);
             throw;
         }
+
+        await _cache.RemoveAsync(
+            $"consolidado:{evento.Comerciante}:{evento.DataLancamento:yyyy-MM-dd}");
+
+        _logger.LogInformation(
+            "Consolidado atualizado com credito. Saldo atual: {Saldo}",
+            consolidado!.SaldoDiario);
     }
 }

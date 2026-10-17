@@ -14,4 +14,7 @@
     <ProjectReference Include="..\SagaPoc.FluxoCaixa.Infrastructure\SagaPoc.FluxoCaixa.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

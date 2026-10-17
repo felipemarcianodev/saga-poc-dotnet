@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;
 
 namespace SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
@@ -7,8 +6,6 @@ namespace SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
 public class UnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
 {
     private readonly TContext _context;
-    private IDbContextTransaction? _transaction;
-    private bool _disposed;
 
     public UnitOfWork(TContext context)
     {
@@ -20,42 +17,26 @@ public class UnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
         return await _context.SaveChangesAsync(ct);
     }
 
-    public async Task BeginTransactionAsync(CancellationToken ct = default)
+    public async Task ExecutarEmTransacaoAsync(Func<Task> operacao, CancellationToken ct = default)
     {
-        _transaction ??= await _context.Database.BeginTransactionAsync(ct);
-    }
+        // O DbContext usa EnableRetryOnFailure, que recusa transação aberta fora
+        // da estratégia de execução. A estratégia repete o bloco inteiro.
+        var estrategia = _context.Database.CreateExecutionStrategy();
 
-    public async Task CommitAsync(CancellationToken ct = default)
-    {
-        if (_transaction is null) return;
-
-        await _context.SaveChangesAsync(ct);
-        await _transaction.CommitAsync(ct);
-        await _transaction.DisposeAsync();
-        _transaction = null;
-    }
-
-    public async Task RollbackAsync(CancellationToken ct = default)
-    {
-        if (_transaction is null) return;
-
-        await _transaction.RollbackAsync(ct);
-        await _transaction.DisposeAsync();
-        _transaction = null;
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed && disposing)
+        await estrategia.ExecuteAsync(async () =>
         {
-            _transaction?.Dispose();
-            _disposed = true;
-        }
+            // Descarta o que uma tentativa anterior deixou rastreado.
+            _context.ChangeTracker.Clear();
+
+            await using var transacao = await _context.Database.BeginTransactionAsync(ct);
+            await operacao();
+            await _context.SaveChangesAsync(ct);
+            await transacao.CommitAsync(ct);
+        });
     }
 
     public void Dispose()
     {
-        Dispose(true);
         GC.SuppressFinalize(this);
     }
 }
