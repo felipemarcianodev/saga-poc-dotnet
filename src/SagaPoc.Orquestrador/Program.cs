@@ -1,11 +1,7 @@
-using Microsoft.EntityFrameworkCore;
-using Polly;
 using Rebus.Config;
 using Rebus.Routing.TypeBased;
 using SagaPoc.Common.Mensagens.Comandos;
 using SagaPoc.Observability;
-using SagaPoc.Orquestrador;
-using SagaPoc.Orquestrador.Persistence;
 using SagaPoc.Orquestrador.Sagas;
 using Serilog;
 
@@ -27,16 +23,11 @@ try
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
-    // ==================== ENTITY FRAMEWORK CORE ====================
-
-    // Configurar DbContext para persistência do estado da SAGA
+    // Estado da SAGA persistido pelo próprio Rebus no PostgreSQL. O Rebus cria e
+    // mantém as tabelas (id, revision, data em JSONB + índice de correlação);
+    // nenhum outro componente deve criar ou alterar essas tabelas.
     var connectionString = builder.Configuration.GetConnectionString("SagaDatabase")
         ?? throw new InvalidOperationException("Connection string 'SagaDatabase' não encontrada.");
-
-    builder.Services.AddDbContext<SagaDbContext>(options =>
-    {
-        options.UseNpgsql(connectionString);
-    });
 
     // ==================== REBUS COM RABBITMQ ====================
 
@@ -47,8 +38,9 @@ try
             "fila-orquestrador"))
         .Sagas(s => s.StoreInPostgres(
             connectionString,
-            "PedidoSagas",        // Nome da tabela de dados da SAGA
-            "PedidoSagasIndex"))  // Nome da tabela de índices da SAGA
+            "pedido_saga_data",   // Tabela de dados da SAGA
+            "pedido_saga_index",  // Tabela de índices de correlação
+            automaticallyCreateTables: true))
         .Routing(r => r.TypeBased()
             // Rotas para comandos enviados pela SAGA
             .Map<ValidarPedidoRestaurante>("fila-restaurante")
@@ -69,12 +61,7 @@ try
     // Registrar a SAGA
     builder.Services.AutoRegisterHandlersFromAssemblyOf<PedidoSaga>();
 
-    builder.Services.AddHostedService<Worker>();
-
     var host = builder.Build();
-
-    // Garantir que o banco de dados e as tabelas sejam criados
-    await host.EnsureDatabaseCreatedAsync();
 
     Log.Information("Orquestrador SAGA iniciado com sucesso");
 

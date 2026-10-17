@@ -180,25 +180,27 @@ docker exec -it saga-postgres psql -U saga -d sagapoc
 # Ver todas as tabelas
 \dt
 
-# Ver todas as SAGAs ativas
-SELECT "Id", "Revision", "Data"::json->>'EstadoAtual' as estado
-FROM "PedidoSagas";
+# Ver todas as SAGAs em andamento
+# (o Rebus grava o estado em "data" como JSON em bytea; SAGA concluída ou
+# compensada é removida da tabela por MarkAsComplete)
+SELECT id, revision, convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado
+FROM pedido_saga_data;
 
 # Ver SAGAs por estado
 SELECT
-  "Data"::json->>'EstadoAtual' as estado,
-  COUNT(*) as total
-FROM "PedidoSagas"
+  convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado,
+  COUNT(*) AS total
+FROM pedido_saga_data
 GROUP BY estado;
 
 # Ver detalhes de uma SAGA específica
 SELECT
-  "Data"::json->>'EstadoAtual' as estado,
-  "Data"::json->>'ClienteId' as cliente,
-  "Data"::json->>'ValorTotal' as valor,
-  "Data"::json->>'DataInicio' as inicio
-FROM "PedidoSagas"
-WHERE "Id" = 'seu-guid-aqui';
+  convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado,
+  convert_from(data, 'UTF8')::json->>'ClienteId' AS cliente,
+  convert_from(data, 'UTF8')::json->>'ValorTotal' AS valor,
+  convert_from(data, 'UTF8')::json->>'DataInicio' AS inicio
+FROM pedido_saga_data
+WHERE id = 'seu-guid-aqui';
 
 # Sair do psql
 \q
