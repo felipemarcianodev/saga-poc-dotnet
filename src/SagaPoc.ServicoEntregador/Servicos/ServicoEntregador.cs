@@ -15,10 +15,14 @@ public class ServicoEntregador : IServicoEntregador
     // Simulação de entregadores em memória (apenas para POC)
     private static readonly List<string> EntregadoresDisponiveis = new()
     {
-        "ENT001", "ENT002", "ENT003", "ENT004", "ENT005"
+        "ENT001", "ENT002", "ENT003", "ENT004", "ENT005",
+        "ENT006", "ENT007", "ENT008", "ENT009", "ENT010"
     };
 
     private static readonly HashSet<string> EntregadoresAlocados = new();
+
+    // Escala da simulação: cada minuto estimado de entrega dura 1 segundo real.
+    private const int SegundosPorMinutoSimulado = 1;
     private static readonly object Lock = new();
 
     public ServicoEntregador(ILogger<ServicoEntregador> logger)
@@ -173,6 +177,11 @@ public class ServicoEntregador : IServicoEntregador
             tempoEstimado = (int)(tempoEstimado * 0.7); // 30% mais rápido
         }
 
+        // O entregador volta ao pool quando a entrega simulada termina; sem isso,
+        // cada pedido concluído prendia um entregador para sempre e o serviço
+        // passava a recusar todos os pedidos depois de esgotar o pool.
+        _ = ConcluirEntregaSimuladaAsync(entregadorId, TimeSpan.FromSeconds(tempoEstimado * SegundosPorMinutoSimulado));
+
         _logger.LogInformation(
             "Entregador alocado. EntregadorId: {EntregadorId}, RestauranteId: {RestauranteId}, " +
             "Distancia: {Distancia:F2}km, TempoEstimado: {Tempo}min",
@@ -190,6 +199,39 @@ public class ServicoEntregador : IServicoEntregador
                 DistanciaKm: distanciaKm
             )
         );
+    }
+
+    /// <summary>
+    /// Simula o fim da entrega e devolve o entregador ao pool. Se ele já tiver
+    /// sido liberado pela compensação, não faz nada.
+    /// </summary>
+    private async Task ConcluirEntregaSimuladaAsync(string entregadorId, TimeSpan duracao)
+    {
+        try
+        {
+            await Task.Delay(duracao);
+
+            bool liberado;
+            lock (Lock)
+            {
+                liberado = EntregadoresAlocados.Remove(entregadorId);
+            }
+
+            if (liberado)
+            {
+                _logger.LogInformation(
+                    "Entrega concluída, entregador disponível novamente. EntregadorId: {EntregadorId}",
+                    entregadorId
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Falha ao concluir a entrega simulada; o entregador pode ter ficado preso. EntregadorId: {EntregadorId}",
+                entregadorId
+            );
+        }
     }
 
     public async Task<Resultado<Unit>> LiberarAsync(string entregadorId)
