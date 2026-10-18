@@ -10,6 +10,32 @@ Ao responder **perguntas** ("é possível", "vale a pena", "o que é"), seja cur
 
 ---
 
+## Início de sessão
+
+1. `git fetch` e `git status`: partir da `main` atualizada (`git switch main && git pull`), sem alteração pendente de outra sessão.
+2. Ler o **Plano de retomada** (fim deste arquivo) e identificar a próxima fase pendente.
+3. Uma fase só começa quando o dono pedir ("pode seguir com a fase N"). Ao terminar, entregar o relatório da fase e parar; a seguinte espera um novo pedido.
+
+**Relatório de fim de fase** (curto, em pt-BR): o que mudou e por quê, defeitos encontrados no caminho, resultado de cada portão (build, testes, scripts) e limitações ou pendências que entraram no backlog. Se algo relatado antes estava errado, dizer isso no início, sem rodeio.
+
+## Regras da máquina local
+
+- **Processos:** nunca matar processo por nome (`taskkill /IM`, `pkill`, `Stop-Process -Name`); só o PID de um processo iniciado na própria sessão. Ao fim do trabalho, liberar os servidores de build com `dotnet build-server shutdown`.
+- **Scripts `.ps1`:** não rodar sem perguntar antes; os scripts de validação oficiais são os `.sh` de `docs/scripts/`.
+- **Stack Docker:** pode ficar no ar entre sessões. Antes dos portões, recriar o que a fase mudou (`docker compose -f docker/docker-compose.yml up -d --build`). Só purgar a fila `error` do RabbitMQ depois de conferir que as mensagens são de teste da própria sessão.
+- **Git:** nunca `--force` na `main`; `--force-with-lease` só em branch de fase.
+
+## Governança de texto em pt-BR (bloqueante)
+
+Todo texto que a IA escreve neste repositório (documentação, README, ADR, comentário de código, mensagem de commit, descrição de PR e resposta no chat) passa por revisão de ortografia, gramática, pontuação e acentuação do português do Brasil antes de a tarefa ser dada por concluída.
+
+- **Método:** skill `revisar-texto-ptbr` (`.claude/skills/revisar-texto-ptbr/SKILL.md`).
+- **Automático:** `.claude/hooks/revisao-ptbr.mjs`, ligado em `.claude/settings.json`. Aponta palavra sem acento depois de cada edição de `.md`/`.txt`, recusa `git commit` com mensagem sem acento e, no fim do turno, pede a revisão completa dos textos tocados.
+- **Falso positivo:** acrescentar a palavra, em minúsculas, em `.claude/hooks/revisao-ptbr.permitidas.txt`; se for identificador, prefira colocá-lo entre crases no texto.
+- **Fonte:** o hook e a skill vêm do repositório `meu-portfolio`, onde a governança nasceu. Mudanças são feitas lá e replicadas aqui, não editadas só neste repositório.
+
+---
+
 ## Fluxo de trabalho por fase — bloqueante
 
 O trabalho segue o **Plano de retomada** (fim deste arquivo), uma fase por vez:
@@ -22,7 +48,9 @@ O trabalho segue o **Plano de retomada** (fim deste arquivo), uma fase por vez:
    - se a fase mexe em serviço, mensageria ou compose: stack no Docker + `docs/scripts/testar-casos-de-uso.sh` e `docs/scripts/testar-fluxo-caixa.sh` com saída 0
 4. Commit em pt-BR com acentuação, no formato `tipo(escopo): descrição` (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`). **Nunca** incluir assinatura ou atribuição de IA (`Co-Authored-By` etc.).
 5. Push da branch, PR para a `main` e merge quando os portões passarem. A `main` do GitHub é **protegida** e só aceita PR; nunca tentar push direto na `main`.
-6. Atualizar o status da fase neste arquivo no mesmo PR.
+6. Atualizar o status da fase neste arquivo no mesmo PR (com o número do PR) e registrar no backlog o que ficou de fora.
+
+Trabalho fora das fases (governança, correção avulsa) segue o mesmo fluxo, numa branch `chore/slug` ou `fix/slug`.
 
 Falha nos portões → corrigir até ficar verde; não abrir PR vermelho.
 
@@ -144,7 +172,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 | 1. SAGA funcionando: build corrigido, Rebus como dono do estado da SAGA (EF removido do orquestrador) | `fase/1-saga-rebus` | ✅ Na `main` (#1) |
 | 2. Script de casos de uso que confere o desfecho real; correção do pool do entregador | `fase/2-script-testes` | ✅ Na `main` (#3) |
 | 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Na `main` (#4) |
-| 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (este PR) |
+| 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (#5) |
 | 4. Migração para .NET 10 | `fase/4-dotnet-10` | ⏳ Pendente |
 | 5. CI no GitHub Actions | `fase/5-ci` | ⏳ Pendente |
 | 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ⏳ Pendente |
