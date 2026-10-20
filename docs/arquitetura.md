@@ -770,8 +770,7 @@ services.AddOpenTelemetry()
             .AddHttpClientInstrumentation()
             .AddEntityFrameworkCoreInstrumentation()
             .AddSource("SagaPoc.*")
-            .AddSource("Rebus")
-            .AddJaegerExporter();
+            .AddOtlpExporter(); // Otlp:Endpoint, no compose http://jaeger:4317
     })
     .WithMetrics(metrics => metrics
         .AddAspNetCoreInstrumentation()
@@ -928,11 +927,9 @@ builder.AddSagaOpenTelemetryForHost(
 **Configuração via appsettings.json**:
 ```json
 {
-  "Jaeger": {
+  "Otlp": {
     "Enabled": true,
-    "AgentHost": "jaeger",
-    "AgentPort": 6831,
-    "Endpoint": "http://jaeger:14268/api/traces"
+    "Endpoint": "http://jaeger:4317"
   }
 }
 ```

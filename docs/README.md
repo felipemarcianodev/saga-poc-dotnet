@@ -1,6 +1,6 @@
 # POC SAGA Pattern + CQRS com Rebus e RabbitMQ
 
-![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)
+![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)
 ![C#](https://img.shields.io/badge/C%23-13-239120?logo=csharp)
 ![Rebus](https://img.shields.io/badge/Rebus-8.9-blue)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq)
@@ -223,7 +223,7 @@ Ver diagrama completo em **[arquitetura.md](arquitetura.md)**.
 
 ### Pré-requisitos
 
-- **.NET 9 SDK** ou superior ([Download](https://dotnet.microsoft.com/download/dotnet/9.0))
+- **.NET 10 SDK** ou superior ([Download](https://dotnet.microsoft.com/download/dotnet/10.0))
 - **Docker Desktop** ([Download](https://www.docker.com/products/docker-desktop))
 - **Git**
 

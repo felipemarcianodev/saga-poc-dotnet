@@ -1,0 +1,13 @@
+<Project>
+
+  <!--
+    Propriedades comuns a todos os projetos da solution. Os Dockerfiles copiam
+    este arquivo junto com src/; sem ele, o build da imagem fica sem TFM.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

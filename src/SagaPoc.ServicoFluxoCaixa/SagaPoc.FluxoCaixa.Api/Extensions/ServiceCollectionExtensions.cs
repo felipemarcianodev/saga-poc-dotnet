@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System.Threading.RateLimiting;
 using WebHost.Extensions;
 using SagaPoc.FluxoCaixa.Domain.Repositorios;

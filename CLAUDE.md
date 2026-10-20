@@ -132,7 +132,9 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 - **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`): a linha do dia não tem controle de concorrência, e dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
 - **Leitura do consolidado pode vir defasada até cerca de 60 s:** o Consolidado apaga a chave no Redis, mas a API de consulta também tem cache em memória (1 min) e response cache (60 s), que não são invalidados. Por isso o script usa um comerciante novo por cenário.
 - **Worker com `Microsoft.NET.Sdk` precisa copiar o `appsettings.json`** para a saída (`CopyToOutputDirectory`): o `UseCustomSerilog` do host lê o arquivo do diretório de trabalho e derruba o processo se ele faltar.
-- **Dockerfiles copiam `src/` inteiro** (`bin/obj` ficam fora pelo `.dockerignore`). Não voltar para a lista manual de projetos: ela ficava defasada a cada projeto criado ou removido e quebrou o build da imagem.
+- **Dockerfiles copiam `src/` inteiro e o `Directory.Build.props`** (`bin/obj` ficam fora pelo `.dockerignore`). Não voltar para a lista manual de projetos: ela ficava defasada a cada projeto criado ou removido e quebrou o build da imagem. Sem o `Directory.Build.props`, o build da imagem fica sem TFM.
+- **`GSS Encryption Mode=Disable` nas connection strings do compose:** a imagem `aspnet:10.0` (Ubuntu) não tem `libgssapi_krb5.so.2`, e o Npgsql tenta negociar GSS ao conectar, imprimindo erro na subida de cada serviço com banco. Ninguém usa Kerberos aqui.
+- **OTLP do Jaeger só pela rede interna:** as portas 4317/4318 não são publicadas no host (nesta máquina já estão ocupadas por outra stack). Um serviço rodando fora do Docker não exporta traces, a menos que se publique a porta.
 - **Payload com acento no Git Bash do Windows:** passar JSON direto no argumento do `curl` corrompe o UTF-8. Enviar como arquivo (`--data-binary @arquivo`).
 - **Links em markdown:** o GitHub diferencia maiúsculas de minúsculas, o Windows não. Conferir o nome exato do arquivo (`git ls-files`) ao criar link.
 - **Observabilidade:** não deixar `catch` silencioso; todo catch loga com placeholder estruturado (nunca `$"..."` em log) e com o identificador da operação (PedidoId, EntregadorId, LancamentoId).
@@ -173,7 +175,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 | 2. Script de casos de uso que confere o desfecho real; correção do pool do entregador | `fase/2-script-testes` | ✅ Na `main` (#3) |
 | 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Na `main` (#4) |
 | 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (#5) |
-| 4. Migração para .NET 10 | `fase/4-dotnet-10` | ⏳ Pendente |
+| 4. Migração para .NET 10 | `fase/4-dotnet-10` | ✅ Na `main` (#PR) |
 | 5. CI no GitHub Actions | `fase/5-ci` | ⏳ Pendente |
 | 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ⏳ Pendente |
 
@@ -184,12 +186,13 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 - Projeto de testes corrigido (referência quebrada) e incluído na solution.
 - Validação: `docs/scripts/testar-fluxo-caixa.sh` (4 cenários com conferência do saldo e da fila `error`).
 
-### Fase 4 — .NET 10
-- `TargetFramework` `net9.0` → `net10.0` em todos os projetos (considerar `Directory.Build.props` centralizando TFM, `Nullable` e `ImplicitUsings`).
-- Pacotes `Microsoft.*`/EF Core/Npgsql para a linha 10; revisar Rebus (`Rebus.ServiceProvider` 10.1.0 hoje avisa NU1608 por exigir `Microsoft.Extensions.*` < 9).
-- Trocar `OpenTelemetry.Exporter.Jaeger` (descontinuado, com vulnerabilidade GHSA-38h3-2333-qx47) por OTLP; o Jaeger all-in-one recebe OTLP em 4317/4318. Ajustar variáveis `Jaeger__*` no compose.
-- Imagens Docker `mcr.microsoft.com/dotnet/sdk:10.0` e `aspnet:10.0`.
-- Portões completos, inclusive o script de casos de uso no Docker.
+### Fase 4 — .NET 10 (concluída)
+- `Directory.Build.props` na raiz define `net10.0`, `Nullable` e `ImplicitUsings` para os 19 projetos; os csproj não repetem mais essas propriedades.
+- Pacotes na linha 10: `Microsoft.*` 10.0.13, Npgsql 10.0.3, Rebus 8.9.5 com `Rebus.ServiceProvider` 10.7.2 (acabou o NU1608), Serilog.AspNetCore 10, Swashbuckle 10 (namespace `Microsoft.OpenApi`), OpenTelemetry 1.20.
+- `OpenTelemetry.Exporter.Jaeger` trocado por OTLP gRPC; configuração na seção `Otlp` (`Enabled`, `Endpoint`), no compose `Otlp__Endpoint=http://jaeger:4317`.
+- Removidos pacotes sem uso no `WebHost` (health checks de MongoDB, SQL Server, RabbitMQ e Redis, RateLimit, JWT, OIDC, `Microsoft.Extensions.*` já trazidos pelo `FrameworkReference`) e no `Observability` (instrumentação de runtime e de processo, exportador de console). O health check do MongoDB trazia `Snappier` e `SharpCompress` vulneráveis.
+- Imagens `sdk:10.0`/`aspnet:10.0`; os seis Dockerfiles da SAGA passaram a copiar `src/` inteiro, como os do fluxo de caixa.
+- Build com 0 aviso (eram 85) e nenhum pacote vulnerável, inclusive os transitivos.
 
 ### Fase 5 — CI
 - Workflow em `.github/workflows/` com build e `dotnet test` em push/PR.
@@ -205,7 +208,8 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 ### Backlog (fora das fases, por prioridade)
 1. **Status real do pedido:** o orquestrador publica as transições de estado e a API mantém uma projeção (read model) consultada por `GET /api/pedidos/{id}/status`; hoje o endpoint é mock.
 2. **Testes automatizados da API de pedidos e da SAGA:** testes de integração (xUnit + Testcontainers com RabbitMQ e PostgreSQL) cobrindo os 12 casos, cenários de erro (400, 404) e os endpoints `/status` e `/health`.
-3. Avisos de build restantes (86 na última contagem), começando pelos de pacote.
+3. **Traces da SAGA:** só `SagaPoc.Api` e os serviços de lançamentos aparecem no Jaeger. O orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada, e o estado da SAGA não passa pelo EF). Avaliar `Rebus.Diagnostics` e a instrumentação do Npgsql.
 4. **Idempotência do worker de lançamentos:** cada tentativa de `RegistrarLancamento` gera um `Id` novo; se o envio do evento falhar depois do commit, a repetição do Rebus grava o lançamento de novo. Usar o `CorrelationId` do comando como chave de deduplicação.
 5. **`UseCustomSerilog` do host** (`SagaPoc.Observability`) monta a configuração com Seq e a descarta, lendo só o `appsettings.json`; os workers não mandam log para o Seq.
 6. Scripts `.ps1` antigos de `docs/scripts/` (fluxo de caixa, sistema completo, monitor) apontam todas as APIs para a mesma URL e não conferem resultado; revisar ou remover na fase 6.
+7. **Pacotes a revisar:** `FluentValidation.AspNetCore` (descontinuado e sem uso em `SagaPoc.Common`) e a imagem `jaegertracing/all-in-one:latest` (linha 1, encerrada; fixar a versão ou migrar para o Jaeger 2).
