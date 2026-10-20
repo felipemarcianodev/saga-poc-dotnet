@@ -53,7 +53,6 @@ try
     // Registrar handlers automaticamente
     builder.Services.AutoRegisterHandlersFromAssemblyOf<ValidarPedidoRestauranteHandler>();
 
-    builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
 

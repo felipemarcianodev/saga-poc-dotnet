@@ -33,7 +33,7 @@ public class ProcessarPagamentoHandler : IHandleMessages<ProcessarPagamento>
 
         _logger.LogInformation(
             "Recebido comando ProcessarPagamento. CorrelacaoId: {CorrelacaoId}, " +
-            "ClienteId: {ClienteId}, Valor: {Valor:C}, FormaPagamento: {FormaPagamento}",
+            "ClienteId: {ClienteId}, Valor: R$ {Valor:F2}, FormaPagamento: {FormaPagamento}",
             mensagem.CorrelacaoId,
             mensagem.ClienteId,
             mensagem.ValorTotal,

@@ -53,7 +53,6 @@ try
     // Registrar handlers automaticamente
     builder.Services.AutoRegisterHandlersFromAssemblyOf<AlocarEntregadorHandler>();
 
-    builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
 

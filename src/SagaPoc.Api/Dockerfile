@@ -13,14 +13,15 @@ RUN dotnet restore "SagaPoc.Api.csproj"
 
 # Stage 2: Publish
 FROM build AS publish
-RUN dotnet publish "SagaPoc.Api.csproj" -c Release -o /app/publish --no-restore /p:UseAppHost=false
+# Release por padrão; Debug liga o log em arquivo (#if DEBUG no SagaPoc.Observability).
+ARG BUILD_CONFIGURATION=Release
+RUN dotnet publish "SagaPoc.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish --no-restore /p:UseAppHost=false
 
 # Stage 3: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
 
 COPY --from=publish /app/publish .
 

@@ -50,7 +50,6 @@ try
     // Registrar handlers automaticamente
     builder.Services.AutoRegisterHandlersFromAssemblyOf<ProcessarPagamentoHandler>();
 
-    builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
 

@@ -77,6 +77,9 @@ dotnet test SagaPoc.sln
 # Stack completa (a partir da raiz)
 docker compose -f docker/docker-compose.yml up -d --build
 
+# Mesma stack em Debug, com log em arquivo por serviço em logs/ (acompanhar com tail -F logs/*.log)
+BUILD_CONFIGURATION=Debug docker compose -f docker/docker-compose.yml up -d --build
+
 # Casos de uso da SAGA com conferência do desfecho real (sai 1 se algum divergir)
 bash docs/scripts/testar-casos-de-uso.sh        # todos
 bash docs/scripts/testar-casos-de-uso.sh 4      # um caso
@@ -139,7 +142,9 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 - **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`): a linha do dia não tem controle de concorrência, e dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
 - **Leitura do consolidado pode vir defasada até cerca de 60 s:** o Consolidado apaga a chave no Redis, mas a API de consulta também tem cache em memória (1 min) e response cache (60 s), que não são invalidados. Por isso o script usa um comerciante novo por cenário.
 - **Agregado de domínio não vai para o Redis:** construtor privado e `private set` impedem o `System.Text.Json` de desserializá-lo, e o `RedisCacheService` engole a exceção como aviso (a leitura só cai no banco, sem erro visível). O consolidado vai para o cache como `ConsolidadoDiarioCache` e volta por `ConsolidadoDiario.Reconstituir`; propriedade nova no agregado precisa entrar também no snapshot.
-- **Worker com `Microsoft.NET.Sdk` precisa copiar o `appsettings.json`** para a saída (`CopyToOutputDirectory`): o `UseCustomSerilog` do host lê o arquivo do diretório de trabalho e derruba o processo se ele faltar.
+- **Worker com `Microsoft.NET.Sdk` precisa copiar o `appsettings.json`** para a saída (`CopyToOutputDirectory`): sem ele, o host sobe sem connection strings, RabbitMQ e níveis de log.
+- **Serilog: destinos no código, níveis no `appsettings`.** `UseCustomSerilog` (`SagaPoc.Observability`) define console, Seq e, em build Debug, arquivo em `logs/`. Não pôr `WriteTo` no `appsettings.json`: o `ReadFrom.Configuration` somaria um segundo console.
+- **Log em arquivo só em Debug:** `BUILD_CONFIGURATION=Debug docker compose ... up -d --build` publica as imagens em Debug, e o compose monta `/app/logs` em `logs/` na raiz (no `.gitignore`). O build padrão (e o CI) continua em Release, sem arquivo.
 - **Dockerfiles copiam `src/` inteiro e o `Directory.Build.props`** (`bin/obj` ficam fora pelo `.dockerignore`). Não voltar para a lista manual de projetos: ela ficava defasada a cada projeto criado ou removido e quebrou o build da imagem. Sem o `Directory.Build.props`, o build da imagem fica sem TFM.
 - **`GSS Encryption Mode=Disable` nas connection strings do compose:** a imagem `aspnet:10.0` (Ubuntu) não tem `libgssapi_krb5.so.2`, e o Npgsql tenta negociar GSS ao conectar, imprimindo erro na subida de cada serviço com banco. Ninguém usa Kerberos aqui.
 - **OTLP do Jaeger só pela rede interna:** as portas 4317/4318 não são publicadas no host (nesta máquina já estão ocupadas por outra stack). Um serviço rodando fora do Docker não exporta traces, a menos que se publique a porta.
@@ -220,5 +225,4 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts das imagens gera
 3. **Testes automatizados da API de pedidos e da SAGA:** testes de integração (xUnit + Testcontainers com RabbitMQ e PostgreSQL) cobrindo os 14 casos, cenários de erro (400, 404) e os endpoints `/status` e `/health`.
 4. **Traces da SAGA:** só `SagaPoc.Api` e os serviços de lançamentos aparecem no Jaeger. O orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada, e o estado da SAGA não passa pelo EF). Avaliar `Rebus.Diagnostics` e a instrumentação do Npgsql. No fluxo de caixa, a `FluxoCaixa.Api` não recebe `Otlp__Endpoint` no compose e o Consolidado não chama `AddSagaOpenTelemetryForHost`.
 5. **Idempotência do worker de lançamentos:** cada tentativa de `RegistrarLancamento` gera um `Id` novo; se o envio do evento falhar depois do commit, a repetição do Rebus grava o lançamento de novo. Usar o `CorrelationId` do comando como chave de deduplicação.
-6. **`UseCustomSerilog` do host** (`SagaPoc.Observability`) monta a configuração com Seq e a descarta, lendo só o `appsettings.json`; os workers não mandam log para o Seq.
-7. **Pacotes e código a revisar:** `FluentValidation.AspNetCore` (descontinuado e sem uso em `SagaPoc.Common`), a imagem `jaegertracing/all-in-one:latest` (linha 1, encerrada; fixar a versão ou migrar para o Jaeger 2) e o `ServicoPagamentoComPolly`, que existe mas não está registrado.
+6. **Pacotes e código a revisar:** `FluentValidation.AspNetCore` (descontinuado e sem uso em `SagaPoc.Common`), a imagem `jaegertracing/all-in-one:latest` (linha 1, encerrada; fixar a versão ou migrar para o Jaeger 2) e o `ServicoPagamentoComPolly`, que existe mas não está registrado.

@@ -57,7 +57,7 @@ O que aprendemos (e o que ainda não sabemos) implementando esta POC.
 
 ### 6. Observabilidade incompleta custa caro
 - Sem instrumentação do Rebus, o orquestrador e os serviços da SAGA não aparecem no Jaeger
-- Os workers não mandam log para o Seq; o diagnóstico depende de `docker logs`
+- Até 2026-10-20, os workers não mandavam log para o Seq: a configuração com Seq era montada e descartada. Em build Debug, cada serviço também grava `logs/{Serviço}-{data}.log`
 
 ### 7. Testes que não rodam escondem quebra
 - O projeto de testes estava fora da solution e não compilava; `dotnet test --no-build` rodava DLLs antigas e parecia verde

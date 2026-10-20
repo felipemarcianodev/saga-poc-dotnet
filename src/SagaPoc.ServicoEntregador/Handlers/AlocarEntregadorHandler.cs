@@ -30,7 +30,7 @@ public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
     {
         _logger.LogInformation(
             "Recebido comando AlocarEntregador. CorrelacaoId: {CorrelacaoId}, " +
-            "RestauranteId: {RestauranteId}, Endereco: {Endereco}, Taxa: {Taxa:C}",
+            "RestauranteId: {RestauranteId}, Endereco: {Endereco}, Taxa: R$ {Taxa:F2}",
             mensagem.CorrelacaoId,
             mensagem.RestauranteId,
             mensagem.EnderecoEntrega,

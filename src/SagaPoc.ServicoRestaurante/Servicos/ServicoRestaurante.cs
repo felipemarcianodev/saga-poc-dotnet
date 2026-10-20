@@ -183,7 +183,7 @@ public class ServicoRestaurante : IServicoRestaurante
 
         _logger.LogInformation(
             "Pedido validado com sucesso. RestauranteId: {RestauranteId}, PedidoId: {PedidoId}, " +
-            "ValorTotal: {ValorTotal:C}, TempoPreparo: {TempoPreparo}min",
+            "ValorTotal: R$ {ValorTotal:F2}, TempoPreparo: {TempoPreparo}min",
             restauranteId,
             pedidoId,
             valorTotal,

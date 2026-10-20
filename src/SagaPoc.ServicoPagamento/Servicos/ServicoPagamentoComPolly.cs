@@ -107,7 +107,7 @@ public class ServicoPagamentoComPolly : IServicoPagamento
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "[Polly] Processando pagamento com resiliência. ClienteId: {ClienteId}, Valor: {Valor:C}",
+            "[Polly] Processando pagamento com resiliência. ClienteId: {ClienteId}, Valor: R$ {Valor:F2}",
             clienteId,
             valorTotal
         );

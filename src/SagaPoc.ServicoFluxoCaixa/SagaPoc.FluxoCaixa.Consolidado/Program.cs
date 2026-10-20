@@ -9,6 +9,7 @@ using SagaPoc.FluxoCaixa.Infrastructure.Servicos;
 using SagaPoc.FluxoCaixa.Infrastructure.Persistencia;
 using SagaPoc.FluxoCaixa.Infrastructure.Repositorios;
 using SagaPoc.Infrastructure.Core;
+using SagaPoc.Observability;
 using Serilog;
 using WebHost.Extensions;
 
@@ -21,14 +22,7 @@ try
     var applicationName = "SagaPoc.FluxoCaixa.Consolidado";
     var environmentName = builder.Environment.EnvironmentName;
 
-    Log.Logger = new LoggerConfiguration()
-        .ReadFrom.Configuration(builder.Configuration)
-        .Enrich.WithProperty("Application", applicationName)
-        .Enrich.WithProperty("Environment", environmentName)
-        .WriteTo.Console()
-        .CreateLogger();
-
-    builder.Services.AddSerilog();
+    builder.UseCustomSerilog(builder.Configuration, applicationName, environmentName, builder.Environment.IsDevelopment());
 
     builder.Services
         .AddPostgreSqlDbContext<ConsolidadoDbContext>(
