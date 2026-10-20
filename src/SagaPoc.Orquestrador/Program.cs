@@ -24,7 +24,7 @@ try
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
 
     // Estado da SAGA persistido pelo próprio Rebus no PostgreSQL. O Rebus cria e
-    // mantém as tabelas (id, revision, data em JSONB + índice de correlação);
+    // mantém as tabelas (id, revision, data em JSON gravado como bytea + índice de correlação);
     // nenhum outro componente deve criar ou alterar essas tabelas.
     var connectionString = builder.Configuration.GetConnectionString("SagaDatabase")
         ?? throw new InvalidOperationException("Connection string 'SagaDatabase' não encontrada.");

@@ -1,457 +1,214 @@
-# Diagramas - Sistema de Fluxo de Caixa
+# Diagramas do fluxo de caixa
 
-Este documento contém os diagramas de componentes e sequência para o sistema de Fluxo de Caixa, utilizando Mermaid para renderização.
+Diagramas de componentes e de sequência do contexto de Fluxo de Caixa (CQRS), como está no código e no `docker/docker-compose.yml`. O contexto está descrito em [fluxo-caixa.md](./fluxo-caixa.md).
 
 ---
 
-## 1. Diagrama de Componentes e Interações
+## 1. Componentes
 
 ```mermaid
 graph TB
-    subgraph Cliente
-        WEB[Cliente Web<br/>Comerciante]
+    COMERCIANTE[Cliente HTTP<br/>comerciante]
+
+    subgraph Escrita["Escrita"]
+        LAPI[lancamentos-api<br/>porta 5200<br/>POST/GET /api/lancamentos]
+        WORKER[lancamentos-worker<br/>grava e publica eventos]
+        DBL[(PostgreSQL<br/>fluxocaixa_lancamentos<br/>porta 5433)]
     end
 
-    subgraph API_Layer["API Gateway Layer"]
-        API[API Gateway<br/>ASP.NET Core<br/><br/>Rate Limiter: 50 rps<br/>Cache: Memory/HTTP<br/>Swagger UI]
+    subgraph Mensageria["RabbitMQ"]
+        QL[[fila fluxocaixa-lancamentos]]
+        TOP{{exchange RebusTopics}}
+        QC[[fila fluxocaixa-consolidado]]
     end
 
-    subgraph Message_Broker["Message Broker"]
-        RABBITMQ[RabbitMQ<br/><br/>Filas Persistentes<br/>DLQ Dead Letter<br/>Retry Policy]
+    subgraph Leitura["Leitura"]
+        CONS[fluxocaixa-consolidado<br/>worker, MaxParallelism = 1]
+        DBC[(PostgreSQL<br/>fluxocaixa_consolidado<br/>porta 5434)]
+        REDIS[(Redis<br/>porta 6379)]
+        CAPI[fluxocaixa-api<br/>porta 5100<br/>GET /api/consolidado]
     end
 
-    subgraph Write_Model["Write Model - CQRS"]
-        LANCAMENTOS[Serviço Lançamentos<br/><br/>Validação<br/>Persistência<br/>Pub Eventos]
-        DB_LANCAMENTOS[(PostgreSQL<br/>Lançamentos<br/><br/>ACID<br/>Eventos)]
-    end
+    COMERCIANTE -->|POST lançamento| LAPI
+    LAPI -->|Send RegistrarLancamento| QL
+    QL --> WORKER
+    WORKER -->|INSERT| DBL
+    WORKER -->|Publish evento| TOP
+    TOP -->|assinatura| QC
+    QC --> CONS
+    CONS -->|cria ou atualiza o dia| DBC
+    CONS -->|apaga a chave do dia| REDIS
 
-    subgraph Read_Model["Read Model - CQRS"]
-        CONSOLIDADO[Serviço Consolidado Diário<br/><br/>Consumo Eventos<br/>Consolidação<br/>Cache Redis]
-        DB_CONSOLIDADO[(PostgreSQL<br/>Consolidado<br/><br/>Otimizado<br/>para Leitura)]
-        REDIS[(Redis<br/>Cache L2<br/><br/>TTL 5min<br/>Invalidação)]
-    end
-
-    subgraph Observability["Observabilidade"]
-        LOGS[Logs: Serilog<br/>Console/File]
-        METRICS[Métricas: Prometheus<br/>→ Grafana]
-        TRACES[Traces: OpenTelemetry<br/>→ Jaeger]
-        HEALTH[Health Checks<br/>/health endpoint]
-    end
-
-    WEB -->|HTTPS| API
-    API -->|POST Commands| RABBITMQ
-    API -->|GET Queries<br/>cached| RABBITMQ
-
-    RABBITMQ -->|Consume Commands| LANCAMENTOS
-    LANCAMENTOS -->|Write| DB_LANCAMENTOS
-    LANCAMENTOS -->|Publish Events| RABBITMQ
-
-    RABBITMQ -->|Consume Events| CONSOLIDADO
-    CONSOLIDADO -->|Read/Write| DB_CONSOLIDADO
-    CONSOLIDADO -->|Cache| REDIS
-
-    API -.->|Logs| LOGS
-    API -.->|Métricas| METRICS
-    API -.->|Traces| TRACES
-    LANCAMENTOS -.->|Observability| LOGS
-    CONSOLIDADO -.->|Observability| METRICS
-
-    style API fill:#4A90E2,color:#fff
-    style RABBITMQ fill:#FF6600,color:#fff
-    style LANCAMENTOS fill:#27AE60,color:#fff
-    style CONSOLIDADO fill:#8E44AD,color:#fff
-    style DB_LANCAMENTOS fill:#2C3E50,color:#fff
-    style DB_CONSOLIDADO fill:#2C3E50,color:#fff
-    style REDIS fill:#D32F2F,color:#fff
+    COMERCIANTE -->|GET consolidado| CAPI
+    CAPI --> REDIS
+    CAPI --> DBC
+    LAPI -->|GET lançamentos| DBL
 ```
+
+- A API de lançamentos não grava: valida o corpo (DataAnnotations), envia o comando e responde 202. O `GET /api/lancamentos` lê direto do banco de lançamentos.
+- O worker de lançamentos publica `LancamentoCreditoRegistrado` ou `LancamentoDebitoRegistrado` (`Publish`). O Consolidado assina os dois ao subir; sem a assinatura, o RabbitMQ descartaria os eventos em silêncio.
+- Cada worker migra o próprio banco ao subir; as APIs não migram.
 
 ---
 
-## 2. Diagrama de Sequência - Registrar Lançamento
+## 2. Registrar um lançamento
 
 ```mermaid
 sequenceDiagram
     participant C as Comerciante
-    participant API as API Gateway
+    participant API as lancamentos-api
     participant MQ as RabbitMQ
-    participant SL as Srv Lançamentos
-    participant DB as PostgreSQL<br/>Lançamentos
-    participant SC as Srv Consolidado
-    participant DBC as PostgreSQL<br/>Consolidado
+    participant W as lancamentos-worker
+    participant DBL as PostgreSQL<br/>lançamentos
+    participant CO as Consolidado
+    participant DBC as PostgreSQL<br/>consolidado
+    participant R as Redis
 
-    C->>API: POST /lancamentos<br/>{tipo, valor, data}
-    activate API
+    C->>API: POST /api/lancamentos {tipo, valor, dataLancamento, descricao, comerciante}
+    API->>API: DataAnnotations (400 se inválido)
+    API->>MQ: Send RegistrarLancamento
+    API-->>C: 202 {correlationId}
 
-    API->>API: Validação<br/>DataAnnotations
+    MQ->>W: RegistrarLancamento
+    W->>W: Lancamento.Criar + Confirmar
+    W->>DBL: INSERT (ExecutarEmTransacaoAsync)
+    W->>MQ: Publish LancamentoCreditoRegistrado / LancamentoDebitoRegistrado
+    Note over W,MQ: o Rebus só envia depois que o handler termina sem erro
 
-    API->>MQ: Publish Command<br/>RegistrarLancamento
-    activate MQ
-
-    API-->>C: 202 Accepted<br/>{correlationId}
-    deactivate API
-
-    MQ->>SL: Consume Command<br/>RegistrarLancamento
-    activate SL
-    deactivate MQ
-
-    SL->>SL: Criar Agregado<br/>Lancamento
-
-    SL->>DB: INSERT Lancamento
-    activate DB
-    DB-->>SL: OK
-    deactivate DB
-
-    SL->>MQ: Pub Evento<br/>LancamentoCreditoRegistrado
-    activate MQ
-    deactivate SL
-
-    MQ->>SC: Consume Evento<br/>LancamentoCreditoRegistrado
-    activate SC
-    deactivate MQ
-
-    SC->>DBC: SELECT Consolidado<br/>WHERE data = ?
-    activate DBC
-    DBC-->>SC: Consolidado ou NULL
-    deactivate DBC
-
-    SC->>SC: Obter ou Criar<br/>Consolidado
-
-    SC->>SC: Aplicar Crédito<br/>totalCreditos += valor
-
-    SC->>DBC: UPDATE Consolidado<br/>SET totalCreditos
-    activate DBC
-    DBC-->>SC: OK
-    deactivate DBC
-
-    SC->>SC: Invalidar Cache<br/>Redis
-    deactivate SC
-
-    Note over C,DBC: Processamento assíncrono completo
+    MQ->>CO: evento (fila fluxocaixa-consolidado)
+    CO->>DBC: SELECT consolidado do dia e comerciante
+    alt não existe
+        CO->>DBC: INSERT com o primeiro valor
+    else existe
+        CO->>DBC: UPDATE totais e quantidades
+    end
+    CO->>R: DEL consolidado:{comerciante}:{data}
 ```
+
+Se o domínio recusar o lançamento no worker (`Lancamento.Criar` falha), o handler registra um aviso e descarta a mensagem: o cliente já recebeu 202 e não fica sabendo. A validação da API cobre quase as mesmas regras, então isso só acontece com comando enviado direto para a fila.
 
 ---
 
-## 3. Diagrama de Sequência - Consultar Consolidado
+## 3. Consultar o consolidado
 
 ```mermaid
 sequenceDiagram
-    participant C as Comerciante
-    participant API as API Gateway
-    participant L1 as Memory Cache<br/>L1
-    participant L2 as Redis<br/>L2
-    participant DB as PostgreSQL<br/>Consolidado
+    participant C as Cliente
+    participant RC as Response cache<br/>(60 s)
+    participant API as fluxocaixa-api
+    participant M as Memória<br/>(1 min)
+    participant R as Redis<br/>(5 min)
+    participant DB as PostgreSQL<br/>consolidado
 
-    rect rgb(200, 220, 240)
-        Note over C,DB: Primeira Requisição (Cache MISS)
-
-        C->>API: GET /consolidado/<br/>COM001/2026-01-15
-        activate API
-
-        API->>L1: Check L1 Cache
-        activate L1
-        L1-->>API: MISS
-        deactivate L1
-
-        API->>L2: Check L2 (Redis)
-        activate L2
-        L2-->>API: MISS
-        deactivate L2
-
-        API->>DB: Query Database<br/>SELECT * WHERE...
-        activate DB
-        DB-->>API: Consolidado
-        deactivate DB
-
-        API->>L2: Store L2<br/>TTL 5min
-        activate L2
-        deactivate L2
-
-        API->>L1: Store L1<br/>TTL 1min
-        activate L1
-        deactivate L1
-
-        API-->>C: 200 OK<br/>{consolidado}
-        deactivate API
-
-        Note over API: Latência: ~100ms
-    end
-
-    rect rgb(200, 240, 200)
-        Note over C,DB: Segunda Requisição (Cache HIT)
-
-        C->>API: GET /consolidado/<br/>COM001/2026-01-15
-        activate API
-
-        API->>L1: Check L1 Cache
-        activate L1
-        L1-->>API: HIT ⚡
-        deactivate L1
-
-        API-->>C: 200 OK (cached)<br/>{consolidado}
-        deactivate API
-
-        Note over API: Latência: <5ms
+    C->>RC: GET /api/consolidado/{comerciante}/{data}
+    alt resposta guardada
+        RC-->>C: 200 (sem chegar ao controller)
+    else
+        RC->>API: requisição
+        API->>M: chave consolidado:{comerciante}:{data}
+        alt achou na memória
+            M-->>API: consolidado
+        else
+            API->>R: mesma chave
+            alt achou no Redis
+                R-->>API: consolidado (e grava na memória)
+            else
+                API->>DB: SELECT
+                DB-->>API: consolidado ou 404
+                API->>R: grava (5 min)
+                API->>M: grava (1 min)
+            end
+        end
+        API-->>C: 200
     end
 ```
 
+O Consolidado só apaga a chave no Redis. A memória da API e o response cache não são invalidados, então uma leitura pode vir defasada até cerca de 60 segundos depois de um lançamento.
+
+O ramo "achou no Redis" não acontece hoje: a API grava o agregado no Redis, mas falha ao desserializá-lo, registra um aviso e segue para o banco ([ADR 002](./decisoes-tecnicas/002-cache.md)). O `GET /api/consolidado/{comerciante}/periodo` não usa cache: vai direto ao banco.
+
+As rotas da API de consulta passam por um limitador de janela fixa (`consolidado`: 50 requisições por segundo, fila de 10). Não há teste de carga que meça a vazão real.
+
 ---
 
-## 4. Diagrama de Estados da SAGA (Fluxo de Caixa)
+## 4. Estados de um lançamento
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pendente: Lançamento Criado
-
-    Pendente --> Processando: Enviado para Fila
-
-    Processando --> Confirmado: Validação OK
-    Processando --> Rejeitado: Validação Falhou
-
-    Confirmado --> Consolidado: Evento Aplicado
-
-    Rejeitado --> [*]
-    Consolidado --> [*]
-
-    note right of Confirmado
-        Evento publicado:
-        - LancamentoCreditoRegistrado
-        - LancamentoDebitoRegistrado
-    end note
-
-    note right of Consolidado
-        Consolidado atualizado
-        Cache invalidado
-    end note
+    [*] --> Pendente: Lancamento.Criar
+    Pendente --> Confirmado: Confirmar (ainda em memória, no worker)
+    Confirmado --> [*]: INSERT + evento publicado
+    Pendente --> Cancelado: Cancelar
+    Confirmado --> Cancelado: Cancelar
 ```
+
+O worker cria e confirma o lançamento antes do INSERT, então ele entra no banco já `Confirmado`. O domínio tem `Cancelar` e o evento `LancamentoCancelado`, mas nenhum endpoint nem handler os usa, e o Consolidado não trata cancelamento.
 
 ---
 
-## 5. Diagrama do Padrão CQRS
-
-```mermaid
-graph LR
-    subgraph Commands["Commands (Write)"]
-        CMD[Comandos<br/>POST /lancamentos]
-    end
-
-    subgraph Queries["Queries (Read)"]
-        QRY[Consultas<br/>GET /consolidado]
-    end
-
-    subgraph Write_Side["Write Side"]
-        WM[Write Model<br/>Lançamentos]
-        WDB[(DB Write<br/>Normalizado)]
-    end
-
-    subgraph Read_Side["Read Side"]
-        RM[Read Model<br/>Consolidado]
-        RDB[(DB Read<br/>Desnormalizado)]
-        CACHE[(Cache<br/>Redis)]
-    end
-
-    subgraph Event_Bus["Event Bus"]
-        MQ[RabbitMQ<br/>Eventos]
-    end
-
-    CMD -->|Write| WM
-    WM -->|Persist| WDB
-    WM -->|Publish| MQ
-
-    MQ -->|Subscribe| RM
-    RM -->|Project| RDB
-    RM -->|Cache| CACHE
-
-    QRY -->|Read| CACHE
-    CACHE -.->|MISS| RDB
-
-    style CMD fill:#27AE60,color:#fff
-    style QRY fill:#8E44AD,color:#fff
-    style WM fill:#E74C3C,color:#fff
-    style RM fill:#3498DB,color:#fff
-    style MQ fill:#FF6600,color:#fff
-```
-
----
-
-## 6. Diagrama de Cache em 3 Camadas
-
-```mermaid
-graph TB
-    subgraph Client_Request["Client Request"]
-        CLIENT[Cliente HTTP<br/>GET /consolidado]
-    end
-
-    subgraph L1_Cache["L1 - Memory Cache"]
-        L1[In-Process Cache<br/>TTL: 1 minuto<br/>Latência: <1ms]
-    end
-
-    subgraph L2_Cache["L2 - Redis"]
-        L2[Distributed Cache<br/>TTL: 5 minutos<br/>Latência: <10ms]
-    end
-
-    subgraph L3_Cache["L3 - HTTP Response Cache"]
-        L3[Response Cache<br/>TTL: 60 segundos<br/>CDN-friendly]
-    end
-
-    subgraph Database["Database"]
-        DB[(PostgreSQL<br/>Source of Truth<br/>Latência: ~100ms)]
-    end
-
-    CLIENT -->|Request| L3
-    L3 -->|MISS| L1
-    L1 -->|MISS| L2
-    L2 -->|MISS| DB
-
-    DB -->|Store| L2
-    L2 -->|Store| L1
-    L1 -->|Store| L3
-    L3 -->|Response| CLIENT
-
-    style L1 fill:#2ECC71,color:#fff
-    style L2 fill:#3498DB,color:#fff
-    style L3 fill:#9B59B6,color:#fff
-    style DB fill:#34495E,color:#fff
-```
-
----
-
-## 7. Fluxo de Compensação (Caso de Erro)
+## 5. O que acontece em falha
 
 ```mermaid
 sequenceDiagram
-    participant API as API Gateway
     participant MQ as RabbitMQ
-    participant SL as Srv Lançamentos
+    participant W as lancamentos-worker
     participant DB as PostgreSQL
 
-    API->>MQ: Publish Command<br/>RegistrarLancamento
-    activate MQ
-
-    MQ->>SL: Consume Command
-    activate SL
-    deactivate MQ
-
-    SL->>SL: Validar Lançamento
-
-    alt Validação Falha
-        SL->>SL: Criar Erro
-        SL->>MQ: Publish Event<br/>LancamentoRejeitado
-        activate MQ
-        deactivate SL
-
-        MQ->>API: Notify Error
-        deactivate MQ
-
-        Note over API,DB: Compensação: Notificar cliente
-    else Validação OK mas Falha no Banco
-        SL->>DB: INSERT Lancamento
-        activate DB
-        DB-->>SL: Erro (Constraint)
-        deactivate DB
-
-        SL->>MQ: Publish Event<br/>LancamentoRejeitado<br/>{motivo: "Erro técnico"}
-        activate MQ
-        deactivate SL
-
-        MQ->>API: Notify Error
-        deactivate MQ
-
-        Note over API,DB: Retry automático ou DLQ
+    MQ->>W: RegistrarLancamento
+    W->>DB: INSERT
+    DB-->>W: erro transitório
+    Note over W,DB: EnableRetryOnFailure repete o bloco inteiro<br/>(ExecutarEmTransacaoAsync)
+    alt continua falhando
+        W-->>MQ: exceção
+        Note over MQ: Rebus repete a mensagem (padrão: 5 tentativas)<br/>e depois a move para a fila error
     end
 ```
 
+Não há evento de rejeição nem notificação ao cliente: mensagem que esgota as tentativas vai para a fila `error`, que é o ponto a monitorar. O Consolidado segue a mesma regra (relança a exceção para o Rebus repetir).
+
 ---
 
-## 8. Diagrama de Deployment
+## 6. Implantação no compose
 
 ```mermaid
 graph TB
-    subgraph Docker_Compose["Docker Compose Stack"]
-        subgraph API_Services["API Services"]
-            API_CONTAINER[FluxoCaixa API<br/>Port: 5100]
-        end
-
-        subgraph Worker_Services["Worker Services"]
-            LANCAMENTOS_WORKER[Serviço Lançamentos<br/>Worker]
-            CONSOLIDADO_WORKER[Serviço Consolidado<br/>Worker]
-        end
-
-        subgraph Infrastructure["Infrastructure"]
-            POSTGRES_L[(PostgreSQL<br/>Lançamentos<br/>Port: 5433)]
-            POSTGRES_C[(PostgreSQL<br/>Consolidado<br/>Port: 5434)]
-            RABBITMQ_INFRA[RabbitMQ<br/>Port: 5672<br/>UI: 15672]
-            REDIS_INFRA[(Redis<br/>Port: 6379)]
-        end
-
-        subgraph Monitoring["Monitoring Stack"]
-            JAEGER[Jaeger<br/>Port: 16686]
-            PROMETHEUS[Prometheus<br/>Port: 9090]
-            GRAFANA[Grafana<br/>Port: 3000]
-        end
+    subgraph Compose["docker/docker-compose.yml (rede saga-network)"]
+        LAPI[lancamentos-api :5200]
+        WORKER[lancamentos-worker]
+        CONS[fluxocaixa-consolidado]
+        CAPI[fluxocaixa-api :5100]
+        PGL[(fluxocaixa-postgres-lancamentos :5433)]
+        PGC[(fluxocaixa-postgres-consolidado :5434)]
+        REDIS[(fluxocaixa-redis :6379)]
+        MQ[saga-rabbitmq :5672 / :15672]
+        SEQ[saga-seq :5342]
+        JAEGER[saga-jaeger :16686]
     end
 
-    API_CONTAINER --> RABBITMQ_INFRA
-    LANCAMENTOS_WORKER --> RABBITMQ_INFRA
-    LANCAMENTOS_WORKER --> POSTGRES_L
-    CONSOLIDADO_WORKER --> RABBITMQ_INFRA
-    CONSOLIDADO_WORKER --> POSTGRES_C
-    CONSOLIDADO_WORKER --> REDIS_INFRA
+    LAPI --> MQ
+    LAPI --> PGL
+    WORKER --> MQ
+    WORKER --> PGL
+    CONS --> MQ
+    CONS --> PGC
+    CONS --> REDIS
+    CAPI --> PGC
+    CAPI --> REDIS
 
-    API_CONTAINER -.->|Traces| JAEGER
-    LANCAMENTOS_WORKER -.->|Metrics| PROMETHEUS
-    CONSOLIDADO_WORKER -.->|Metrics| PROMETHEUS
-    PROMETHEUS -.->|Datasource| GRAFANA
-
-    style API_CONTAINER fill:#4A90E2,color:#fff
-    style LANCAMENTOS_WORKER fill:#27AE60,color:#fff
-    style CONSOLIDADO_WORKER fill:#8E44AD,color:#fff
-    style RABBITMQ_INFRA fill:#FF6600,color:#fff
-    style REDIS_INFRA fill:#D32F2F,color:#fff
+    LAPI -.->|OTLP| JAEGER
+    WORKER -.->|OTLP| JAEGER
 ```
 
----
-
-## Notas de Implementação
-
-### Padrões Utilizados
-
-1. **CQRS (Command Query Responsibility Segregation)**
-   - Separação clara entre Write Model (Lançamentos) e Read Model (Consolidado)
-   - Bancos de dados independentes e otimizados para cada propósito
-
-2. **Event-Driven Architecture**
-   - Comunicação assíncrona via eventos de domínio
-   - Desacoplamento entre serviços
-   - Garantia de consistência eventual
-
-3. **Cache em Múltiplas Camadas**
-   - L1: Memory Cache (in-process, <1ms)
-   - L2: Redis (distribuído, <10ms)
-   - L3: HTTP Response Cache (CDN-friendly, 60s)
-
-4. **Repository Pattern**
-   - Abstração da persistência
-   - Facilita testes unitários
-   - Permite troca de tecnologia de banco
-
-5. **Result Pattern**
-   - Tratamento de erros sem exceções
-   - Código mais limpo e previsível
-   - Melhor performance
-
-### Requisitos Não-Funcionais Atendidos
-
-| NFR | Meta | Solução | Status |
-|-----|------|---------|--------|
-| Disponibilidade | Lançamentos independente de Consolidado | CQRS + Event-Driven | ✅ Atendido |
-| Performance | 50 req/s no Consolidado | Cache em 3 camadas | ✅ Atendido |
-| Taxa de Perda | Máximo 5% | Retry + DLQ + Circuit Breaker | ✅ Atendido (<1%) |
-| Escalabilidade | Horizontal | Stateless services | ✅ Atendido |
-| Resiliência | Recuperação automática | Retry policy + Health checks | ✅ Atendido |
+O RabbitMQ, o Seq e o Jaeger são compartilhados com a SAGA. Só a API de lançamentos e o worker exportam traces para o Jaeger: o Consolidado não configura OpenTelemetry, e a API de consulta não recebe o endereço do Jaeger no compose. Não há Prometheus nem Grafana na stack.
 
 ---
 
-**Versão**: 1.0
-**Data de criação**: 2026-01-15
-**Última atualização**: 2026-01-15
-**Formato**: Mermaid Diagrams
+## Limitações
+
+| Ponto | Situação |
+|---|---|
+| Disponibilidade da escrita sem o Consolidado | A API de lançamentos e o worker não dependem do Consolidado; os eventos ficam na fila `fluxocaixa-consolidado` até ele voltar. Isso é consequência do desenho, não foi testado com falha injetada. |
+| Vazão de 50 requisições por segundo na consulta | Objetivo, não medido. Existe o limitador configurado, mas nenhum teste de carga. |
+| Perda de lançamentos | Não medida. Evento publicado antes de o Consolidado assinar os tópicos é descartado pelo RabbitMQ; por isso o `aguardar-stack.sh` espera as assinaturas antes dos testes. |
+| Duplicidade | Não há outbox: a gravação e o envio do evento não são atômicos. Se o envio falhar depois do commit, o Rebus repete a mensagem e o worker grava o lançamento de novo, com outro `Id`. O Consolidado também aplica de novo um evento reentregue; nenhum dos dois é idempotente. |
+| Escala do Consolidado | Uma mensagem por vez (`MaxParallelism = 1`), porque a linha do dia não tem controle de concorrência. |

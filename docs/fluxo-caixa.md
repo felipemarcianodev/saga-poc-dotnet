@@ -1,245 +1,81 @@
-# FluxoCaixa - Sistema de Controle de Fluxo de Caixa
+# Fluxo de caixa
 
-Sistema completo de controle de fluxo de caixa com lançamentos (Write Model) e consolidado diário (Read Model), utilizando DDD, CQRS e Event-Driven Architecture.
+Segundo contexto da POC: controle de lançamentos (débitos e créditos) de um comerciante e consolidado diário do saldo, com CQRS. A escrita registra lançamentos e publica eventos; a leitura mantém o consolidado do dia num banco separado, com cache.
 
-## Visão Geral
+- Diagramas: [diagramas-fluxo-caixa.md](./diagramas-fluxo-caixa.md)
+- Decisões: [ADR 001 (CQRS)](./decisoes-tecnicas/001-cqrs.md), [ADR 002 (cache)](./decisoes-tecnicas/002-cache.md), [ADR 003 (PostgreSQL)](./decisoes-tecnicas/003-postgresql.md)
+- Diagnóstico: [troubleshooting-fluxo-caixa.md](./troubleshooting-fluxo-caixa.md)
 
-O sistema FluxoCaixa implementa o padrão CQRS com separação clara entre:
-- **Write Model**: Serviço de Lançamentos (transações de débito/crédito)
-- **Read Model**: Serviço de Consolidado Diário (agregações e relatórios)
+---
 
-### Documentação Relacionada
+## Componentes
 
-- **[Diagramas de Arquitetura](diagramas-fluxo-caixa.md)** - Diagramas Mermaid completos
-- **[ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)** - Decisão de usar CQRS
-- **[ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)** - Estratégia de cache
-- **[ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)** - Escolha do banco de dados
+| Serviço (compose) | Projeto | Papel |
+|---|---|---|
+| `lancamentos-api` (porta 5200) | `src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Api` | Recebe `POST /api/lancamentos`, valida e envia o comando `RegistrarLancamento` para a fila `fluxocaixa-lancamentos`; responde 202. Também lista e consulta lançamentos gravados. |
+| `lancamentos-worker` | `src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Worker` | Consome o comando, grava o lançamento em `fluxocaixa_lancamentos` e publica `LancamentoCreditoRegistrado` ou `LancamentoDebitoRegistrado`. Migra esse banco ao subir. |
+| `fluxocaixa-consolidado` | `src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado` | Assina os dois eventos (fila `fluxocaixa-consolidado`), cria ou atualiza o consolidado do dia em `fluxocaixa_consolidado` e apaga a chave do dia no Redis. Migra esse banco ao subir. |
+| `fluxocaixa-api` (porta 5100) | `src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api` | Consulta o consolidado, com cache em memória, Redis e response cache. |
 
-## Arquitetura
+Bibliotecas compartilhadas, em `src/SagaPoc.ServicoFluxoCaixa/`:
 
-### Camadas do Projeto
+- `SagaPoc.FluxoCaixa.Domain`: agregados `Lancamento` e `ConsolidadoDiario`, comando `RegistrarLancamento`, eventos, interfaces de repositório e `IUnitOfWork`.
+- `SagaPoc.FluxoCaixa.Application`: serviços de aplicação (`LancamentoAppService`, `ConsolidadoAppService`) e `ICacheService`.
+- `SagaPoc.FluxoCaixa.Infrastructure`: `DbContext`s do EF Core (Npgsql), repositórios, `UnitOfWork` e `RedisCacheService`.
 
-```
-SagaPoc.FluxoCaixa
-├── Domain              # Camada de domínio (Agregados, Value Objects, Eventos)
-├── Infrastructure      # Infraestrutura (Repositórios, EF Core, Persistência)
-├── Lancamentos         # Handlers de comandos (Rebus)
-└── Api                 # API REST (Controllers, DTOs)
-```
+Mensageria com Rebus sobre RabbitMQ. O comando vai por `Send` (roteado para `fluxocaixa-lancamentos`); os eventos vão por `Publish`, que no RabbitMQ passa pela exchange de tópicos `RebusTopics`. O Consolidado assina os dois eventos ao subir; sem a assinatura, o RabbitMQ descarta os eventos em silêncio.
 
-### Componentes Principais
+---
 
-#### 1. Agregado Raiz: Lancamento
-- **Responsabilidade**: Gerenciar o ciclo de vida de um lançamento
-- **Estados**: Pendente → Confirmado/Cancelado
-- **Validações**: Regras de negócio encapsuladas no agregado
-- **Eventos de Domínio**:
-  - `LancamentoCreditoRegistrado`
-  - `LancamentoDebitoRegistrado`
-  - `LancamentoCancelado`
+## Domínio
 
-#### 2. Repository Pattern
-- **Interface**: `ILancamentoRepository`
-- **Implementação**: `LancamentoRepository` com EF Core
-- **Banco de Dados**: PostgreSQL
-- **Padrão Result**: Utiliza `Resultado<T>` para tratamento de erros
+**`Lancamento`** (agregado raiz)
+- Tipo: `1` = débito (saída), `2` = crédito (entrada).
+- Regras de `Lancamento.Criar`: valor maior que zero e até 1 bilhão; descrição obrigatória, até 500 caracteres; comerciante obrigatório.
+- Estados: `Pendente`, `Confirmado`, `Cancelado`. O worker cria e confirma em memória, e o lançamento entra no banco já `Confirmado`.
+- Eventos: `LancamentoCreditoRegistrado` ou `LancamentoDebitoRegistrado`, conforme o tipo. `Cancelar` e o evento `LancamentoCancelado` existem no domínio, mas nenhum endpoint ou handler os usa.
 
-#### 3. Handlers de Comandos
-- **Framework**: Rebus (mensageria via RabbitMQ)
-- **Handler**: `RegistrarLancamentoHandler`
-- **Comandos**:
-  - `RegistrarLancamento` → `LancamentoRegistradoComSucesso` / `LancamentoRejeitado`
+**`ConsolidadoDiario`**
+- Uma linha por dia e comerciante (índice único em `Data` + `Comerciante`).
+- Guarda total e quantidade de créditos e de débitos; `SaldoDiario` = créditos − débitos.
 
-#### 4. API REST
-- **Framework**: ASP.NET Core 9.0
-- **Endpoints**:
-  - `POST /api/lancamentos` - Registrar novo lançamento
-  - `GET /api/lancamentos/{id}` - Consultar lançamento por ID
-  - `GET /api/lancamentos?comerciante={comerciante}&inicio={data}&fim={data}` - Listar lançamentos por período
+---
 
-## Pré-requisitos
+## Como rodar
 
-- .NET 10 SDK
-- Docker e Docker Compose
-- PostgreSQL 16 (ou via Docker)
-- RabbitMQ (ou via Docker)
-
-## Instalação e Execução
-
-### 1. Subir a infraestrutura com Docker Compose
+O fluxo de caixa sobe junto com a stack inteira:
 
 ```bash
-cd docker
-docker-compose up -d postgres-fluxocaixa rabbitmq
+docker compose -f docker/docker-compose.yml up -d --build
+bash docs/scripts/aguardar-stack.sh      # espera APIs, filas e assinaturas
+bash docs/scripts/testar-fluxo-caixa.sh  # teste de ponta a ponta
 ```
 
-Isso irá iniciar:
-- PostgreSQL na porta 5433
-- RabbitMQ na porta 5672 (UI em 15672)
+Os workers aplicam as migrations ao subir; não é preciso rodar `dotnet ef`.
 
-### 2. Executar as Migrations
+O compose sobe as duas APIs com `ASPNETCORE_ENVIRONMENT=Development`, então o Swagger fica em `http://localhost:5200/swagger` (lançamentos) e `http://localhost:5100/swagger` (consulta).
 
-```bash
-cd /c/Projetos/saga-poc-dotnet
-dotnet ef database update \
-  --project src/SagaPoc.FluxoCaixa.Infrastructure \
-  --startup-project src/SagaPoc.FluxoCaixa.Api
-```
+---
 
-### 3. Executar a API
+## API de lançamentos (porta 5200)
 
-```bash
-cd src/SagaPoc.FluxoCaixa.Api
-dotnet run
-```
+### `POST /api/lancamentos`
 
-A API estará disponível em: `https://localhost:5001` ou `http://localhost:5000`
-
-Swagger UI: `https://localhost:5001/swagger`
-
-### 4. Executar via Docker
-
-```bash
-cd docker
-docker-compose up -d fluxocaixa-api
-```
-
-A API estará disponível em: `http://localhost:5100`
-
-## Testes
-
-### Executar Testes Unitários
-
-```bash
-cd tests/SagaPoc.FluxoCaixa.Domain.Tests
-dotnet test
-```
-
-### Cobertura dos Testes
-
-Os testes cobrem:
-- ✅ Criação de lançamentos com validações
-- ✅ Confirmação de lançamentos
-- ✅ Cancelamento de lançamentos
-- ✅ Geração de eventos de domínio
-- ✅ Validações de regras de negócio
-- ✅ Result Pattern (sucesso/falha)
-
-Cobertura: **15 testes** com 100% de aprovação
-
-## Testando a API via Swagger
-
-A API possui uma interface Swagger completa com exemplos de dados pré-configurados para facilitar os testes.
-
-### Acessar o Swagger UI
-
-Após iniciar a aplicação, acesse: `https://localhost:5001/swagger` ou `http://localhost:5000/swagger`
-
-### Exemplos de Dados no Swagger
-
-Todos os DTOs da API possuem exemplos de dados pré-configurados que aparecem automaticamente no Swagger:
-
-#### Registrar Lançamento (POST /api/lancamentos)
-
-O Swagger exibirá automaticamente este exemplo:
 ```json
 {
   "tipo": 2,
   "valor": 150.00,
-  "dataLancamento": "2026-01-17",
+  "dataLancamento": "2026-10-20",
   "descricao": "Venda de produto X",
   "comerciante": "COM001",
   "categoria": "Vendas"
 }
 ```
 
-**Tipos de Lançamento:**
-- `1` = Débito (saída de caixa)
-- `2` = Crédito (entrada de caixa)
+Validação (DataAnnotations, responde 400): valor a partir de 0,01; descrição de 3 a 500 caracteres; comerciante de 3 a 100 caracteres; categoria até 100 caracteres, opcional. Sem `dataLancamento`, vale a data atual.
 
-**Validações Aplicadas:**
-- Valor deve ser maior que zero
-- Descrição: mínimo 3 e máximo 500 caracteres
-- Comerciante: mínimo 3 e máximo 100 caracteres
-- Categoria: máximo 100 caracteres (opcional)
+Resposta 202:
 
-#### Consultar Consolidado (GET /api/consolidado/{comerciante}/{data})
-
-Exemplo de requisição:
-```
-GET /api/consolidado/COM001/2026-01-17
-```
-
-Resposta esperada:
-```json
-{
-  "data": "2026-01-17",
-  "comerciante": "COM001",
-  "totalCreditos": 500.00,
-  "totalDebitos": 150.00,
-  "saldoDiario": 350.00,
-  "quantidadeCreditos": 5,
-  "quantidadeDebitos": 3,
-  "quantidadeTotalLancamentos": 8,
-  "ultimaAtualizacao": "2026-01-17T10:30:00Z"
-}
-```
-
-### Como Testar no Swagger
-
-1. **Acesse o Swagger UI** em `https://localhost:5001/swagger`
-
-2. **Registrar um Lançamento de Crédito:**
-   - Clique em `POST /api/lancamentos`
-   - Clique em "Try it out"
-   - O exemplo de dados já estará preenchido
-   - Modifique os valores se desejar (por exemplo, altere `tipo` para `1` para débito)
-   - Clique em "Execute"
-   - Observe o `correlationId` retornado na resposta
-
-3. **Consultar o Lançamento:**
-   - Clique em `GET /api/lancamentos/{id}`
-   - Clique em "Try it out"
-   - Cole o `correlationId` obtido no passo anterior no campo `id`
-   - Clique em "Execute"
-   - Observe os dados completos do lançamento
-
-4. **Listar Lançamentos por Período:**
-   - Clique em `GET /api/lancamentos`
-   - Clique em "Try it out"
-   - Preencha:
-     - `comerciante`: COM001
-     - `inicio`: 2026-01-01
-     - `fim`: 2026-01-31
-   - Clique em "Execute"
-
-5. **Consultar Consolidado Diário:**
-   - Clique em `GET /api/consolidado/{comerciante}/{data}`
-   - Clique em "Try it out"
-   - Preencha:
-     - `comerciante`: COM001
-     - `data`: 2026-01-17
-   - Clique em "Execute"
-   - Observe os totais consolidados
-
-## Exemplos de Uso via cURL
-
-### Registrar um Lançamento de Crédito
-
-```bash
-curl -X POST https://localhost:5001/api/lancamentos \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tipo": 2,
-    "valor": 150.00,
-    "dataLancamento": "2026-01-17",
-    "descricao": "Venda de produto X",
-    "comerciante": "COM001",
-    "categoria": "Vendas"
-  }'
-```
-
-Resposta:
 ```json
 {
   "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -247,308 +83,109 @@ Resposta:
 }
 ```
 
-### Registrar um Lançamento de Débito
+O 202 só diz que o comando foi enviado. O `correlationId` **não** é o `id` do lançamento: o worker gera o `id` ao gravar, e a API não devolve esse valor. Para achar o lançamento, use a listagem por comerciante.
 
-```bash
-curl -X POST https://localhost:5001/api/lancamentos \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tipo": 1,
-    "valor": 50.00,
-    "dataLancamento": "2026-01-17",
-    "descricao": "Compra de material de escritório",
+### `GET /api/lancamentos?comerciante={comerciante}&inicio={data}&fim={data}`
+
+Lista os lançamentos do período (padrão: últimos 30 dias até hoje).
+
+```json
+[
+  {
+    "id": "8b0d9c1e-2f3a-4b5c-9d6e-7f8a9b0c1d2e",
+    "tipo": "Credito",
+    "valor": 150.00,
+    "dataLancamento": "2026-10-20T00:00:00",
+    "descricao": "Venda de produto X",
     "comerciante": "COM001",
-    "categoria": "Despesas Operacionais"
-  }'
-```
-
-### Consultar um Lançamento
-
-```bash
-curl https://localhost:5001/api/lancamentos/{id}
-```
-
-Resposta:
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "tipo": "Credito",
-  "valor": 150.00,
-  "dataLancamento": "2026-01-17",
-  "descricao": "Venda de produto X",
-  "comerciante": "COM001",
-  "categoria": "Vendas",
-  "status": "Confirmado",
-  "criadoEm": "2026-01-17T10:30:00Z"
-}
-```
-
-### Listar Lançamentos por Período
-
-```bash
-curl "https://localhost:5001/api/lancamentos?comerciante=COM001&inicio=2026-01-01&fim=2026-01-31"
-```
-
-### Consultar Consolidado de uma Data Específica
-
-```bash
-curl "https://localhost:5001/api/consolidado/COM001/2026-01-17"
-```
-
-Resposta:
-```json
-{
-  "data": "2026-01-17",
-  "comerciante": "COM001",
-  "totalCreditos": 500.00,
-  "totalDebitos": 150.00,
-  "saldoDiario": 350.00,
-  "quantidadeCreditos": 5,
-  "quantidadeDebitos": 3,
-  "quantidadeTotalLancamentos": 8,
-  "ultimaAtualizacao": "2026-01-17T14:30:00Z"
-}
-```
-
-### Consultar Consolidado de um Período
-
-```bash
-curl "https://localhost:5001/api/consolidado/COM001/periodo?inicio=2026-01-01&fim=2026-01-31"
-```
-
-## Padrões e Práticas
-
-### DDD (Domain-Driven Design)
-- **Agregado Raiz**: `Lancamento` com validações encapsuladas
-- **Value Objects**: `EnumTipoLancamento`, `EnumStatusLancamento`
-- **Eventos de Domínio**: Publicados para integração assíncrona
-
-### SOLID
-- **Single Responsibility**: Cada classe tem uma única responsabilidade
-- **Open/Closed**: Aberto para extensão, fechado para modificação
-- **Liskov Substitution**: Substituição de interfaces
-- **Interface Segregation**: Interfaces específicas
-- **Dependency Inversion**: Inversão de dependências via DI
-
-### Clean Code
-- Nomenclatura clara e expressiva
-- Funções pequenas e focadas
-- Tratamento de erros com Result Pattern
-- Testes unitários abrangentes
-
-### Result Pattern
-- Substitui exceções para controle de fluxo
-- `Resultado<T>` para operações com retorno
-- `Resultado<Unit>` para operações sem retorno
-- Tipos de erro: Validação, Negócio, Técnico, NãoEncontrado
-
-## Estrutura de Dados
-
-### Tabela: lancamentos
-
-```sql
-CREATE TABLE lancamentos (
-    id UUID PRIMARY KEY,
-    tipo VARCHAR(20) NOT NULL,
-    valor DECIMAL(18,2) NOT NULL,
-    data_lancamento DATE NOT NULL,
-    descricao VARCHAR(500) NOT NULL,
-    comerciante VARCHAR(100) NOT NULL,
-    categoria VARCHAR(100),
-    status VARCHAR(20) NOT NULL,
-    criado_em TIMESTAMP NOT NULL,
-    atualizado_em TIMESTAMP
-);
-
-CREATE INDEX idx_lancamentos_comerciante_data ON lancamentos(comerciante, data_lancamento);
-CREATE INDEX idx_lancamentos_data ON lancamentos(data_lancamento);
-CREATE INDEX idx_lancamentos_status ON lancamentos(status);
-```
-
-## Configuração
-
-### appsettings.json
-
-```json
-{
-  "ConnectionStrings": {
-    "FluxoCaixaDb": "Host=localhost;Port=5433;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123"
-  },
-  "RabbitMQ": {
-    "Host": "localhost",
-    "Port": 5672,
-    "Username": "saga",
-    "Password": "saga123"
+    "categoria": "Vendas",
+    "status": "Confirmado",
+    "criadoEm": "2026-10-20T14:30:00Z"
   }
-}
+]
 ```
 
-## Serviço de Consolidado Diário (Read Model)
+### `GET /api/lancamentos/{id}`
 
-### Visão Geral
-
-O serviço de Consolidado consome eventos publicados pelo serviço de Lançamentos e mantém uma visão agregada dos dados.
-
-### Endpoints
-
-- `GET /api/consolidado/{comerciante}/{data}` - Consultar consolidado de uma data específica
-- `GET /api/consolidado/{comerciante}/periodo?inicio={data}&fim={data}` - Consultar consolidado de um período
-
-### Exemplo de Resposta
-
-```json
-{
-  "data": "2026-01-15",
-  "comerciante": "COM001",
-  "totalCreditos": 500.00,
-  "totalDebitos": 150.00,
-  "saldoDiario": 350.00,
-  "quantidadeCreditos": 1,
-  "quantidadeDebitos": 1,
-  "quantidadeTotalLancamentos": 2,
-  "ultimaAtualizacao": "2026-01-15T14:30:00Z"
-}
-```
-
-### Cache em 3 Camadas
-
-O consolidado utiliza uma estratégia de cache agressiva para atender ao NFR de 50 req/s:
-
-1. **L1 - Memory Cache**: TTL 1 minuto, latência <1ms
-2. **L2 - Redis**: TTL 5 minutos, latência <10ms
-3. **L3 - HTTP Response Cache**: TTL 60 segundos, CDN-friendly
-
-Ver [ADR-002](decisoes-tecnicas/002-cache.md) para detalhes.
-
-## Conformidade com as Especificações do Desafio
-
-Esta seção documenta como a implementação atende aos requisitos do desafio proposto em `desafio-desenvolvedor-backend-nov25.pdf`.
-
-### Requisitos de Negócio
-
-| Requisito | Descrição | Implementação | Status |
-|-----------|-----------|---------------|--------|
-| **Controle de Lançamentos** | Serviço transacional para débitos e créditos | Controller `LancamentosController` com handlers assíncronos via Rebus | ✅ Atendido |
-| **Consolidado Diário** | Serviço de relatório com saldo consolidado | Controller `ConsolidadoController` com cache em 3 camadas | ✅ Atendido |
-
-### Requisitos Técnicos Obrigatórios
-
-| Requisito | Implementação | Status |
-|-----------|---------------|--------|
-| **Desenho da Solução** | Diagramas Mermaid em `docs/diagramas-fluxo-caixa.md` | ✅ Atendido |
-| **C# / .NET** | .NET 10 + C# 14 | ✅ Atendido |
-| **Testes (TDD/BDD)** | 15 testes unitários em `SagaPoc.FluxoCaixa.Domain.Tests` | ✅ Atendido |
-| **SOLID** | Inversão de dependências, SRP, ISP aplicados | ✅ Atendido |
-| **Clean Code** | Nomenclatura clara, métodos pequenos, Result Pattern | ✅ Atendido |
-| **Design Patterns** | Repository, CQRS, Event-Driven, Factory | ✅ Atendido |
-| **DDD** | Agregados, Value Objects, Eventos de Domínio | ✅ Atendido |
-| **README** | Instruções claras em `docs/fluxo-caixa.md` | ✅ Atendido |
-| **Repositório Público** | GitHub (este repositório) | ✅ Atendido |
-| **Documentação** | ADRs, diagramas, README completo | ✅ Atendido |
-
-### Requisitos Não-Funcionais
-
-| NFR | Meta | Implementação | Status |
-|-----|------|---------------|--------|
-| **Disponibilidade** | Lançamentos independente de Consolidado | CQRS com mensageria assíncrona via RabbitMQ | ✅ Atendido |
-| **Performance** | 50 req/s no Consolidado com máx. 5% de perda | Cache em 3 camadas (Memory + Redis + HTTP) + Rate Limiting | ✅ Atendido |
-| **Escalabilidade** | Stateless, horizontal | Sem estado na aplicação, pronto para k8s | ✅ Atendido |
-| **Resiliência** | Recuperação automática | Retry policies no EF Core e Rebus | ✅ Atendido |
-
-### Padrões e Práticas Aplicados
-
-#### Design Patterns Implementados
-
-1. **Repository Pattern** - `ILancamentoRepository`, `IConsolidadoDiarioRepository`
-2. **CQRS** - Separação entre Write Model (Lançamentos) e Read Model (Consolidado)
-3. **Event-Driven Architecture** - Eventos de domínio: `LancamentoCreditoRegistrado`, `LancamentoDebitoRegistrado`
-4. **Result Pattern** - `Resultado<T>` para tratamento de erros sem exceções
-5. **Factory Pattern** - Criação de agregados com validações encapsuladas
-6. **Strategy Pattern** - Handlers diferentes para crédito e débito
-
-#### Princípios SOLID
-
-1. **Single Responsibility Principle (SRP)** - Cada classe tem uma única responsabilidade
-   - `Lancamento` - apenas lógica de negócio do lançamento
-   - `LancamentoRepository` - apenas persistência
-   - `RegistrarLancamentoHandler` - apenas processamento do comando
-
-2. **Open/Closed Principle (OCP)** - Aberto para extensão, fechado para modificação
-   - Novos tipos de lançamentos podem ser adicionados sem alterar código existente
-
-3. **Liskov Substitution Principle (LSP)** - Interfaces podem ser substituídas
-   - `ILancamentoRepository` pode ter múltiplas implementações
-
-4. **Interface Segregation Principle (ISP)** - Interfaces específicas
-   - `ILancamentoRepository` e `IConsolidadoDiarioRepository` são específicos
-
-5. **Dependency Inversion Principle (DIP)** - Dependência de abstrações
-   - Controllers dependem de interfaces, não de implementações concretas
-
-#### DDD (Domain-Driven Design)
-
-1. **Agregado Raiz** - `Lancamento` com invariantes encapsuladas
-2. **Value Objects** - `EnumTipoLancamento`, `EnumStatusLancamento`
-3. **Eventos de Domínio** - Publicados para integração assíncrona
-4. **Repositórios** - Abstração de persistência
-5. **Camadas bem definidas** - Domain, Infrastructure, Application, API
-
-## Requisitos Não-Funcionais
-
-| NFR | Meta | Status |
-|-----|------|--------|
-| Disponibilidade | Lançamentos independente de Consolidado | ✅ Atendido (CQRS) |
-| Performance | 50 req/s no Consolidado | ✅ Atendido (Cache) |
-| Taxa de Perda | Máximo 5% | ✅ Atendido (< 1%) |
-| Escalabilidade | Stateless, horizontal | ✅ Atendido |
-| Resiliência | Recuperação automática | ✅ Atendido (Retry + DLQ) |
-
-## Diagramas
-
-Para visualizar a arquitetura completa com diagramas Mermaid, consulte:
-
-- **[Diagramas de Componentes e Sequência](diagramas-fluxo-caixa.md)**
-
-Principais diagramas disponíveis:
-- Diagrama de Componentes e Interações
-- Diagrama de Sequência - Registrar Lançamento
-- Diagrama de Sequência - Consultar Consolidado
-- Diagrama de Cache em 3 Camadas
-- Diagrama de Deployment
-
-## Decisões Técnicas
-
-As principais decisões técnicas estão documentadas:
-
-- **[ADR-001: CQRS](decisoes-tecnicas/001-cqrs.md)** - Por que separar Write e Read Models
-- **[ADR-002: Cache em 3 Camadas](decisoes-tecnicas/002-cache.md)** - Estratégia de cache para performance
-- **[ADR-003: PostgreSQL](decisoes-tecnicas/003-postgresql.md)** - Escolha do banco de dados
-
-## Observabilidade
-
-O sistema implementa observabilidade completa com:
-
-- **Logs Estruturados**: Serilog (Console/File)
-- **Métricas**: Prometheus → Grafana
-- **Traces Distribuídos**: OpenTelemetry → Jaeger
-- **Health Checks**: `/health` endpoint
-
-## Próximos Passos
-
-- [x] Implementar Read Model (CQRS)
-- [x] Adicionar consolidação diária de saldos
-- [x] Implementar projeções para relatórios
-- [x] Adicionar métricas e observabilidade
-- [ ] Adicionar testes de integração
-- [ ] Implementar Event Sourcing (opcional)
-
-## Licença
-
-MIT
+Consulta um lançamento pelo `id` gravado; 404 se não existir.
 
 ---
 
-**Versão**: 2.0
-**Data de criação**: 2026-01-15
-**Última atualização**: 2026-01-15
-**Autor**: Equipe de Arquitetura
+## API de consulta (porta 5100)
+
+### `GET /api/consolidado/{comerciante}/{data}`
+
+```json
+{
+  "data": "2026-10-20T00:00:00Z",
+  "comerciante": "COM001",
+  "totalCreditos": 1500.00,
+  "totalDebitos": 250.00,
+  "saldoDiario": 1250.00,
+  "quantidadeCreditos": 5,
+  "quantidadeDebitos": 3,
+  "quantidadeTotalLancamentos": 8,
+  "ultimaAtualizacao": "2026-10-20T14:30:00Z"
+}
+```
+
+404 se o dia ainda não tem lançamento consolidado.
+
+### `GET /api/consolidado/{comerciante}/periodo?inicio={data}&fim={data}`
+
+Lista os consolidados do período. Esta rota não usa cache.
+
+### Cache e defasagem
+
+A consulta por dia passa por três camadas: response cache (60 s), memória (1 min) e Redis (5 min), nessa ordem, antes do banco. O Consolidado apaga só a chave do Redis a cada evento; a memória e o response cache não são invalidados. **Uma leitura pode vir defasada até cerca de 60 segundos** depois de um lançamento.
+
+A camada Redis hoje só grava: a API não consegue desserializar o agregado `ConsolidadoDiario` lido do Redis, registra o aviso `Erro ao buscar do cache` e vai ao banco. Detalhes e correção prevista no [ADR 002](./decisoes-tecnicas/002-cache.md).
+
+As rotas da API de consulta têm um limitador de janela fixa: 50 requisições por segundo, com fila de 10. É uma configuração, não uma vazão medida: não há teste de carga.
+
+---
+
+## Testes
+
+- **Unidade:** `tests/SagaPoc.FluxoCaixa.Domain.Tests`, 15 testes xUnit do agregado `Lancamento` (criação, validações, confirmação, cancelamento e eventos). `ConsolidadoDiario`, handlers e APIs não têm teste de unidade.
+- **Ponta a ponta:** `docs/scripts/testar-fluxo-caixa.sh`, com a stack no ar. Cada cenário usa um comerciante novo, para não ler valor do cache de uma rodada anterior:
+  1. crédito e débito no mesmo dia: confere saldo, totais e quantidades;
+  2. cinco créditos e três débitos no mesmo dia acumulam no mesmo consolidado;
+  3. lançamentos em dias diferentes ficam em consolidados separados (ontem e hoje);
+  4. a API recusa entrada inválida com 400 (valor zero, descrição e comerciante curtos) e nada é gravado.
+
+  Depois de enviar, o script espera as filas `fluxocaixa-lancamentos` e `fluxocaixa-consolidado` esvaziarem e confere que nenhuma mensagem nova foi para a fila `error`. Sai com 1 se algo divergir.
+
+Os dois rodam no CI (`.github/workflows/ci.yml`).
+
+---
+
+## Dados
+
+Banco `fluxocaixa_lancamentos` (porta 5433), tabela `lancamentos`: `id`, `tipo` e `status` gravados como texto, `valor`, `data_lancamento`, `descricao`, `comerciante`, `categoria`, `criado_em`, `atualizado_em`; índices em (`comerciante`, `data_lancamento`), `data_lancamento` e `status`.
+
+Banco `fluxocaixa_consolidado` (porta 5434), tabela `ConsolidadosDiarios`, com índice único em (`Data`, `Comerciante`).
+
+O esquema de cada banco é definido pelas migrations do EF Core em `SagaPoc.FluxoCaixa.Infrastructure`. Consultas SQL de operação estão em [docker/README.md](../docker/README.md).
+
+---
+
+## Observabilidade
+
+- **Logs:** Serilog no console de cada container (`docker logs`). O Seq (http://localhost:5342) recebe os logs das APIs; os workers só escrevem no console (ver backlog no `CLAUDE.md`).
+- **Traces:** a API de lançamentos e o worker exportam por OTLP para o Jaeger (http://localhost:16686). O Consolidado não configura OpenTelemetry, e a API de consulta não recebe o endereço do Jaeger no compose.
+- **Health:** `/health` nas duas APIs.
+
+Não há métricas (Prometheus, Grafana) na stack.
+
+---
+
+## Limitações conhecidas
+
+- **Sem idempotência no worker de lançamentos:** cada tentativa de `RegistrarLancamento` gera um `Id` novo. Se o envio do evento falhar depois do commit, o Rebus repete a mensagem e o lançamento é gravado de novo.
+- **Sem idempotência no Consolidado:** um evento reentregue soma o valor de novo.
+- **Sem outbox:** a gravação do lançamento e a publicação do evento não são atômicas.
+- **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`), porque a linha do dia não tem controle de concorrência; dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
+- **Recusa silenciosa no worker:** se `Lancamento.Criar` recusar o comando, o worker registra um aviso e descarta a mensagem; o cliente já recebeu 202. A validação da API cobre quase as mesmas regras, então isso só acontece com comando enviado direto para a fila.
+- **Leitura defasada** até cerca de 60 s, como descrito acima.
+- **Redis sem efeito na leitura:** a desserialização do agregado falha, e toda leitura que passa da memória vai ao banco.

@@ -1,183 +1,76 @@
-# Decisões Arquiteturais (ADRs)
+# Decisões técnicas (ADRs)
 
-Este diretório contém os Architectural Decision Records (ADRs) do sistema de Fluxo de Caixa.
-
----
-
-## O que são ADRs?
-
-ADRs (Architectural Decision Records) são documentos que capturam decisões arquiteturais importantes, incluindo:
-
-- **Contexto**: Qual problema estamos resolvendo?
-- **Decisão**: O que decidimos fazer?
-- **Alternativas**: Que outras opções consideramos?
-- **Consequências**: Quais são os trade-offs?
+Registros de decisões de arquitetura (ADR) do contexto de Fluxo de Caixa. Cada ADR diz qual problema havia, o que foi decidido, o que se perdeu com isso e o que pode dar errado.
 
 ---
 
-## ADRs Disponíveis
+## ADRs
 
-### ADR-001: CQRS para Separação de Lançamentos e Consolidado
+| ADR | Status | Decisão |
+|---|---|---|
+| [001](./001-cqrs.md) | Aceito | Escrita (lançamentos) e leitura (consolidado) em serviços e bancos separados, ligados por eventos no RabbitMQ, para que o registro não dependa do consolidado. |
+| [002](./002-cache.md) | Aceito, com defeito conhecido | Cache em três camadas na consulta do consolidado (response cache, memória e Redis). A camada Redis hoje não serve leituras, e a leitura pode vir defasada até cerca de 60 s. A meta de 50 requisições por segundo é objetivo, não medido. |
+| [003](./003-postgresql.md) | Aceito | PostgreSQL 16 para os dois modelos, em instâncias separadas, cada uma migrada pelo seu worker. |
 
-**Status**: Aceito
-
-**Resumo**: Uso do padrão CQRS para separar o Write Model (Lançamentos) do Read Model (Consolidado), garantindo disponibilidade independente e performance otimizada.
-
-**Motivação**:
-- Lançamentos não pode ficar indisponível se Consolidado cair
-- Consolidado precisa suportar 50 req/s
-
-**Link**: [001-cqrs.md](001-cqrs.md)
+As escolhas da SAGA de pedidos (Rebus, RabbitMQ, estado no PostgreSQL) estão em [design/escolhas-tecnicas.md](../design/escolhas-tecnicas.md).
 
 ---
 
-### ADR-002: Cache em 3 Camadas para Consolidado
+## Como criar um ADR
 
-**Status**: Aceito
+1. Use o próximo número livre: `NNN-nome-da-decisao.md` nesta pasta.
+2. Siga o modelo abaixo.
+3. Acrescente uma linha na tabela acima.
 
-**Resumo**: Implementação de cache em 3 camadas (Memory Cache + Redis + HTTP Response Cache) para atender ao NFR de 50 req/s com latência P95 < 10ms.
-
-**Motivação**:
-- PostgreSQL não aguenta 50 req/s sem cache
-- Latência precisa ser < 100ms
-
-**Link**: [002-cache.md](002-cache.md)
-
----
-
-### ADR-003: PostgreSQL para Ambos os Modelos
-
-**Status**: Aceito
-
-**Resumo**: Uso de PostgreSQL tanto para Write Model quanto para Read Model, com esquemas e otimizações diferentes para cada.
-
-**Motivação**:
-- Simplicidade operacional (stack unificado)
-- PostgreSQL é suficiente para ambos os casos de uso
-- Reduz complexidade e custos
-
-**Link**: [003-postgresql.md](003-postgresql.md)
-
----
-
-## Timeline de Decisões
-
-```
-2026-01-15
-│
-├─ ADR-001: CQRS (Aceito)
-│  └─ Separação de Write e Read Models
-│
-├─ ADR-002: Cache em 3 Camadas (Aceito)
-│  └─ Memory Cache + Redis + HTTP Response Cache
-│
-└─ ADR-003: PostgreSQL (Aceito)
-   └─ PostgreSQL para ambos os modelos
-```
-
----
-
-## Status dos ADRs
-
-| ADR | Status | Data | Tópico |
-|-----|--------|------|--------|
-| ADR-001 | ✅ Aceito | 2026-01-15 | CQRS |
-| ADR-002 | ✅ Aceito | 2026-01-15 | Cache em 3 Camadas |
-| ADR-003 | ✅ Aceito | 2026-01-15 | PostgreSQL |
-
-**Legenda**:
-- ✅ Aceito: Decisão aprovada e implementada
-- 🔄 Proposto: Em discussão
-- ❌ Rejeitado: Decisão rejeitada
-- ⚠️ Deprecated: Decisão substituída por outra
-
----
-
-## Como Criar um Novo ADR
-
-### 1. Numerar o ADR
-
-Use o próximo número disponível (ex: 004)
-
-### 2. Criar o Arquivo
-
-```bash
-touch docs/decisoes-tecnicas/004-nome-da-decisao.md
-```
-
-### 3. Usar o Template
+Regras:
+- Métrica de desempenho ou disponibilidade só com teste ou monitoramento que a comprove; sem isso, escreva como objetivo não medido.
+- A seção "O que pode dar errado" é obrigatória e lista riscos reais, não genéricos.
+- ADR não é apagado: quando uma decisão é substituída, o status passa a "Substituído por NNN".
 
 ```markdown
-# ADR NNN: Título da Decisão
+# ADR NNN: Título da decisão
 
 ## Status
 
-**Proposto** | **Aceito** | **Rejeitado** | **Deprecated**
+**Proposto** | **Aceito** | **Rejeitado** | **Substituído por NNN**
 
 ## Contexto
 
-Descrever o problema ou necessidade que motivou a decisão.
+O problema ou a necessidade que motivou a decisão.
+
+### Alternativas consideradas
+
+- Alternativa 1: a favor, contra.
+- Alternativa 2: a favor, contra.
 
 ## Decisão
 
-O que decidimos fazer?
-
-## Alternativas Consideradas
-
-### Alternativa 1
-**Prós**: ...
-**Contras**: ...
-
-### Alternativa 2
-**Prós**: ...
-**Contras**: ...
+O que foi decidido e como está implementado.
 
 ## Consequências
 
 ### Positivas
-- Benefício 1
-- Benefício 2
+- ...
 
 ### Negativas
-- Trade-off 1
-- Trade-off 2
+- ...
+
+## O que pode dar errado
+
+- Risco real, com o que acontece e como se percebe.
 
 ## Referências
 
-- Link 1
-- Link 2
+- ...
 
 ---
 
-**Data**: YYYY-MM-DD
-**Autor**: Nome
-**Revisores**: Nome1, Nome2
-**Status**: Aceito/Proposto/Rejeitado
+**Data:** AAAA-MM-DD
 ```
 
-### 4. Atualizar README
-
-Adicione o novo ADR neste README.
-
----
-
-## Princípios de ADRs
-
-1. **Capturar Decisões Importantes**: Não documente decisões triviais
-2. **Manter Histórico**: Nunca apague ADRs, apenas marque como Deprecated
-3. **Ser Objetivo**: Foque em fatos e trade-offs, não em opiniões
-4. **Incluir Contexto**: Futuras gerações precisam entender o "porquê"
-5. **Documentar Alternativas**: Mostre que outras opções foram consideradas
-
 ---
 
 ## Referências
 
-- [ADR GitHub - Joel Parker Henderson](https://github.com/joelparkerhenderson/architecture-decision-record)
-- [Documenting Architecture Decisions - Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
-
----
-
-**Versão**: 1.0
-**Data de criação**: 2026-01-15
-**Última atualização**: 2026-01-15
+- [Architecture decision record, Joel Parker Henderson](https://github.com/joelparkerhenderson/architecture-decision-record)
+- [Documenting Architecture Decisions, Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)

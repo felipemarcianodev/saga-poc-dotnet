@@ -81,25 +81,25 @@ public static class ServiceCollectionExtensions
     {
         services.AddSwaggerConfiguration(new SwaggerConfiguration
         {
-            Title = "API de Consolidado Diario",
+            Title = "API de Consolidado Diário",
             Version = "v1",
             EnableAnnotations = true,
             Description = @"
-API para consulta do consolidado diario de fluxo de caixa.
-
-**NFRs Atendidos:**
-- 50 requisicoes/segundo
-- Latencia P95 < 10ms (com cache)
-- Disponibilidade independente do servico de lancamentos
+API para consulta do consolidado diário de fluxo de caixa. Continua respondendo
+quando o serviço de lançamentos está fora do ar.
 
 **Endpoints:**
-- GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diario
-- GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um periodo
+- GET /api/consolidado/{comerciante}/{data} - Consultar consolidado diário
+- GET /api/consolidado/{comerciante}/periodo - Consultar consolidado de um período
 
 **Cache:**
-- Camada 1: Memory Cache (1 minuto)
-- Camada 2: Redis Cache (5 minutos)
-- Camada 3: PostgreSQL",
+- Response cache HTTP (60 segundos)
+- Memory Cache (1 minuto)
+- Redis (5 minutos), invalidado pelo Consolidado a cada evento; hoje a leitura
+  do Redis falha ao desserializar o ConsolidadoDiario e cai no banco
+- PostgreSQL
+
+A leitura pode vir defasada até cerca de 60 segundos: só o Redis é invalidado.",
             Contact = new OpenApiContact
             {
                 Name = "Equipe Backend",

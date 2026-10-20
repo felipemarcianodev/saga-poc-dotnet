@@ -1,227 +1,132 @@
-# SAGA POC - Docker Compose
+# Stack Docker
 
-Este diretório contém a configuração Docker Compose completa para executar toda a stack da SAGA POC, incluindo serviços .NET, RabbitMQ e observabilidade (Jaeger, Seq).
+O `docker-compose.yml` deste diretório sobe o sistema inteiro: a SAGA de pedidos, o fluxo de caixa (escrita e consulta), RabbitMQ, os três PostgreSQL, o Redis e a observabilidade (Seq e Jaeger). Todos os comandos abaixo rodam **a partir da raiz do repositório**.
 
 ## Pré-requisitos
 
-- Docker Desktop instalado e em execução
-- Pelo menos 4GB de RAM disponível para os containers
+- Docker com o plugin Compose v2 (`docker compose`, sem hífen)
+- Git Bash ou outro shell POSIX para os scripts de `docs/scripts/`
 
-## Serviços Incluídos
+## Serviços
 
-### Infraestrutura
-- **PostgreSQL** (porta 5432): Banco de dados para persistência do estado da SAGA
-- **RabbitMQ** (porta 15672): Message broker com interface de gerenciamento
-- **Jaeger** (porta 16686): Distributed tracing UI
-- **Seq** (porta 5341/80): Logs estruturados e análise
+| Container | Papel | Porta no host |
+|---|---|---|
+| `saga-api` | API de pedidos (entrada da SAGA); Swagger na raiz | 5000 |
+| `saga-orquestrador` | `PedidoSaga` (Rebus); estado no `saga-postgres` | — |
+| `saga-servico-restaurante`, `saga-servico-pagamento`, `saga-servico-entregador`, `saga-servico-notificacao` | serviços simulados da SAGA | — |
+| `lancamentos-api` | API de lançamentos (escrita do fluxo de caixa) | 5200 |
+| `lancamentos-worker` | grava o lançamento e publica o evento; migra `fluxocaixa_lancamentos` | — |
+| `fluxocaixa-consolidado` | assina os eventos e mantém o saldo diário; migra `fluxocaixa_consolidado` | — |
+| `fluxocaixa-api` | API de consulta do consolidado | 5100 |
+| `saga-postgres` | banco `sagapoc` (estado da SAGA) | 5432 |
+| `fluxocaixa-postgres-lancamentos` | banco `fluxocaixa_lancamentos` | 5433 |
+| `fluxocaixa-postgres-consolidado` | banco `fluxocaixa_consolidado` | 5434 |
+| `fluxocaixa-redis` | cache do consolidado | 6379 |
+| `saga-rabbitmq` | broker (AMQP 5672; management em http://localhost:15672) | 5672, 15672 |
+| `saga-seq` | logs estruturados, UI em http://localhost:5342 | 5342 |
+| `saga-jaeger` | traces, UI em http://localhost:16686 | 16686 |
 
-### Serviços .NET
-- **saga-api** (porta 5000): API REST principal
-- **saga-orquestrador**: SAGA State Machine (Orquestrador)
-- **saga-servico-restaurante**: Worker de validação de restaurante
-- **saga-servico-pagamento**: Worker de processamento de pagamento
-- **saga-servico-entregador**: Worker de alocação de entregador
-- **saga-servico-notificacao**: Worker de notificações
+Usuário e senha: `saga` / `saga123` nos três PostgreSQL e no RabbitMQ; `admin` / `admin123` no Seq (definidos na primeira subida do volume).
 
-## Como Executar
-
-### 1. Iniciar toda a stack
-
-```bash
-cd C:\Projetos\saga-poc-dotnet\docker
-docker-compose up -d
-```
-
-### 2. Acompanhar os logs
+## Operação
 
 ```bash
-# Todos os serviços
-docker-compose logs -f
+# Subir (ou recriar o que mudou) com build das imagens
+docker compose -f docker/docker-compose.yml up -d --build
 
-# Apenas um serviço específico
-docker-compose logs -f saga-api
-docker-compose logs -f saga-orquestrador
+# Esperar filas, assinaturas e APIs ficarem prontas (sai 1 se o tempo acabar)
+bash docs/scripts/aguardar-stack.sh
+
+# Estado dos containers
+docker compose -f docker/docker-compose.yml ps
+
+# Logs de um serviço (use o nome do serviço no compose ou o do container)
+docker compose -f docker/docker-compose.yml logs -f saga-orquestrador
+docker logs saga-orquestrador --since 10m
+
+# Rebuild de um serviço só
+docker compose -f docker/docker-compose.yml up -d --build saga-api
+
+# Derrubar (com -v, apaga também os volumes de dados)
+docker compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down -v
 ```
 
-### 3. Verificar status dos containers
+Os Dockerfiles copiam `src/` inteiro e o `Directory.Build.props`; por isso o contexto de build é a raiz (`context: ..` no compose).
+
+Validação de ponta a ponta, com a stack no ar:
 
 ```bash
-docker-compose ps
+bash docs/scripts/testar-casos-de-uso.sh
+bash docs/scripts/testar-fluxo-caixa.sh
 ```
 
-### 4. Parar a stack
+O que cada script confere está em [docs/scripts/readme-script.md](../docs/scripts/readme-script.md).
+
+## Rede
+
+Todos os serviços estão na rede `saga-network` e se enxergam pelo **nome do serviço no compose**, não pelo nome do container: `postgres:5432`, `postgres-fluxocaixa:5432`, `postgres-consolidado:5432`, `redis:6379`, `rabbitmq:5672`, `seq:80`, `jaeger:4317`.
+
+O OTLP do Jaeger (4317/4318) não é publicado no host. Um serviço rodando fora do Docker não exporta traces, a menos que se publique a porta.
+
+## Consultas úteis
+
+### Estado da SAGA
+
+O Rebus cria e mantém `pedido_saga_data` e `pedido_saga_index`. A coluna `data` é JSON gravado em `bytea`. SAGA concluída ou compensada é removida por `MarkAsComplete()`, então a tabela só mostra pedidos em andamento (ou travados). Não crie nem altere essas tabelas à mão.
 
 ```bash
-docker-compose down
+# SAGAs em andamento
+docker exec saga-postgres psql -U saga -d sagapoc -c \
+  "SELECT id, revision, convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado FROM pedido_saga_data;"
+
+# Detalhe de uma SAGA (o id é o PedidoId devolvido pela API)
+docker exec saga-postgres psql -U saga -d sagapoc -c \
+  "SELECT convert_from(data, 'UTF8') FROM pedido_saga_data WHERE id = '<PedidoId>';"
 ```
 
-### 5. Parar e remover volumes (limpar dados)
+O desfecho de um pedido (concluído ou compensado) só aparece no log do orquestrador:
 
 ```bash
-docker-compose down -v
+docker logs saga-orquestrador 2>&1 | grep '<PedidoId>'
 ```
 
-## URLs de Acesso
-
-Após executar `docker-compose up`, você pode acessar:
-
-- **API Swagger**: http://localhost:5000
-- **PostgreSQL**: `localhost:5432` (usuário: `saga`, senha: `saga123`, database: `sagapoc`)
-- **RabbitMQ Management**: http://localhost:15672 (usuário: `saga`, senha: `saga123`)
-- **Jaeger UI**: http://localhost:16686 (traces distribuídos)
-- **Seq UI**: http://localhost:80 (logs estruturados)
-
-### Conectar ao PostgreSQL
+### Fluxo de caixa
 
 ```bash
-# Via Docker
-docker exec -it saga-postgres psql -U saga -d sagapoc
+# Lançamentos gravados (colunas em snake_case)
+docker exec fluxocaixa-postgres-lancamentos psql -U saga -d fluxocaixa_lancamentos -c \
+  "SELECT id, tipo, valor, data_lancamento, comerciante, status FROM lancamentos ORDER BY criado_em DESC LIMIT 10;"
 
-# Via cliente local (psql, pgAdmin, DBeaver)
-Host: localhost
-Port: 5432
-Database: sagapoc
-Username: saga
-Password: saga123
+# Consolidado diário (tabela e colunas em PascalCase, por isso entre aspas)
+docker exec fluxocaixa-postgres-consolidado psql -U saga -d fluxocaixa_consolidado -c \
+  'SELECT "Comerciante", "Data", "TotalCreditos", "TotalDebitos" FROM "ConsolidadosDiarios" ORDER BY "UltimaAtualizacao" DESC LIMIT 10;'
 ```
 
-## Rebuild dos Serviços .NET
-
-Se você fez alterações no código dos serviços .NET, precisa rebuildar as imagens:
+### RabbitMQ
 
 ```bash
-# Rebuild de todos os serviços
-docker-compose build
+# Filas com mensagens prontas, em processamento e consumidores
+docker exec saga-rabbitmq rabbitmqctl list_queues -q name messages_ready messages_unacknowledged consumers
 
-# Rebuild de um serviço específico
-docker-compose build saga-api
-
-# Rebuild e restart
-docker-compose up -d --build
+# Assinaturas dos eventos do fluxo de caixa (devem aparecer duas, para fluxocaixa-consolidado)
+docker exec saga-rabbitmq rabbitmqctl list_bindings -q source_name destination_name routing_key | grep RebusTopics
 ```
 
-## Troubleshooting
+Mensagem na fila `error` é sempre bug. Diagnóstico nos runbooks: [SAGA](../docs/runbook-troubleshooting.md) e [fluxo de caixa](../docs/troubleshooting-fluxo-caixa.md).
 
-### Containers não iniciam
-```bash
-# Verificar logs
-docker-compose logs
+## Problemas na subida
 
-# Verificar se há conflito de portas
-netstat -ano | findstr :5000
-netstat -ano | findstr :5672
-```
+- **Porta ocupada:** confira quem usa a porta (`netstat -ano | findstr :5432` no Windows) e libere-a ou mude o mapeamento no compose.
+- **Container reiniciando:** `docker logs <container>` mostra a exceção da subida. Os serviços só sobem depois que PostgreSQL, RabbitMQ e Redis passam no healthcheck (`depends_on: condition: service_healthy`).
+- **Erro de GSS/Kerberos no log:** as connection strings do compose usam `GSS Encryption Mode=Disable` porque a imagem `aspnet:10.0` não tem `libgssapi_krb5.so.2`. Uma connection string nova sem esse parâmetro volta a imprimir o erro.
 
-### PostgreSQL não está pronto
-Os serviços .NET aguardam o PostgreSQL ficar healthy. Se demorar muito:
-```bash
-# Verificar logs do PostgreSQL
-docker-compose logs postgres
+## Variáveis de ambiente
 
-# Reiniciar apenas o PostgreSQL
-docker-compose restart postgres
-
-# Verificar se o banco está aceitando conexões
-docker exec saga-postgres pg_isready -U saga -d sagapoc
-```
-
-### RabbitMQ não está pronto
-Os serviços .NET aguardam o RabbitMQ ficar healthy. Se demorar muito:
-```bash
-# Verificar logs do RabbitMQ
-docker-compose logs rabbitmq
-
-# Reiniciar apenas o RabbitMQ
-docker-compose restart rabbitmq
-```
-
-### Limpar tudo e recomeçar
-```bash
-# Parar e remover tudo
-docker-compose down -v
-
-# Remover imagens antigas
-docker-compose down --rmi all -v
-
-# Rebuild completo
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-## Estrutura de Arquivos
-
-```
-docker/
-├── docker-compose.yml              # Configuração principal
-└── README.md                        # Este arquivo
-```
-
-## Observabilidade
-
-### Jaeger (Distributed Tracing)
-- Acesse http://localhost:16686
-- Selecione o serviço (ex: `SagaPoc.Api`)
-- Visualize os traces das requisições end-to-end
-
-### Seq (Logs Estruturados)
-- Acesse http://localhost:80
-- Visualize logs em tempo real de todos os serviços
-- Filtre por nível de log, propriedades customizadas, serviço
-- Crie queries e dashboards customizados
-
-## Verificar Estado das SAGAs
-
-### Conectar ao PostgreSQL e consultar SAGAs
+As configurações estão no `docker-compose.yml` (connection strings, `RabbitMQ__*`, `Otlp__*`, `Seq__*`). A única variável lida do ambiente do host é `SIMULAR_HORARIO_PICO` (padrão `true`): com `false`, o entregador deixa de recusar 30% das alocações entre 12h e 14h59 UTC. O CI usa `false`.
 
 ```bash
-# Conectar ao PostgreSQL
-docker exec -it saga-postgres psql -U saga -d sagapoc
-
-# Ver todas as tabelas
-\dt
-
-# Ver todas as SAGAs em andamento
-# (o Rebus grava o estado em "data" como JSON em bytea; SAGA concluída ou
-# compensada é removida da tabela por MarkAsComplete)
-SELECT id, revision, convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado
-FROM pedido_saga_data;
-
-# Ver SAGAs por estado
-SELECT
-  convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado,
-  COUNT(*) AS total
-FROM pedido_saga_data
-GROUP BY estado;
-
-# Ver detalhes de uma SAGA específica
-SELECT
-  convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado,
-  convert_from(data, 'UTF8')::json->>'ClienteId' AS cliente,
-  convert_from(data, 'UTF8')::json->>'ValorTotal' AS valor,
-  convert_from(data, 'UTF8')::json->>'DataInicio' AS inicio
-FROM pedido_saga_data
-WHERE id = 'seu-guid-aqui';
-
-# Sair do psql
-\q
+SIMULAR_HORARIO_PICO=false docker compose -f docker/docker-compose.yml up -d saga-servico-entregador
 ```
 
-## Rede Docker
-
-Todos os serviços estão na mesma rede (`saga-network`), permitindo comunicação entre eles usando os nomes dos containers:
-- `postgres:5432`
-- `rabbitmq:5672`
-- `jaeger:4317` (OTLP gRPC; os traces não passam pelo host)
-- `saga-api:8080`
-
-## Variáveis de Ambiente
-
-As configurações são definidas no `docker-compose.yml`:
-- `ConnectionStrings__SagaDatabase=Host=postgres;Port=5432;Database=sagapoc;Username=saga;Password=saga123`
-- `RabbitMQ__Host=rabbitmq`
-- `Otlp__Endpoint=http://jaeger:4317`
-- `ASPNETCORE_ENVIRONMENT=Development`
-
-Para sobrescrever, crie um arquivo `.env` no mesmo diretório do `docker-compose.yml`.
-
-**Importante**: Em produção, nunca coloque senhas em texto plano. Use Azure Key Vault, AWS Secrets Manager, ou variáveis de ambiente seguras.
+As senhas ficam em texto plano no compose porque a stack é local e de demonstração.
