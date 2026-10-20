@@ -31,7 +31,7 @@ public class ServicoPagamento : IServicoPagamento
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "Processando pagamento. ClienteId: {ClienteId}, Valor: {Valor:C}, FormaPagamento: {FormaPagamento}",
+            "Processando pagamento. ClienteId: {ClienteId}, Valor: R$ {Valor:F2}, FormaPagamento: {FormaPagamento}",
             clienteId,
             valorTotal,
             formaPagamento
@@ -171,7 +171,7 @@ public class ServicoPagamento : IServicoPagamento
 
         _logger.LogInformation(
             "Pagamento aprovado. TransacaoId: {TransacaoId}, ClienteId: {ClienteId}, " +
-            "Valor: {Valor:C}, Autorizacao: {Autorizacao}",
+            "Valor: R$ {Valor:F2}, Autorizacao: {Autorizacao}",
             transacaoId,
             clienteId,
             valorTotal,
@@ -238,7 +238,7 @@ public class ServicoPagamento : IServicoPagamento
 
         _logger.LogInformation(
             "COMPENSAÇÃO: Pagamento estornado com sucesso. TransacaoId: {TransacaoId}, " +
-            "ClienteId: {ClienteId}, Valor: {Valor:C}",
+            "ClienteId: {ClienteId}, Valor: R$ {Valor:F2}",
             transacaoId,
             transacao.ClienteId,
             transacao.Valor

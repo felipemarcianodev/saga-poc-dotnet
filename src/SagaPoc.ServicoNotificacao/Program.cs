@@ -45,7 +45,6 @@ try
     // Registrar handlers automaticamente
     builder.Services.AutoRegisterHandlersFromAssemblyOf<NotificarClienteHandler>();
 
-    builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
 

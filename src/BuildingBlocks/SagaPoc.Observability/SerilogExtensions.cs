@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
@@ -6,18 +7,21 @@ using Serilog.Events;
 namespace SagaPoc.Observability;
 
 /// <summary>
-/// Extension methods para configurar Serilog com SEQ para a SAGA POC.
+/// Configuração única do Serilog para APIs e workers: console, Seq e, em build Debug, arquivo.
+/// Os sinks ficam aqui; o appsettings.json só ajusta os níveis (seção Serilog:MinimumLevel).
 /// </summary>
 public static class SerilogExtensions
 {
+    // Sem {Properties}: o texto da mensagem já traz os identificadores (PedidoId, CorrelacaoId),
+    // e as propriedades completas vão para o Seq.
+    private const string Modelo =
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{Application}] {SourceContext}: {Message:l}{NewLine}{Exception}";
+
     #region Public Methods
 
     /// <summary>
-    /// Configura Serilog com enrichers e sinks padrão para WebApplicationBuilder/IHostBuilder.
+    /// Configura o Serilog de uma API (IHostBuilder).
     /// </summary>
-    /// <param name="host">Host builder</param>
-    /// <param name="serviceName">Nome do serviço (ex: "SagaPoc.Api", "SagaPoc.Orquestrador")</param>
-    /// <returns>Host builder configurado</returns>
     public static IHostBuilder UseCustomSerilog(this IHostBuilder host)
     {
         host.UseSerilog((context, services, loggerConfiguration) =>
@@ -25,36 +29,27 @@ public static class SerilogExtensions
             Configure(loggerConfiguration,
                 context.Configuration,
                 context.HostingEnvironment.ApplicationName,
-                context.HostingEnvironment.EnvironmentName,
-                context.HostingEnvironment.IsDevelopment());
+                context.HostingEnvironment.EnvironmentName);
         });
 
         return host;
     }
 
     /// <summary>
-    /// Configura Serilog com enrichers e sinks padrão para HostApplicationBuilder (Worker Services).
+    /// Configura o Serilog de um worker (HostApplicationBuilder). Também define o Log.Logger
+    /// estático, usado pelo Rebus (Logging(l => l.Serilog())) e pelos logs de início e fim do Program.
     /// </summary>
-    /// <param name="builder">Host application builder</param>
-    /// <param name="serviceName">Nome do serviço (ex: "SagaPoc.Orquestrador")</param>
-    /// <returns>Host application builder configurado</returns>
     public static HostApplicationBuilder UseCustomSerilog(this HostApplicationBuilder builder,
         IConfiguration configuration,
         string serviceName,
         string environment,
-        bool isDeveloment)
+        bool isDevelopment)
     {
         var loggerConfiguration = new LoggerConfiguration();
-        Configure(loggerConfiguration, configuration, serviceName, environment, isDeveloment);
+        Configure(loggerConfiguration, configuration, serviceName, environment);
 
-        Log.Logger = new LoggerConfiguration()
-                    .ReadFrom.Configuration(new ConfigurationBuilder()
-                        .AddJsonFile("appsettings.json")
-                        //.AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
-                        .Build())
-                    .Enrich.FromLogContext()
-                    .CreateLogger();
-        builder.Services.AddSerilog(Log.Logger);
+        Log.Logger = loggerConfiguration.CreateLogger();
+        builder.Services.AddSerilog(Log.Logger, dispose: true);
 
         return builder;
     }
@@ -64,69 +59,49 @@ public static class SerilogExtensions
     #region Private Methods
 
     private static void Configure(LoggerConfiguration loggerConfiguration,
-            IConfiguration configuration,
+        IConfiguration configuration,
         string serviceName,
-        string environment,
-        bool isDeveloment)
+        string environment)
     {
-        // Configuração base
+        // Níveis padrão; a seção Serilog:MinimumLevel do appsettings, lida em seguida, sobrescreve.
         loggerConfiguration
-            .ReadFrom.Configuration(configuration)
-            .MinimumLevel.Debug()
-            .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
-            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Information)
-            .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+            .MinimumLevel.Override("System", LogEventLevel.Warning)
             .MinimumLevel.Override("Rebus", LogEventLevel.Information)
+            .ReadFrom.Configuration(configuration)
             .Enrich.FromLogContext()
             .Enrich.WithMachineName()
             .Enrich.WithEnvironmentName()
             .Enrich.WithThreadId()
             .Enrich.WithProcessId()
             .Enrich.WithProperty("Application", serviceName)
-            .Enrich.WithProperty("Environment", environment);
+            .Enrich.WithProperty("Environment", environment)
+            .WriteTo.Console(outputTemplate: Modelo);
 
-        // Sink: Arquivo (JSON estruturado para persistência local)
-        loggerConfiguration.WriteTo.File(
-            formatter: new Serilog.Formatting.Json.JsonFormatter(),
-            path: "logs/saga-.log",
-            rollingInterval: RollingInterval.Day,
-            retainedFileCountLimit: 7,
-            shared: true
-        );
-
-        // Sink: SEQ (estruturado com detalhes completos)
+        // Seq: estruturado, com todas as propriedades
         var seqUrl = configuration["Seq:Url"] ?? configuration["SeqUrl"] ?? "http://localhost:5342";
         var seqApiKey = configuration["Seq:ApiKey"] ?? configuration["SeqApiKey"];
 
         loggerConfiguration.WriteTo.Seq(
             serverUrl: seqUrl,
-            restrictedToMinimumLevel: LogEventLevel.Verbose,
-            apiKey: seqApiKey
+            apiKey: string.IsNullOrWhiteSpace(seqApiKey) ? null : seqApiKey
         );
 
-        // Configuração específica por ambiente
-        if (isDeveloment)
-        {
-            // Development: Console colorido e legível
-            loggerConfiguration
-                .MinimumLevel.Debug()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
-                .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Information)
-                .MinimumLevel.Override("Rebus", LogEventLevel.Information)
-                .WriteTo.Console(
-                    outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] [{Application}] {Message:lj} {Properties:j}{NewLine}{Exception}");
-        }
-        else
-        {
-            // Production: Console estruturado (JSON)
-            loggerConfiguration
-                .MinimumLevel.Information()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-                .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
-                .MinimumLevel.Override("Rebus", LogEventLevel.Warning)
-                .WriteTo.Console(
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{Application}] {Message:lj} {Properties:j}{NewLine}{Exception}");
-        }
+#if DEBUG
+        // Arquivo só em build Debug: um por serviço e por dia, em logs/ no diretório de trabalho
+        // (no compose, /app/logs montado em logs/ na raiz do repositório). Serve para acompanhar
+        // a stack com tail/grep sem depender do docker logs, que some quando o container é recriado.
+        loggerConfiguration.WriteTo.File(
+            path: Path.Combine("logs", $"{serviceName}-.log"),
+            outputTemplate: Modelo,
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 7,
+            shared: true,
+            flushToDiskInterval: TimeSpan.FromSeconds(1)
+        );
+#endif
     }
 
     #endregion Private Methods

@@ -478,15 +478,22 @@ O repositório é `RepositorioIdempotenciaInMemory`: a proteção vale só enqua
 
 **Seq**: http://localhost:5342 (admin/admin123).
 
-| Serviço | Para onde vai o log |
+Todos os serviços (APIs e workers) passam pelo mesmo `UseCustomSerilog`, que define os destinos no código; o `appsettings.json` só ajusta os níveis (`Serilog:MinimumLevel`).
+
+| Destino | Quando |
 |---|---|
-| `SagaPoc.Api`, `Lancamentos.Api`, `FluxoCaixa.Api` | Console, arquivo JSON (`logs/saga-.log`) e Seq |
-| Orquestrador, serviços da SAGA, `Lancamentos.Worker` | Só console |
-| `FluxoCaixa.Consolidado` | Só console (configuração própria no `Program.cs`) |
+| Console (`docker logs`) | sempre |
+| Seq | sempre (`Seq:Url`; a ingestão não exige chave) |
+| Arquivo `logs/{Serviço}-{data}.log` | só em build Debug (`#if DEBUG`), um arquivo por serviço e por dia, 7 dias guardados |
 
-Os workers não chegam ao Seq porque a sobrecarga de `UseCustomSerilog` para `HostApplicationBuilder` monta a configuração com Seq e a descarta, lendo só o `appsettings.json` (que tem apenas o console). Para eles, use `docker logs`, por exemplo `docker logs saga-orquestrador 2>&1 | grep "\[SAGA\]"`.
+Para ter os arquivos com a stack no Docker, suba com `BUILD_CONFIGURATION=Debug`: os Dockerfiles publicam nessa configuração, e o compose monta `/app/logs` de cada serviço em `logs/` na raiz do repositório (fora do git). Com isso, `tail -F logs/*.log` acompanha a stack inteira, e o histórico não some quando o container é recriado.
 
-Nas APIs, o Serilog acrescenta `Application`, `Environment`, `MachineName`, `ThreadId` e `ProcessId`. Os identificadores de negócio (`PedidoId`, `CorrelacaoId`, `LancamentoId`) entram como propriedades estruturadas da mensagem.
+```bash
+BUILD_CONFIGURATION=Debug docker compose -f docker/docker-compose.yml up -d --build
+tail -F logs/*.log | grep -E "\[(WRN|ERR)\]"
+```
+
+O Serilog acrescenta `Application`, `Environment`, `MachineName`, `ThreadId` e `ProcessId`. Os identificadores de negócio (`PedidoId`, `CorrelacaoId`, `LancamentoId`) entram como propriedades estruturadas da mensagem.
 
 **Consultas úteis no Seq**:
 ```

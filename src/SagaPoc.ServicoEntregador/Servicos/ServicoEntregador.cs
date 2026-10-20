@@ -43,7 +43,7 @@ public class ServicoEntregador : IServicoEntregador
     {
         _logger.LogInformation(
             "Alocando entregador. RestauranteId: {RestauranteId}, " +
-            "Endereco: {Endereco}, TaxaEntrega: {Taxa:C}",
+            "Endereco: {Endereco}, TaxaEntrega: R$ {Taxa:F2}",
             restauranteId,
             enderecoEntrega,
             taxaEntrega

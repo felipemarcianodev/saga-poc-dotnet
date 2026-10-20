@@ -96,10 +96,11 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.Api/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123
@@ -107,6 +108,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     ports:
@@ -125,6 +128,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.Orquestrador/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-orquestrador
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -136,6 +141,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -154,6 +161,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoRestaurante/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-servico-restaurante
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -164,6 +173,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -180,6 +191,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoPagamento/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-servico-pagamento
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -190,6 +203,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -206,6 +221,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoEntregador/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-servico-entregador
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -218,6 +235,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -234,6 +253,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoNotificacao/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: saga-servico-notificacao
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -244,6 +265,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -327,10 +350,11 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: fluxocaixa-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__FluxoCaixaDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - ConnectionStrings__ConsolidadoDb=Host=postgres-consolidado;Port=5432;Database=fluxocaixa_consolidado;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
@@ -340,6 +364,8 @@ services:
       - RabbitMQ__Password=saga123
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     ports:
@@ -367,10 +393,11 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Api/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: lancamentos-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__LancamentosDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Port=5672
@@ -380,6 +407,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     ports:
@@ -403,6 +432,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Worker/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: lancamentos-worker
     environment:
       - DOTNET_ENVIRONMENT=Development
@@ -414,6 +445,8 @@ services:
       - Otlp__Endpoint=http://jaeger:4317
       - Seq__Url=http://seq:80
       - Seq__ApiKey=
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
@@ -432,6 +465,8 @@ services:
     build:
       context: ..
       dockerfile: src/SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado/Dockerfile
+      args:
+        BUILD_CONFIGURATION: ${BUILD_CONFIGURATION:-Release}
     container_name: fluxocaixa-consolidado
     environment:
       - DOTNET_ENVIRONMENT=Development
@@ -440,6 +475,8 @@ services:
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123
+    volumes:
+      - ../logs:/app/logs  # só recebe arquivos em build Debug (BUILD_CONFIGURATION=Debug)
     networks:
       - saga-network
     depends_on:
