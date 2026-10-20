@@ -212,7 +212,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts das imagens gera
 - Documentação conferida com o código: arquitetura, design, boas práticas, casos de uso, diagramas, fluxo de caixa, ADRs, runbooks e `docker/README.md`. Saíram estados, endpoints, tabelas, métricas e regras de serviço que não existem; os runbooks não usam mais `jq`.
 - Removidas as quatro imagens de `docs/images/` (geradas por IA, com casos duplicados, ".NET 9" e 18 cenários) e os dez scripts `.ps1`, que não conferiam desfecho; ficaram tabelas e diagramas mermaid.
 - "Sobre" do GitHub: descrição com .NET 10 e tópicos `dotnet`, `cqrs`, `postgresql`, `redis` e `opentelemetry`.
-- Defeitos achados e registrados no backlog (não corrigidos, fora do escopo): Redis do consolidado que não servia leitura (corrigido em #10) e compensação que não confere o resultado (corrigido em #PRNUM).
+- Defeitos achados e registrados no backlog (não corrigidos, fora do escopo): Redis do consolidado que não servia leitura (corrigido em #10) e compensação que não confere o resultado (corrigido em #11).
 
 ### Backlog (fora das fases, por prioridade)
 1. **Status real do pedido:** o orquestrador publica as transições de estado e a API mantém uma projeção (read model) consultada por `GET /api/pedidos/{id}/status`; hoje o endpoint é mock.
