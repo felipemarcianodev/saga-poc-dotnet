@@ -85,7 +85,7 @@ sequenceDiagram
     CO->>R: DEL consolidado:{comerciante}:{data}
 ```
 
-Se o domínio recusar o lançamento no worker (`Lancamento.Criar` falha), o handler registra um aviso e descarta a mensagem: o cliente já recebeu 202 e não fica sabendo. A validação da API cobre quase as mesmas regras, então isso só acontece com comando enviado direto para a fila.
+Se o domínio recusar o lançamento no worker (`Lancamento.Criar` falha), o handler registra um aviso e descarta a mensagem: o cliente já recebeu 202 e não fica sabendo. A validação da API cobre as mesmas regras, então isso só acontece com comando enviado direto para a fila.
 
 ---
 

@@ -71,7 +71,7 @@ Lista vazia: o worker não gravou. Confira a fila `fluxocaixa-lancamentos` (mens
 docker logs lancamentos-worker --since 30m 2>&1 | grep -E 'RegistrarLancamento|Falha ao criar|Erro ao gravar'
 ```
 
-`Falha ao criar lancamento` indica que o domínio recusou o lançamento (por exemplo, valor acima de 1 bilhão, regra que a API não confere). O worker registra o aviso e descarta a mensagem: ela não vai para a `error`.
+`Falha ao criar lancamento` indica que o domínio recusou o lançamento (por exemplo, tipo fora do enum ou valor acima de 1 bilhão; a API confere as duas regras, então isso indica comando enviado direto para a fila). O worker registra o aviso e descarta a mensagem: ela não vai para a `error`.
 
 **Passo 2: o evento foi publicado?**
 

@@ -36,8 +36,9 @@ public class LancamentosController : ControllerBase
     {
         var comando = new RegistrarLancamento(
             Guid.NewGuid(),
-            request.Tipo,
-            request.Valor,
+            // [Required] garante os dois valores; a validação do modelo roda antes da action
+            request.Tipo!.Value,
+            request.Valor!.Value,
             request.DataLancamento ?? DateTime.Today,
             request.Descricao,
             request.Comerciante,
@@ -98,6 +99,9 @@ public class LancamentosController : ControllerBase
     {
         var dataInicio = inicio ?? DateTime.Today.AddDays(-30);
         var dataFim = fim ?? DateTime.Today;
+
+        if (dataInicio > dataFim)
+            return BadRequest(new { erro = "A data de início deve ser anterior ou igual à data de fim" });
 
         var resultado = await _lancamentoService.ObterPorPeriodoAsync(
             comerciante,

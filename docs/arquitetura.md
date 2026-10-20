@@ -98,7 +98,7 @@ GET    /health                   # Health check
 
 **Fluxo**:
 1. Recebe `POST /api/pedidos`
-2. Valida o payload (DataAnnotations)
+2. Valida o payload (DataAnnotations, 400 com a lista de erros): campos obrigatórios, pelo menos um item, quantidade e preço maiores que zero, endereço com pelo menos 10 caracteres e forma de pagamento `CREDITO`, `DEBITO`, `PIX` ou `DINHEIRO` (sem diferenciar maiúsculas). As regras de negócio (restaurante, limite de itens, valor máximo, área de entrega) continuam nos serviços
 3. Gera um `CorrelacaoId` novo (Guid), que vira o `Id` da SAGA
 4. Envia `IniciarPedido` para a `fila-orquestrador`
 5. Retorna **202 Accepted** com o identificador do pedido

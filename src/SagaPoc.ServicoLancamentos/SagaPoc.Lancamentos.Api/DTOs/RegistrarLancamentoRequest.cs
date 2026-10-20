@@ -12,37 +12,38 @@ public class RegistrarLancamentoRequest
     /// Tipo do lançamento (1 = Débito, 2 = Crédito)
     /// </summary>
     [Required(ErrorMessage = "O tipo do lançamento é obrigatório")]
-    public EnumTipoLancamento Tipo { get; set; } = EnumTipoLancamento.Credito;
+    [EnumDataType(typeof(EnumTipoLancamento), ErrorMessage = "O tipo deve ser 1 (Débito) ou 2 (Crédito)")]
+    public EnumTipoLancamento? Tipo { get; set; }
 
     /// <summary>
     /// Valor do lançamento em reais
     /// </summary>
     [Required(ErrorMessage = "O valor é obrigatório")]
-    [Range(0.01, double.MaxValue, ErrorMessage = "O valor deve ser maior que zero")]
-    public decimal Valor { get; set; } = 150.00m;
+    [Range(typeof(decimal), "0.01", "1000000000", ErrorMessage = "O valor deve estar entre 0,01 e 1.000.000.000,00")]
+    public decimal? Valor { get; set; }
 
     /// <summary>
     /// Data do lançamento (opcional, padrão = data atual)
     /// </summary>
-    public DateTime? DataLancamento { get; set; } = DateTime.Today;
+    public DateTime? DataLancamento { get; set; }
 
     /// <summary>
     /// Descrição detalhada do lançamento
     /// </summary>
     [Required(ErrorMessage = "A descrição é obrigatória")]
     [StringLength(500, MinimumLength = 3, ErrorMessage = "A descrição deve ter entre 3 e 500 caracteres")]
-    public string Descricao { get; set; } = "Venda de produto X";
+    public string Descricao { get; set; } = string.Empty;
 
     /// <summary>
     /// Identificador do comerciante
     /// </summary>
     [Required(ErrorMessage = "O comerciante é obrigatório")]
     [StringLength(100, MinimumLength = 3, ErrorMessage = "O identificador do comerciante deve ter entre 3 e 100 caracteres")]
-    public string Comerciante { get; set; } = "COM001";
+    public string Comerciante { get; set; } = string.Empty;
 
     /// <summary>
     /// Categoria do lançamento (opcional)
     /// </summary>
     [StringLength(100, ErrorMessage = "A categoria deve ter no máximo 100 caracteres")]
-    public string? Categoria { get; set; } = "Vendas";
+    public string? Categoria { get; set; }
 }

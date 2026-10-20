@@ -63,14 +63,22 @@ public class ConsolidadoController : ControllerBase
     /// </summary>
     [HttpGet("{comerciante}/periodo")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ObterPorPeriodo(
         string comerciante,
-        [FromQuery] DateTime inicio,
-        [FromQuery] DateTime fim,
+        [FromQuery] DateTime? inicio,
+        [FromQuery] DateTime? fim,
         CancellationToken ct)
     {
+        // Sem as datas, o binding usava DateTime.MinValue e a consulta devolvia lista vazia com 200.
+        if (inicio is null || fim is null)
+            return BadRequest(new { erro = "Informe inicio e fim (formato yyyy-MM-dd)" });
+
+        if (inicio > fim)
+            return BadRequest(new { erro = "A data de início deve ser anterior ou igual à data de fim" });
+
         var resultado = await _consolidadoService.ObterPorPeriodoAsync(
-            comerciante, inicio, fim, ct);
+            comerciante, inicio.Value, fim.Value, ct);
 
         if (!resultado.EhSucesso)
             return BadRequest(new { erro = resultado.Erro.Mensagem });
