@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using SagaPoc.Common.ResultPattern;
 using SagaPoc.ServicoPagamento.Modelos;
 
@@ -13,7 +14,7 @@ public class ServicoPagamento : IServicoPagamento
     private readonly ILogger<ServicoPagamento> _logger;
 
     // Simulação de banco de dados em memória (apenas para POC)
-    private static readonly Dictionary<string, (string ClienteId, decimal Valor, DateTime Data, bool Estornado)> Transacoes = new();
+    private static readonly ConcurrentDictionary<string, (string ClienteId, decimal Valor, DateTime Data, bool Estornado)> Transacoes = new();
 
     public ServicoPagamento(ILogger<ServicoPagamento> logger)
     {
@@ -197,7 +198,7 @@ public class ServicoPagamento : IServicoPagamento
         await Task.Delay(Random.Shared.Next(100, 400));
 
         // Verificar se transação existe
-        if (!Transacoes.ContainsKey(transacaoId))
+        if (!Transacoes.TryGetValue(transacaoId, out var transacao))
         {
             _logger.LogError(
                 "COMPENSAÇÃO: Transação não encontrada. TransacaoId: {TransacaoId}",
@@ -208,7 +209,18 @@ public class ServicoPagamento : IServicoPagamento
             );
         }
 
-        var transacao = Transacoes[transacaoId];
+        // CENÁRIO: o gateway recusa o estorno (testa a compensação que falha)
+        if (transacao.ClienteId == "CLI_ESTORNO_FALHA")
+        {
+            _logger.LogError(
+                "COMPENSAÇÃO: Gateway recusou o estorno. TransacaoId: {TransacaoId}, ClienteId: {ClienteId}",
+                transacaoId,
+                transacao.ClienteId
+            );
+            return Resultado.Falha(
+                Erro.Externo("Gateway de pagamento recusou o estorno", "ESTORNO_RECUSADO")
+            );
+        }
 
         // Verificar se já foi estornada
         if (transacao.Estornado)

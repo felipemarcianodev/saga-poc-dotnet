@@ -151,14 +151,20 @@ stateDiagram-v2
 **Mensagens tratadas**:
 - `IniciarPedido`: inicia a SAGA (ignorada se a SAGA já existir, por `IsNew`)
 - `PedidoRestauranteValidado`, `PagamentoProcessado`, `EntregadorAlocado`, `NotificacaoEnviada`: respostas do fluxo principal
-- `PedidoRestauranteCancelado`, `PagamentoEstornado`, `EntregadorLiberado`: confirmações das compensações
+- `PedidoRestauranteCancelado`, `PagamentoEstornado`, `EntregadorLiberado`: respostas das compensações, com o campo `Sucesso` conferido
+- `PrazoPedidoExpirado`, `PrazoCompensacaoExpirado`: prazos que a SAGA agenda para si mesma (`DeferLocal`), guardados na tabela `rebus_timeouts` do PostgreSQL até a hora da entrega
 
-**Compensação**: as compensações são enviadas na ordem reversa (estorno antes do cancelamento no restaurante), mas saem no mesmo handler e são processadas em paralelo por serviços diferentes; as confirmações podem chegar em qualquer ordem. A SAGA só termina quando todas as confirmações esperadas chegam (`PassosCompensados`). Se uma compensação falhar e nunca for confirmada, a SAGA fica parada em `ExecutandoCompensacao`: não há timeout nem recuperação automática.
+**Compensação**: as compensações são enviadas na ordem reversa (entregador, pagamento, restaurante), mas saem no mesmo handler e são processadas em paralelo por serviços diferentes; as respostas podem chegar em qualquer ordem. Cada passo fica em `PassosPendentes` até a resposta. Resposta com `Sucesso = false` gera nova tentativa depois de 2 s, até 3 tentativas; esgotadas, o passo vai para `PassosComFalha`. Quando não resta passo pendente, a SAGA termina como `Cancelado` (tudo compensado) ou `CompensacaoFalhou` (algum passo sem compensação, com log de erro pedindo intervenção manual).
+
+**Prazos** (seção `Saga` do `appsettings.json`):
+- `PrazoPedidoSegundos` (30): se o pedido não chegar à notificação nesse tempo, a SAGA compensa o que já foi feito. Se o entregador já foi alocado, o pedido está confirmado e a SAGA conclui, mesmo sem resposta da notificação.
+- `PrazoCompensacaoSegundos` (30): passos que não responderam nesse tempo contam como falha.
+- Resposta atrasada que chega durante a compensação também é compensada (por exemplo, pagamento aprovado depois do prazo é estornado; entregador alocado depois do prazo é liberado com `LiberarEntregador`). Depois que a SAGA termina, o Rebus descarta essas respostas em silêncio.
 
 **Observações sobre o código atual**:
-- `LiberarEntregador` tem rota e handler, mas a SAGA nunca o envia: nenhuma etapa depois da alocação dispara compensação (falha na notificação não cancela o pedido).
-- "Timeout no pagamento" é uma resposta de falha do serviço simulado (`CLI_TIMEOUT`), não um timeout da SAGA. A SAGA não agenda prazo para nenhuma resposta.
+- "Timeout no pagamento" (`CLI_TIMEOUT`) é uma resposta de falha do serviço simulado. O prazo da SAGA é testado pelo restaurante `REST_LENTO`, que demora 40 s para responder.
 - A falha no restaurante não compensa nada: a SAGA notifica o cliente e termina como `Cancelado`.
+- Respostas fora da etapa atual (repetidas ou fora de ordem) são ignoradas com aviso no log.
 
 **Por que Rebus Sagas?**
 - Controle centralizado do fluxo via handlers
@@ -214,7 +220,7 @@ Existe uma variante com Polly (`ServicoPagamentoComPolly`: retry, circuit breake
 
 #### 3.3 **SagaPoc.ServicoEntregador**
 
-**Handlers**: `AlocarEntregadorHandler` e `LiberarEntregadorHandler` (compensação, hoje sem uso pela SAGA).
+**Handlers**: `AlocarEntregadorHandler` e `LiberarEntregadorHandler` (compensação, enviada quando a alocação chega depois do prazo do pedido).
 
 **Regras**:
 - Taxa de entrega negativa ou acima de R$ 100,00: recusado

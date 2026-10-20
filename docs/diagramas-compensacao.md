@@ -172,7 +172,10 @@ Não existe estado separado para "compensado": recusa no restaurante e compensa�
 | Entregador | validado | aprovado | recusou | estornar pagamento e cancelar no restaurante |
 | Notificação | validado | aprovado | alocado | nenhuma: a SAGA conclui |
 
-`LiberarEntregador` está implementado no serviço e tratado pela SAGA (`EntregadorLiberado`), mas nenhum fluxo atual o envia: não há etapa compensável depois da alocação.
+| Prazo do pedido (serviço sem resposta) | conforme a etapa | conforme a etapa | conforme a etapa | as dos passos já confirmados; se o entregador já foi alocado, a SAGA conclui |
+| Compensação recusada | | | | nova tentativa após 2 s, até 3; depois, `CompensacaoFalhou` |
+
+`LiberarEntregador` só é enviado quando a alocação do entregador chega durante a compensação, depois do prazo do pedido.
 
 ---
 
@@ -187,14 +190,18 @@ O que o código garante hoje:
 
 Esses controles vivem na memória de cada serviço e se perdem quando o container reinicia.
 
-Quando um handler lança exceção, o Rebus repete a mensagem (sem política configurada, vale o padrão do Rebus: 5 tentativas imediatas, sem intervalo) e, esgotadas as tentativas, a move para a fila `error`. A resposta de falha que os handlers enviam antes de relançar a exceção não sai, porque o Rebus só envia as mensagens de saída quando o handler termina sem erro.
+O Rebus só envia as mensagens de saída quando o handler termina sem erro. Por isso:
+
+- **Handlers do fluxo principal** (validar, cobrar, alocar) relançam a exceção sem responder: o Rebus repete a mensagem (padrão da biblioteca: 5 tentativas imediatas) e, esgotadas as tentativas, a move para a fila `error`. A SAGA não fica presa, porque o prazo do pedido dispara a compensação.
+- **Handlers de compensação** (estornar, cancelar, liberar) capturam a exceção e respondem `Sucesso = false`, sem relançar: a SAGA recebe a falha e decide se tenta de novo.
+
+Duas respostas que chegam juntas para a mesma SAGA geram `ConcurrencyException` no log (aviso do Rebus): o controle de concorrência otimista recusa a segunda gravação, e o Rebus a repete com o estado novo.
 
 ---
 
 ## O que pode dar errado
 
-- **Compensação com falha contada como feita:** `PagamentoEstornado` e `PedidoRestauranteCancelado` têm um campo `Sucesso`, mas a SAGA não o lê; uma resposta de estorno com `Sucesso = false` entra em `PassosCompensados` e a SAGA termina com `COMPENSAÇÃO CONCLUÍDA`.
-- **Compensação que nunca termina:** se o estorno ou o cancelamento for para a fila `error`, a SAGA fica em `ExecutandoCompensacao` para sempre. Não há timeout de SAGA nem alerta; a única pista é a mensagem na fila `error`.
-- **Serviço sem resposta:** a SAGA não tem prazo para esperar uma resposta. Se uma resposta não chegar, o pedido fica parado no estado atual.
-- **Estado dos serviços em memória:** um restart do serviço de pagamento entre a cobrança e o estorno faz o estorno falhar com "transação não encontrada", e pelo item acima essa falha passa despercebida pela SAGA.
+- **Pendência só no log:** a compensação que falha termina como `COMPENSAÇÃO FALHOU`, com log de erro, e a SAGA é removida do banco. Não há fila de intervenção manual, alerta nem projeção que guarde o caso.
+- **Resposta depois do prazo:** depois que a SAGA termina, o Rebus descarta em silêncio as respostas atrasadas. Um pagamento aprovado depois do prazo não é estornado; um restaurante que valida depois do prazo fica com o pedido. Resolver exige que cada serviço aceite a compensação pelo `CorrelacaoId`, mesmo antes de concluir a operação.
+- **Estado dos serviços em memória:** um restart do serviço de pagamento entre a cobrança e o estorno faz o estorno falhar com "transação não encontrada"; a SAGA tenta 3 vezes e termina como `CompensacaoFalhou`.
 - **Ordem das compensações:** estorno e cancelamento correm em paralelo. Para estes serviços simulados a ordem não importa; num sistema real em que ela importe, a SAGA teria de esperar uma confirmação antes de enviar o comando seguinte.

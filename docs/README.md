@@ -104,7 +104,7 @@ dotnet test SagaPoc.sln
 O 202 das APIs só diz que o pedido foi aceito. O que vale é o desfecho, e os scripts conferem isso:
 
 ```bash
-bash docs/scripts/testar-casos-de-uso.sh     # 12 casos da SAGA, pelo log do orquestrador
+bash docs/scripts/testar-casos-de-uso.sh     # 14 casos da SAGA, pelo log do orquestrador
 bash docs/scripts/testar-fluxo-caixa.sh      # 4 cenários, do lançamento ao saldo consolidado
 ```
 
@@ -134,7 +134,8 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 
 - **Status do pedido é mock.** `GET /api/pedidos/{id}/status` sempre responde "EmProcessamento". O Rebus remove a SAGA concluída do banco, e ainda não há uma projeção com o desfecho.
 - **Sem outbox.** Se um serviço cair entre gravar no banco e enviar a mensagem, o estado e a mensageria divergem. No worker de lançamentos isso pode duplicar um lançamento: cada nova tentativa gera um `Id` novo.
-- **Compensação sem conferência de resultado nem prazo.** A SAGA não lê o campo `Sucesso` das respostas de estorno e de cancelamento: um estorno que falhou conta como compensado. Também não há timeout: se um serviço nunca responder, a SAGA fica parada.
+- **Resposta depois do prazo é descartada.** A SAGA tem prazo (30 s para o pedido, 30 s para a compensação), mas, depois que ela termina, o Rebus descarta em silêncio as respostas que ainda chegarem. Um restaurante que valida o pedido depois do prazo fica com um pedido que ninguém cancela, e um pagamento aprovado depois do prazo não é estornado. Resolver exige compensação pelo `CorrelacaoId` nos próprios serviços.
+- **Compensação que falha só fica no log.** Quando um estorno é recusado em todas as tentativas, a SAGA termina como `COMPENSAÇÃO FALHOU` com log de erro, mas o registro some com ela: não há fila de intervenção manual nem alerta.
 - **Idempotência das compensações em memória.** Estorno e liberação de entregador são deduplicados por um repositório em memória, que se perde quando o serviço reinicia.
 - **Consolidado sem controle de concorrência.** Ele processa uma mensagem por vez (`MaxParallelism = 1`); escalar exige concorrência otimista ou UPDATE atômico.
 - **Consulta pode vir defasada até cerca de 60 s.** O Consolidado invalida o Redis, mas a API de consulta também tem cache em memória e response cache, que não são invalidados.
@@ -153,7 +154,7 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 | [arquitetura.md](arquitetura.md) | Serviços, comunicação, deploy e observabilidade |
 | [design/](design/) | Padrões internos (SAGA, CQRS, Result Pattern, Unit of Work) e escolhas de tecnologia |
 | [decisoes-tecnicas/](decisoes-tecnicas/) | ADRs |
-| [casos-uso.md](casos-uso.md) | Os 12 casos da SAGA |
+| [casos-uso.md](casos-uso.md) | Os 14 casos da SAGA |
 | [diagramas-compensacao.md](diagramas-compensacao.md) | Estados e compensações da SAGA |
 | [fluxo-caixa.md](fluxo-caixa.md), [diagramas-fluxo-caixa.md](diagramas-fluxo-caixa.md) | Contexto de fluxo de caixa |
 | [runbook-troubleshooting.md](runbook-troubleshooting.md), [troubleshooting-fluxo-caixa.md](troubleshooting-fluxo-caixa.md) | Diagnóstico operacional |

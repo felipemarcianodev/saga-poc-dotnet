@@ -93,7 +93,7 @@ A mensagem que estava na fila é consumida quando o serviço volta; a SAGA conti
 
 ### Sintoma
 
-`rabbitmqctl list_queues` mostra `error` com mensagens. Nenhum dos 12 casos de uso deveria levar mensagem para lá: **é sempre bug**.
+`rabbitmqctl list_queues` mostra `error` com mensagens. Nenhum dos 14 casos de uso deveria levar mensagem para lá: **é sempre bug**.
 
 O Rebus tenta entregar cada mensagem algumas vezes (o padrão da biblioteca; o projeto não muda essa configuração) e, se o handler lançar exceção em todas, move a mensagem para `error` com cabeçalhos que dizem de onde ela veio e por quê.
 
@@ -135,29 +135,30 @@ Não há shovel nem reenvio automático da `error` configurados nesta stack. Par
 
 ### Sintoma
 
-O log mostra `COMPENSAÇÃO INICIADA` para o pedido, mas não `COMPENSAÇÃO CONCLUÍDA`, e a linha continua em `pedido_saga_data` com `EstadoAtual` = `ExecutandoCompensacao`.
+O log mostra `COMPENSAÇÃO INICIADA` para o pedido e termina em `COMPENSAÇÃO FALHOU` (nível de erro), ou ainda não terminou e a linha continua em `pedido_saga_data` com `EstadoAtual` = `ExecutandoCompensacao`.
 
 ### Como a compensação funciona aqui
 
-A SAGA envia os comandos de compensação dos passos que deram certo (`EstornarPagamento`, `CancelarPedidoRestaurante`, `LiberarEntregador`) e só finaliza quando recebe todas as respostas (`PagamentoEstornado`, `PedidoRestauranteCancelado`, `EntregadorLiberado`). Não há timeout: se uma resposta não volta, a SAGA fica parada para sempre.
+A SAGA envia os comandos de compensação dos passos que deram certo (`EstornarPagamento`, `CancelarPedidoRestaurante`, `LiberarEntregador`) e confere o `Sucesso` de cada resposta. Recusa gera nova tentativa (até 3, com 2 s entre elas). Se a resposta não volta, o prazo da compensação (30 s) encerra a SAGA. Nos dois casos, o que não foi compensado aparece na linha `COMPENSAÇÃO FALHOU`, em `Sem compensação:` e `Erros:`.
 
 ### Diagnóstico
 
 ```bash
-# Passos já compensados e passos que a SAGA espera
+# SAGA ainda em compensação: passos que esperam resposta e os já compensados
 docker exec saga-postgres psql -U saga -d sagapoc -c \
-  "SELECT convert_from(data, 'UTF8')::json->>'PassosCompensados' AS compensados,
+  "SELECT convert_from(data, 'UTF8')::json->>'PassosPendentes' AS pendentes,
+          convert_from(data, 'UTF8')::json->>'PassosCompensados' AS compensados,
           convert_from(data, 'UTF8')::json->>'PagamentoProcessado' AS pagamento,
           convert_from(data, 'UTF8')::json->>'RestauranteValidado' AS restaurante,
           convert_from(data, 'UTF8')::json->>'EntregadorAlocado' AS entregador
    FROM pedido_saga_data WHERE id = '<pedidoId>';"
 ```
 
-O passo marcado como `true` que não aparece em `PassosCompensados` é o que falta. Confira a fila desse serviço (`fila-pagamento`, `fila-restaurante` ou `fila-entregador`), a fila `error` e o log do serviço, como nas seções 2 e 3.
+O passo em `PassosPendentes` é o que falta. Para SAGA já encerrada, a linha `COMPENSAÇÃO FALHOU` do orquestrador traz a mesma informação. Confira a fila desse serviço (`fila-pagamento`, `fila-restaurante` ou `fila-entregador`), a fila `error` e o log do serviço, como nas seções 2 e 3.
 
 ### Ação
 
-Mesma da seção 2: subir o serviço que caiu ou corrigir o bug que levou o comando para a `error`. A idempotência dos handlers de estorno e de liberação de entregador fica em memória (`RepositorioIdempotenciaInMemory`): ela se perde quando o container reinicia, então um comando reprocessado depois de um reinício é executado de novo.
+Mesma da seção 2: subir o serviço que caiu ou corrigir o bug que levou o comando para a `error`. Com a SAGA encerrada como `COMPENSAÇÃO FALHOU`, a compensação que faltou precisa ser feita à mão no serviço (por exemplo, o estorno da transação listada no log). A idempotência dos handlers de estorno e de liberação de entregador fica em memória (`RepositorioIdempotenciaInMemory`): ela se perde quando o container reinicia, então um comando reprocessado depois de um reinício é executado de novo.
 
 ---
 

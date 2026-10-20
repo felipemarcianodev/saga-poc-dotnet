@@ -5,7 +5,7 @@ Três scripts Bash validam a stack de ponta a ponta. Todos conferem o resultado 
 | Script | O que valida |
 |---|---|
 | `aguardar-stack.sh` | APIs, filas e assinaturas prontas logo depois do `up` |
-| `testar-casos-de-uso.sh` | Os 12 casos da SAGA, pelo desfecho no log do orquestrador |
+| `testar-casos-de-uso.sh` | Os 14 casos da SAGA, pelo desfecho no log do orquestrador, e a fila `error` |
 | `testar-fluxo-caixa.sh` | 4 cenários do fluxo de caixa, do lançamento ao consolidado |
 
 Rodam no Linux, no macOS e no Git Bash do Windows. Precisam só de `bash`, `curl` e `docker`.
@@ -38,13 +38,13 @@ Sai com código 1 e lista o que ficou pendente se o tempo acabar.
 
 ## `testar-casos-de-uso.sh`
 
-Testa os 12 casos de uso da SAGA (delivery de comida).
+Testa os 14 casos de uso da SAGA (delivery de comida).
 
-A API responde 202 assim que aceita o pedido, o que não prova que a SAGA terminou. Por isso o script lê os logs do orquestrador (`docker logs saga-orquestrador`) e compara o desfecho de cada pedido com o esperado.
+A API responde 202 assim que aceita o pedido, o que não prova que a SAGA terminou. Por isso o script lê os logs do orquestrador (`docker logs saga-orquestrador`) e compara o desfecho de cada pedido com o esperado. No fim, espera até 45 s desde o envio (`ESPERA_ATRASADAS`), para cobrir as mensagens que chegam depois do desfecho (prazos e a resposta do restaurante lento), e confere se a fila `error` recebeu mensagens novas.
 
 ```bash
 bash docs/scripts/testar-casos-de-uso.sh       # todos os casos
-bash docs/scripts/testar-casos-de-uso.sh 5     # um caso (1-12)
+bash docs/scripts/testar-casos-de-uso.sh 5     # um caso (1-14)
 
 # Outra URL de API ou outro tempo máximo de espera
 BASE_URL=http://localhost:8080 TEMPO_MAXIMO=90 bash docs/scripts/testar-casos-de-uso.sh
@@ -64,9 +64,13 @@ BASE_URL=http://localhost:8080 TEMPO_MAXIMO=90 bash docs/scripts/testar-casos-de
 | 10 | Falha na notificação | Concluído |
 | 11 | Pedido agendado | Concluído |
 | 12 | Compensação total | Compensado |
+| 13 | Estorno recusado | Compensação falhou |
+| 14 | Restaurante sem resposta | Expirado |
 
 - **Cancelado:** a SAGA para antes de qualquer passo que precise ser desfeito.
 - **Compensado:** um passo falhou depois de outros terem sido executados, e a SAGA desfez os anteriores (estorno, liberação do entregador, cancelamento no restaurante).
+- **Compensação falhou:** alguma compensação foi recusada em todas as tentativas ou não respondeu no prazo; o log de erro lista o que ficou pendente.
+- **Expirado:** um serviço não respondeu no prazo do pedido (30 s), e a SAGA compensou o que já tinha feito.
 
 > **Horário de pico simulado:** entre 12h e 14h59 (UTC), o serviço de entregador recusa 30% das alocações. Nessa janela, um caso que deveria concluir pode terminar compensado; o script marca isso como **AVISO**, e não como falha. Para desligar a simulação, suba a stack com `SIMULAR_HORARIO_PICO=false` (é o que o CI faz).
 

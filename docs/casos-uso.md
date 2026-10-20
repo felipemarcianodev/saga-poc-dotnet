@@ -1,6 +1,6 @@
 # Casos de uso da SAGA
 
-Este documento descreve os **12 casos de uso** da SAGA de pedidos: o que cada um força nos serviços simulados e qual desfecho o orquestrador deve registrar. Os payloads são os mesmos de `docs/scripts/testar-casos-de-uso.sh`, que envia os 12 casos e confere o desfecho de cada pedido.
+Este documento descreve os **14 casos de uso** da SAGA de pedidos: o que cada um força nos serviços simulados e qual desfecho o orquestrador deve registrar. Os payloads são os mesmos de `docs/scripts/testar-casos-de-uso.sh`, que envia os 14 casos e confere o desfecho de cada pedido.
 
 Os serviços não têm banco nem integração externa: as falhas são disparadas por valores fixos no payload (identificador do restaurante, do cliente, do produto ou palavras no endereço).
 
@@ -22,14 +22,20 @@ Os serviços não têm banco nem integração externa: as falhas são disparadas
 | 10 | Falha na Notificação | notificação (`CLI_SEM_NOTIFICACAO`) | CONCLUIDO | nenhuma: notificação não compensa |
 | 11 | Pedido Agendado | nada | CONCLUIDO | nenhuma |
 | 12 | Compensação Total | entregador (endereço com `LONGE` e `DISTANTE`) | COMPENSADO | estorno do pagamento e cancelamento no restaurante |
+| 13 | Estorno Recusado | entregador (endereço com `LONGE`) e estorno (`CLI_ESTORNO_FALHA`) | COMPENSACAO_FALHOU | cancelamento no restaurante; o estorno é recusado nas 3 tentativas |
+| 14 | Restaurante sem Resposta | restaurante demora 40 s (`REST_LENTO`) | EXPIRADO | nenhuma (o prazo de 30 s expira antes da validação) |
 
 Como o script classifica o desfecho, pelas linhas `[SAGA]` do orquestrador:
 
 - **CONCLUIDO**: `Pedido {PedidoId} - CONCLUÍDO COM SUCESSO!`
 - **CANCELADO**: `Pedido {PedidoId} - Cancelado: {Motivo}` (o restaurante recusou; não havia nada a desfazer)
 - **COMPENSADO**: `Pedido {PedidoId} - COMPENSAÇÃO CONCLUÍDA ({Duracao}s)` (alguma etapa já tinha sido feita e foi desfeita)
+- **COMPENSACAO_FALHOU**: `Pedido {PedidoId} - COMPENSAÇÃO FALHOU ...` (algum passo esgotou as tentativas ou o prazo; o log, em nível de erro, lista o que ficou sem compensação)
+- **EXPIRADO**: `Pedido {PedidoId} - PRAZO EXPIRADO na etapa {Etapa}` seguido de `COMPENSAÇÃO CONCLUÍDA` (um serviço não respondeu a tempo)
 
-A compensação de liberar o entregador (`LiberarEntregador`) existe no orquestrador e no serviço, mas nenhum dos 12 casos a dispara: a única etapa depois da alocação é a notificação, e falha de notificação não compensa.
+A compensação de liberar o entregador (`LiberarEntregador`) só é enviada quando a alocação chega depois do prazo do pedido, durante a compensação; nenhum dos 14 casos força esse cenário. A única etapa depois da alocação é a notificação, e falha de notificação não compensa.
+
+No caso 14, a validação do restaurante chega 10 s depois de a SAGA terminar e é descartada pelo Rebus: o pedido fica validado no restaurante simulado e ninguém o cancela. É a limitação de resposta atrasada descrita em [arquitetura.md](arquitetura.md).
 
 ---
 
@@ -40,13 +46,16 @@ A compensação de liberar o entregador (`LiberarEntregador`) existe no orquestr
 - Produto com `produtoId` igual a `INDISPONIVEL`: recusa com `PRODUTO_INDISPONIVEL`. Quantidade acima de 10 ou preço menor ou igual a zero também recusam.
 - Pedido abaixo de R$ 10,00: recusa com `VALOR_MINIMO`.
 - Tempo de preparo: 15 minutos por item da lista (não por unidade); `REST_VIP` leva metade.
+- `REST_LENTO`: responde depois de 40 s (`Simulacao:RestauranteLento:AtrasoSegundos`), mais que o prazo da SAGA.
 
 **Orquestrador** (`PedidoSaga`)
 - Taxa de entrega de 15% sobre o valor dos itens; o pagamento cobra itens + taxa.
+- Prazo de 30 s para o pedido e de 30 s para a compensação; até 3 tentativas por compensação recusada, com 2 s entre elas (seção `Saga` do `appsettings.json`).
 
 **Pagamento** (`ServicoPagamento`; a variante `ServicoPagamentoComPolly` existe, mas não está registrada no `Program.cs`)
 - `CLI_CARTAO_RECUSADO`, `CLI_SALDO_INSUFICIENTE`, `CLI_TIMEOUT` e `CLI_ERRO_GATEWAY`: recusam, cada um com seu código.
 - Valor acima de R$ 10.000,00 ou forma de pagamento fora de `CREDITO`, `DEBITO`, `PIX` e `DINHEIRO`: recusa.
+- `CLI_ESTORNO_FALHA`: o pagamento é aprovado, mas o estorno é sempre recusado com `ESTORNO_RECUSADO`.
 
 **Entregador** (`ServicoEntregador`)
 - Endereço com `LONGE` ou `DISTANTE`: recusa com `AREA_NAO_COBERTA` ("Endereço fora da área de cobertura"). Endereço com menos de 10 caracteres também recusa.
@@ -323,15 +332,15 @@ Mesmo mecanismo do caso 5 (recusa do entregador por `AREA_NAO_COBERTA` depois do
 ### Script (recomendado)
 
 ```bash
-bash docs/scripts/testar-casos-de-uso.sh        # os 12 casos
+bash docs/scripts/testar-casos-de-uso.sh        # os 14 casos
 bash docs/scripts/testar-casos-de-uso.sh 4      # um caso
 ```
 
-O script envia os payloads, espera os desfechos no log do orquestrador (até 60 s) e sai com 1 se algum caso divergir do esperado. Veja `docs/scripts/readme-script.md`.
+O script envia os payloads, espera os desfechos no log do orquestrador (até 90 s), confere a fila `error` e sai com 1 se algum caso divergir do esperado. Veja `docs/scripts/readme-script.md`.
 
 ### Swagger ou curl
 
-Swagger em `http://localhost:5000/swagger` (`POST /api/pedidos`, "Try it out").
+Swagger na raiz de `http://localhost:5000` (`POST /api/pedidos`, "Try it out").
 
 No Git Bash do Windows, passar JSON com acento direto no argumento do `curl` corrompe o UTF-8; grave o payload num arquivo e envie com `--data-binary`:
 
@@ -351,7 +360,7 @@ docker logs saga-orquestrador 2>&1 | grep '\[SAGA\]' | grep <pedidoId>
 
 `GET /api/pedidos/{id}/status` ainda é um **mock**: responde sempre `EmProcessamento`. A SAGA concluída (com sucesso ou compensada) é removida do banco pelo Rebus (`MarkAsComplete()`), e o desfecho final não fica persistido em lugar nenhum; uma projeção de status está no backlog.
 
-Mensagem na fila `error` do RabbitMQ (http://localhost:15672) indica bug: nenhum dos 12 casos deveria levar mensagem para lá.
+Mensagem na fila `error` do RabbitMQ (http://localhost:15672) indica bug: nenhum dos 14 casos deveria levar mensagem para lá.
 
 ---
 

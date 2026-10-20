@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using SagaPoc.Common.Modelos;
 using SagaPoc.Common.ResultPattern;
 using SagaPoc.ServicoRestaurante.Modelos;
@@ -14,11 +15,16 @@ public class ServicoRestaurante : IServicoRestaurante
     private readonly ILogger<ServicoRestaurante> _logger;
 
     // Simulação de banco de dados em memória (apenas para POC)
-    private static readonly Dictionary<Guid, (string RestauranteId, DateTime DataCancelamento)> PedidosCancelados = new();
+    private static readonly ConcurrentDictionary<Guid, (string RestauranteId, DateTime DataCancelamento)> PedidosCancelados = new();
 
-    public ServicoRestaurante(ILogger<ServicoRestaurante> logger)
+    // Atraso do restaurante REST_LENTO: maior que o prazo da SAGA, para testar a expiração.
+    private readonly TimeSpan _atrasoRestauranteLento;
+
+    public ServicoRestaurante(ILogger<ServicoRestaurante> logger, IConfiguration configuration)
     {
         _logger = logger;
+        _atrasoRestauranteLento = TimeSpan.FromSeconds(
+            configuration.GetValue("Simulacao:RestauranteLento:AtrasoSegundos", 40));
     }
 
     /// <summary>
@@ -34,6 +40,17 @@ public class ServicoRestaurante : IServicoRestaurante
             restauranteId,
             itens.Count
         );
+
+        // CENÁRIO: restaurante que demora a responder (testa o prazo da SAGA)
+        if (restauranteId == "REST_LENTO")
+        {
+            _logger.LogWarning(
+                "Restaurante {RestauranteId} lento: respondendo em {Atraso}s",
+                restauranteId,
+                _atrasoRestauranteLento.TotalSeconds
+            );
+            await Task.Delay(_atrasoRestauranteLento);
+        }
 
         // Validação em cascata usando Bind/BindAsync (Railway-Oriented Programming)
         // 1. Validar restaurante
