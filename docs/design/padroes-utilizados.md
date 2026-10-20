@@ -126,7 +126,7 @@ Os dois comandos de compensação saem no mesmo handler, na ordem reversa, mas s
 
 **O que pode dar errado**:
 - Se a resposta de uma compensação nunca chegar, o prazo da compensação (30 s) encerra a SAGA como `CompensacaoFalhou`. O pedido não fica parado, mas a pendência só existe no log de erro.
-- Resposta que chega depois de a SAGA terminar é descartada pelo Rebus; o passo que ela representa não é compensado.
+- Resposta que chega depois de a SAGA terminar é descartada pelo Rebus. O passo que ela representa já foi compensado pelo pedido (`CorrelacaoId`) quando o prazo esgotou, mas esse registro fica em memória no serviço: se ele reiniciar entre o cancelamento e a operação atrasada, a operação passa.
 - A deduplicação em memória se perde quando o serviço reinicia e não vale entre instâncias.
 
 ---

@@ -27,6 +27,9 @@ try
     builder.Services.AddSingleton<IRepositorioIdempotencia,
         RepositorioIdempotenciaInMemory>();
 
+    // Pedidos cancelados pela SAGA e recurso criado para cada um (compensação sem o identificador)
+    builder.Services.AddSingleton<IRegistroCancelamentos, RegistroCancelamentosInMemory>();
+
     // Configurar Health Checks
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());

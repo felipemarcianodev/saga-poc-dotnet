@@ -2,6 +2,7 @@ using Rebus.Bus;
 using Rebus.Handlers;
 using SagaPoc.Common.Mensagens.Comandos;
 using SagaPoc.Common.Mensagens.Respostas;
+using SagaPoc.Infrastructure.Core;
 using SagaPoc.ServicoRestaurante.Servicos;
 
 namespace SagaPoc.ServicoRestaurante.Handlers;
@@ -13,15 +14,18 @@ namespace SagaPoc.ServicoRestaurante.Handlers;
 public class ValidarPedidoRestauranteHandler : IHandleMessages<ValidarPedidoRestaurante>
 {
     private readonly IServicoRestaurante _servico;
+    private readonly IRegistroCancelamentos _cancelamentos;
     private readonly IBus _bus;
     private readonly ILogger<ValidarPedidoRestauranteHandler> _logger;
 
     public ValidarPedidoRestauranteHandler(
         IServicoRestaurante servico,
+        IRegistroCancelamentos cancelamentos,
         IBus bus,
         ILogger<ValidarPedidoRestauranteHandler> logger)
     {
         _servico = servico;
+        _cancelamentos = cancelamentos;
         _bus = bus;
         _logger = logger;
     }
@@ -36,6 +40,24 @@ public class ValidarPedidoRestauranteHandler : IHandleMessages<ValidarPedidoRest
             mensagem.Itens.Count
         );
 
+        // A SAGA desistiu do pedido (prazo) antes de a validação chegar aqui: não aceitar.
+        if (_cancelamentos.EstaCancelado(mensagem.CorrelacaoId))
+        {
+            _logger.LogWarning(
+                "Pedido cancelado antes da validação; pedido recusado. CorrelacaoId: {CorrelacaoId}",
+                mensagem.CorrelacaoId
+            );
+            await _bus.Reply(new PedidoRestauranteValidado(
+                CorrelacaoId: mensagem.CorrelacaoId,
+                Valido: false,
+                ValorTotal: 0,
+                TempoPreparoMinutos: 0,
+                PedidoId: null,
+                MotivoRejeicao: "Pedido cancelado antes da validação"
+            ));
+            return;
+        }
+
         try
         {
             // Executar validação do pedido
@@ -43,6 +65,32 @@ public class ValidarPedidoRestauranteHandler : IHandleMessages<ValidarPedidoRest
                 mensagem.RestauranteId,
                 mensagem.Itens
             );
+
+            if (resultado.EhSucesso)
+            {
+                // Registrar antes de conferir o cancelamento (o cancelamento faz o inverso).
+                _cancelamentos.RegistrarRecurso(mensagem.CorrelacaoId, resultado.Valor.PedidoId.ToString());
+
+                if (_cancelamentos.EstaCancelado(mensagem.CorrelacaoId))
+                {
+                    _logger.LogWarning(
+                        "Pedido cancelado durante a validação; cancelando no restaurante. CorrelacaoId: {CorrelacaoId}, PedidoId: {PedidoId}",
+                        mensagem.CorrelacaoId,
+                        resultado.Valor.PedidoId
+                    );
+                    await _servico.CancelarPedidoAsync(mensagem.RestauranteId, resultado.Valor.PedidoId);
+
+                    await _bus.Reply(new PedidoRestauranteValidado(
+                        CorrelacaoId: mensagem.CorrelacaoId,
+                        Valido: false,
+                        ValorTotal: 0,
+                        TempoPreparoMinutos: 0,
+                        PedidoId: null,
+                        MotivoRejeicao: "Pedido cancelado durante a validação"
+                    ));
+                    return;
+                }
+            }
 
             // Usar Match() para tratar sucesso/falha de forma elegante (Result Pattern)
             resultado.Match(

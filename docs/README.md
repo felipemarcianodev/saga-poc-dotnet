@@ -134,7 +134,7 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 
 - **Status do pedido é mock.** `GET /api/pedidos/{id}/status` sempre responde "EmProcessamento". O Rebus remove a SAGA concluída do banco, e ainda não há uma projeção com o desfecho.
 - **Sem outbox.** Se um serviço cair entre gravar no banco e enviar a mensagem, o estado e a mensageria divergem. No worker de lançamentos isso pode duplicar um lançamento: cada nova tentativa gera um `Id` novo.
-- **Resposta depois do prazo é descartada.** A SAGA tem prazo (30 s para o pedido, 30 s para a compensação), mas, depois que ela termina, o Rebus descarta em silêncio as respostas que ainda chegarem. Um restaurante que valida o pedido depois do prazo fica com um pedido que ninguém cancela, e um pagamento aprovado depois do prazo não é estornado. Resolver exige compensação pelo `CorrelacaoId` nos próprios serviços.
+- **Compensação pelo pedido depende de memória.** Quando o prazo esgota, a SAGA compensa também o passo que não respondeu, pelo `CorrelacaoId`: o serviço desfaz o que já fez e recusa o que chegar depois. Esse registro de pedidos cancelados fica em memória em cada serviço e se perde quando ele reinicia.
 - **Compensação que falha só fica no log.** Quando um estorno é recusado em todas as tentativas, a SAGA termina como `COMPENSAÇÃO FALHOU` com log de erro, mas o registro some com ela: não há fila de intervenção manual nem alerta.
 - **Idempotência das compensações em memória.** Estorno e liberação de entregador são deduplicados por um repositório em memória, que se perde quando o serviço reinicia.
 - **Consolidado sem controle de concorrência.** Ele processa uma mensagem por vez (`MaxParallelism = 1`); escalar exige concorrência otimista ou UPDATE atômico.

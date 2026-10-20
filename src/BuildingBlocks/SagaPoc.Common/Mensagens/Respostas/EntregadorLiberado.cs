@@ -10,5 +10,5 @@ namespace SagaPoc.Common.Mensagens.Respostas;
 public record EntregadorLiberado(
     Guid CorrelacaoId,
     bool Sucesso,
-    string EntregadorId
+    string? EntregadorId
 );

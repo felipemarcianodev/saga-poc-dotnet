@@ -328,7 +328,9 @@ public class PedidoSaga : Saga<PedidoSagaData>,
         }
 
         Data.PrazoExpirado = true;
-        await IniciarCompensacao($"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {Data.EstadoAtual}");
+        await IniciarCompensacao(
+            $"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {Data.EstadoAtual}",
+            etapaSemResposta: Data.EstadoAtual);
     }
 
     /// <summary>
@@ -382,8 +384,10 @@ public class PedidoSaga : Saga<PedidoSagaData>,
 
     /// <summary>
     /// Inicia a compensação dos passos já feitos, na ordem inversa em que foram executados.
+    /// Com prazo esgotado, compensa também o passo que não respondeu: o serviço cancela pelo
+    /// pedido (CorrelacaoId), desfaz o que já tiver feito e recusa o que chegar depois.
     /// </summary>
-    private async Task IniciarCompensacao(string? motivo)
+    private async Task IniciarCompensacao(string? motivo, string? etapaSemResposta = null)
     {
         Data.MensagemErro = motivo;
         Data.EmCompensacao = true;
@@ -397,9 +401,12 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             TimeSpan.FromSeconds(_opcoes.PrazoCompensacaoSegundos),
             new PrazoCompensacaoExpirado(Data.Id));
 
-        if (Data.EntregadorAlocado) await CompensarPasso(PassoEntregador);
-        if (Data.PagamentoProcessado) await CompensarPasso(PassoPagamento);
-        if (Data.RestauranteValidado) await CompensarPasso(PassoRestaurante);
+        if (Data.EntregadorAlocado || etapaSemResposta == AlocandoEntregador)
+            await CompensarPasso(PassoEntregador);
+        if (Data.PagamentoProcessado || etapaSemResposta == ProcessandoPagamento)
+            await CompensarPasso(PassoPagamento);
+        if (Data.RestauranteValidado || etapaSemResposta == ValidandoRestaurante)
+            await CompensarPasso(PassoRestaurante);
 
         await VerificarSeCompensacaoCompleta();
     }
@@ -423,8 +430,9 @@ public class PedidoSaga : Saga<PedidoSagaData>,
     {
         object comando = passo switch
         {
-            PassoEntregador => new LiberarEntregador(Data.Id, Data.EntregadorId!),
-            PassoPagamento => new EstornarPagamento(Data.Id, Data.TransacaoId!),
+            // Sem o identificador (a resposta não chegou), o serviço compensa pelo CorrelacaoId
+            PassoEntregador => new LiberarEntregador(Data.Id, Data.EntregadorId),
+            PassoPagamento => new EstornarPagamento(Data.Id, Data.TransacaoId),
             PassoRestaurante => new CancelarPedidoRestaurante(Data.Id, Data.RestauranteId, Data.PedidoRestauranteId ?? Data.Id),
             _ => throw new InvalidOperationException($"Passo de compensação desconhecido: {passo}")
         };
