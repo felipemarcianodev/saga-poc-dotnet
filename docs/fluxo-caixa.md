@@ -59,7 +59,7 @@ SagaPoc.FluxoCaixa
 
 ## Pré-requisitos
 
-- .NET 9.0 SDK
+- .NET 10 SDK
 - Docker e Docker Compose
 - PostgreSQL 16 (ou via Docker)
 - RabbitMQ (ou via Docker)
@@ -436,7 +436,7 @@ Esta seção documenta como a implementação atende aos requisitos do desafio p
 | Requisito | Implementação | Status |
 |-----------|---------------|--------|
 | **Desenho da Solução** | Diagramas Mermaid em `docs/diagramas-fluxo-caixa.md` | ✅ Atendido |
-| **C# / .NET** | .NET 9.0 + C# 12 | ✅ Atendido |
+| **C# / .NET** | .NET 10 + C# 14 | ✅ Atendido |
 | **Testes (TDD/BDD)** | 15 testes unitários em `SagaPoc.FluxoCaixa.Domain.Tests` | ✅ Atendido |
 | **SOLID** | Inversão de dependências, SRP, ISP aplicados | ✅ Atendido |
 | **Clean Code** | Nomenclatura clara, métodos pequenos, Result Pattern | ✅ Atendido |

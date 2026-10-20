@@ -1,9 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-SagaPoc.ServicoNotificacao-6cef823e-d130-413e-9b3c-7bb812837bba</UserSecretsId>
   </PropertyGroup>
  

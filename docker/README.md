@@ -211,7 +211,7 @@ WHERE id = 'seu-guid-aqui';
 Todos os serviços estão na mesma rede (`saga-network`), permitindo comunicação entre eles usando os nomes dos containers:
 - `postgres:5432`
 - `rabbitmq:5672`
-- `jaeger:6831`
+- `jaeger:4317` (OTLP gRPC; os traces não passam pelo host)
 - `saga-api:8080`
 
 ## Variáveis de Ambiente
@@ -219,7 +219,7 @@ Todos os serviços estão na mesma rede (`saga-network`), permitindo comunicaç�
 As configurações são definidas no `docker-compose.yml`:
 - `ConnectionStrings__SagaDatabase=Host=postgres;Port=5432;Database=sagapoc;Username=saga;Password=saga123`
 - `RabbitMQ__Host=rabbitmq`
-- `Jaeger__AgentHost=jaeger`
+- `Otlp__Endpoint=http://jaeger:4317`
 - `ASPNETCORE_ENVIRONMENT=Development`
 
 Para sobrescrever, crie um arquivo `.env` no mesmo diretório do `docker-compose.yml`.

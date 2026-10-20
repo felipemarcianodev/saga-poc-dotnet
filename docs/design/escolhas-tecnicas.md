@@ -117,18 +117,19 @@ Escolhemos Redis para cache distribuido.
 
 ---
 
-## Versoes e Compatibilidade
+## Versões e Compatibilidade
 
 ```
-.NET 9.0
-Rebus 8.9.0
-Rebus.RabbitMQ 9.x
+.NET 10.0
+Rebus 8.9.5
+Rebus.RabbitMq 10.1.2
+OpenTelemetry 1.20 (exportador OTLP)
 PostgreSQL 16
 Redis 7
 RabbitMQ 3.13
 ```
 
-Todas as versoes sao as mais recentes estaveis na data da criacao.
+Versões revisadas na migração para o .NET 10 (2026-10-20).
 
 ---
 

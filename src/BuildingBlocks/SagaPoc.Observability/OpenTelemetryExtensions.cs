@@ -29,8 +29,8 @@ public static class OpenTelemetryExtensions
                 ["host.name"] = Environment.MachineName
             });
 
-        // Verificar se Jaeger está habilitado
-        var jaegerEnabled = configuration.GetValue("Jaeger:Enabled", true);
+        // Verificar se a exportação de traces está habilitada
+        var otlpEnabled = configuration.GetValue("Otlp:Enabled", true);
 
         services.AddOpenTelemetry()
             .ConfigureResource(r => r
@@ -77,21 +77,16 @@ public static class OpenTelemetryExtensions
                         };
                     })
                     // Sources customizados (para criar spans manuais)
-                    .AddSource("SagaPoc.*")
-                    .AddSource("MassTransit"); // Para rastrear mensagens RabbitMQ
+                    .AddSource("SagaPoc.*");
 
-                // Adicionar Jaeger Exporter (HTTP Binary Thrift)
-                if (jaegerEnabled)
+                // Exportador OTLP (gRPC); o Jaeger recebe OTLP na porta 4317
+                if (otlpEnabled)
                 {
-                    tracing.AddJaegerExporter(options =>
+                    tracing.AddOtlpExporter(options =>
                     {
-                        var jaegerEndpoint = configuration["Jaeger:Endpoint"] ?? "http://localhost:14268/api/traces";
-                        options.AgentHost = configuration["Jaeger:AgentHost"] ?? "localhost";
-                        options.AgentPort = int.Parse(configuration["Jaeger:AgentPort"] ?? "6831");
-                        options.MaxPayloadSizeInBytes = 4096;
+                        options.Endpoint = new Uri(configuration["Otlp:Endpoint"] ?? "http://localhost:4317");
+                        options.Protocol = OtlpExportProtocol.Grpc;
                         options.ExportProcessorType = ExportProcessorType.Batch;
-                        options.Endpoint = new Uri(jaegerEndpoint);
-                        options.Protocol = JaegerExportProtocol.HttpBinaryThrift;
                         options.BatchExportProcessorOptions = new BatchExportProcessorOptions<Activity>
                         {
                             MaxQueueSize = 2048,

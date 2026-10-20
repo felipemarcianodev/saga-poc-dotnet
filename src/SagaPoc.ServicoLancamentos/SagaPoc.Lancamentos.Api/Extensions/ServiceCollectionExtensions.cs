@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Rebus.Config;
 using Rebus.Routing.TypeBased;
 using WebHost.Extensions;
