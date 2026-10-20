@@ -43,9 +43,10 @@ public class ConsolidadoAppService : IConsolidadoAppService
         }
 
         // Camada 2: Redis Cache
-        var cachedConsolidado = await _cache.GetAsync<ConsolidadoDiario>(cacheKey, ct);
-        if (cachedConsolidado is not null)
+        var cachedRedis = await _cache.GetAsync<ConsolidadoDiarioCache>(cacheKey, ct);
+        if (cachedRedis is not null)
         {
+            var cachedConsolidado = cachedRedis.ParaAgregado();
             _memoryCache.Set(cacheKey, cachedConsolidado, MemoryCacheTtl);
             _logger.LogDebug("Consolidado retornado do Redis: {Key}", cacheKey);
             return Resultado<ConsolidadoDiario>.Sucesso(cachedConsolidado);
@@ -65,7 +66,7 @@ public class ConsolidadoAppService : IConsolidadoAppService
         var consolidado = resultado.Valor;
 
         // Armazenar em ambos os caches
-        await _cache.SetAsync(cacheKey, consolidado, RedisCacheTtl, ct);
+        await _cache.SetAsync(cacheKey, ConsolidadoDiarioCache.De(consolidado), RedisCacheTtl, ct);
         _memoryCache.Set(cacheKey, consolidado, MemoryCacheTtl);
 
         _logger.LogDebug("Consolidado retornado do banco e armazenado em cache: {Key}", cacheKey);

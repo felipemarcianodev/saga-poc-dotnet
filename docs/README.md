@@ -137,7 +137,6 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 - **Compensação sem conferência de resultado nem prazo.** A SAGA não lê o campo `Sucesso` das respostas de estorno e de cancelamento: um estorno que falhou conta como compensado. Também não há timeout: se um serviço nunca responder, a SAGA fica parada.
 - **Idempotência das compensações em memória.** Estorno e liberação de entregador são deduplicados por um repositório em memória, que se perde quando o serviço reinicia.
 - **Consolidado sem controle de concorrência.** Ele processa uma mensagem por vez (`MaxParallelism = 1`); escalar exige concorrência otimista ou UPDATE atômico.
-- **A camada Redis do consolidado não serve leitura.** A API grava o `ConsolidadoDiario` no Redis, mas não consegue desserializá-lo (construtor privado), registra um aviso e vai ao banco. Na prática, o cache efetivo é o response cache e o cache em memória.
 - **Consulta pode vir defasada até cerca de 60 s.** O Consolidado invalida o Redis, mas a API de consulta também tem cache em memória e response cache, que não são invalidados.
 - **Testes automatizados só no domínio do fluxo de caixa.** A SAGA e as APIs são validadas pelos scripts de ponta a ponta, não por testes de integração.
 - **Observabilidade parcial.** No Jaeger aparecem só a API de pedidos e os serviços de lançamentos; o orquestrador e os serviços da SAGA não geram span. Os workers não mandam log para o Seq (use `docker logs`).

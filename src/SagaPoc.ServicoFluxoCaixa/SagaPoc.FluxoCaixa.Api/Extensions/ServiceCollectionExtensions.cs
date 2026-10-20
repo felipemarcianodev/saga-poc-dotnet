@@ -95,8 +95,7 @@ quando o serviço de lançamentos está fora do ar.
 **Cache:**
 - Response cache HTTP (60 segundos)
 - Memory Cache (1 minuto)
-- Redis (5 minutos), invalidado pelo Consolidado a cada evento; hoje a leitura
-  do Redis falha ao desserializar o ConsolidadoDiario e cai no banco
+- Redis (5 minutos), invalidado pelo Consolidado a cada evento
 - PostgreSQL
 
 A leitura pode vir defasada até cerca de 60 segundos: só o Redis é invalidado.",
