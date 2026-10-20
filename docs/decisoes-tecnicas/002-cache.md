@@ -36,9 +36,9 @@ Na frente de tudo, um limitador de janela fixa (`consolidado`): 50 requisições
 
 ## Estado atual
 
-- **A camada Redis não funciona como leitura.** A API grava o `ConsolidadoDiario` no Redis em JSON, mas não consegue lê-lo de volta: o `System.Text.Json` não desserializa o agregado (construtor sem parâmetros privado e propriedades com `private set`). O `RedisCacheService` captura a exceção (`NotSupportedException`), registra `Erro ao buscar do cache` como aviso e devolve vazio, e a consulta cai no banco. Conferido em 2026-10-20 contra a stack local: a segunda leitura de uma chave presente no Redis gerou o aviso e foi ao banco. Na prática, o cache efetivo é só o response cache e a memória.
-- O caminho de invalidação (o Consolidado apagando a chave) funciona, mas, pelo item anterior, não muda o que a API devolve.
-- A correção é desserializar para um DTO de leitura (ou dar ao agregado um construtor marcado com `[JsonConstructor]`), em vez de usar o agregado de domínio como valor de cache.
+- **O Redis guarda um snapshot, não o agregado.** Até 2026-10-20 a API gravava o próprio `ConsolidadoDiario` no Redis e nunca conseguia lê-lo de volta: o `System.Text.Json` não desserializa o agregado (construtor sem parâmetros privado e propriedades com `private set`), e toda leitura que passava da memória ia ao banco. Hoje o valor de cache é o record `ConsolidadoDiarioCache`, remontado como agregado por `ConsolidadoDiario.Reconstituir`; a ida e volta pelo JSON tem teste de unidade.
+- Conferido contra a stack local: com o saldo alterado direto no banco, a leitura feita depois de a memória e o response cache expirarem ainda devolveu o valor do Redis, sem aviso no log.
+- O caminho de invalidação (o Consolidado apagando a chave a cada evento) mantém o Redis em dia com o banco.
 
 ## Objetivos (não medidos)
 
@@ -63,8 +63,8 @@ Na frente de tudo, um limitador de janela fixa (`consolidado`): 50 requisições
 
 ## O que pode dar errado
 
-- **Cache que só custa:** enquanto a desserialização falhar, toda leitura que passa da memória faz uma ida ao Redis que não serve para nada, grava de novo e registra um aviso com exceção no log.
-- **Defasagem maior que a esperada:** se o Consolidado não conseguir apagar a chave (Redis fora), ele só registra um aviso e segue; com a leitura do Redis corrigida, a chave antiga valeria até 5 min.
+- **Snapshot fora de sincronia com o agregado:** uma propriedade nova no `ConsolidadoDiario` que não for acrescentada ao `ConsolidadoDiarioCache` sai do cache com valor padrão.
+- **Defasagem maior que a esperada:** se o Consolidado não conseguir apagar a chave (Redis fora), ele só registra um aviso e segue; a chave antiga vale até o TTL de 5 min.
 - **Erro do cliente por dado velho:** quem lança e consulta logo em seguida não vê o lançamento. Não há cabeçalho nem campo na resposta que indique a idade do dado além de `ultimaAtualizacao`.
 - **Memória sem limite:** o `IMemoryCache` não tem `SizeLimit`; muitas combinações de comerciante e data ocupam memória até expirar (1 min).
 - **Limitador global:** a janela de 50 por segundo vale para todos os clientes juntos, sem partição por comerciante ou IP; um cliente pode consumir a cota dos outros.

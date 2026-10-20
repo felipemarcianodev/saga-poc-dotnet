@@ -9,7 +9,7 @@ Registros de decisões de arquitetura (ADR) do contexto de Fluxo de Caixa. Cada 
 | ADR | Status | Decisão |
 |---|---|---|
 | [001](./001-cqrs.md) | Aceito | Escrita (lançamentos) e leitura (consolidado) em serviços e bancos separados, ligados por eventos no RabbitMQ, para que o registro não dependa do consolidado. |
-| [002](./002-cache.md) | Aceito, com defeito conhecido | Cache em três camadas na consulta do consolidado (response cache, memória e Redis). A camada Redis hoje não serve leituras, e a leitura pode vir defasada até cerca de 60 s. A meta de 50 requisições por segundo é objetivo, não medido. |
+| [002](./002-cache.md) | Aceito | Cache em três camadas na consulta do consolidado (response cache, memória e Redis). A leitura pode vir defasada até cerca de 60 s. A meta de 50 requisições por segundo é objetivo, não medido. |
 | [003](./003-postgresql.md) | Aceito | PostgreSQL 16 para os dois modelos, em instâncias separadas, cada uma migrada pelo seu worker. |
 
 As escolhas da SAGA de pedidos (Rebus, RabbitMQ, estado no PostgreSQL) estão em [design/escolhas-tecnicas.md](../design/escolhas-tecnicas.md).

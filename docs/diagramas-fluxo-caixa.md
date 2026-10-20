@@ -125,7 +125,7 @@ sequenceDiagram
 
 O Consolidado só apaga a chave no Redis. A memória da API e o response cache não são invalidados, então uma leitura pode vir defasada até cerca de 60 segundos depois de um lançamento.
 
-O ramo "achou no Redis" não acontece hoje: a API grava o agregado no Redis, mas falha ao desserializá-lo, registra um aviso e segue para o banco ([ADR 002](./decisoes-tecnicas/002-cache.md)). O `GET /api/consolidado/{comerciante}/periodo` não usa cache: vai direto ao banco.
+No Redis fica um snapshot do consolidado (`ConsolidadoDiarioCache`), não o agregado ([ADR 002](./decisoes-tecnicas/002-cache.md)). O `GET /api/consolidado/{comerciante}/periodo` não usa cache: vai direto ao banco.
 
 As rotas da API de consulta passam por um limitador de janela fixa (`consolidado`: 50 requisições por segundo, fila de 10). Não há teste de carga que meça a vazão real.
 

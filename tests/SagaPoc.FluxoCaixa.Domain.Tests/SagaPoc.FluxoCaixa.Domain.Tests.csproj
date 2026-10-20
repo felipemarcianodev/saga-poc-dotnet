@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SagaPoc.ServicoFluxoCaixa\SagaPoc.FluxoCaixa.Domain\SagaPoc.FluxoCaixa.Domain.csproj" />
+    <ProjectReference Include="..\..\src\SagaPoc.ServicoFluxoCaixa\SagaPoc.FluxoCaixa.Application\SagaPoc.FluxoCaixa.Application.csproj" />
   </ItemGroup>
 
 </Project>

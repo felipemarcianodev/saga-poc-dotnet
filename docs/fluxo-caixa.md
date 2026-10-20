@@ -139,7 +139,7 @@ Lista os consolidados do período. Esta rota não usa cache.
 
 A consulta por dia passa por três camadas: response cache (60 s), memória (1 min) e Redis (5 min), nessa ordem, antes do banco. O Consolidado apaga só a chave do Redis a cada evento; a memória e o response cache não são invalidados. **Uma leitura pode vir defasada até cerca de 60 segundos** depois de um lançamento.
 
-A camada Redis hoje só grava: a API não consegue desserializar o agregado `ConsolidadoDiario` lido do Redis, registra o aviso `Erro ao buscar do cache` e vai ao banco. Detalhes e correção prevista no [ADR 002](./decisoes-tecnicas/002-cache.md).
+No Redis fica um snapshot do consolidado (`ConsolidadoDiarioCache`), remontado como agregado na leitura; o agregado em si não é desserializável. Detalhes no [ADR 002](./decisoes-tecnicas/002-cache.md).
 
 As rotas da API de consulta têm um limitador de janela fixa: 50 requisições por segundo, com fila de 10. É uma configuração, não uma vazão medida: não há teste de carga.
 
@@ -147,7 +147,7 @@ As rotas da API de consulta têm um limitador de janela fixa: 50 requisições p
 
 ## Testes
 
-- **Unidade:** `tests/SagaPoc.FluxoCaixa.Domain.Tests`, 15 testes xUnit do agregado `Lancamento` (criação, validações, confirmação, cancelamento e eventos). `ConsolidadoDiario`, handlers e APIs não têm teste de unidade.
+- **Unidade:** `tests/SagaPoc.FluxoCaixa.Domain.Tests`, 18 testes xUnit: 15 do agregado `Lancamento` (criação, validações, confirmação, cancelamento e eventos) e 3 do snapshot do consolidado no cache (reconstituição e ida e volta pelo JSON). As regras do `ConsolidadoDiario`, os handlers e as APIs não têm teste de unidade.
 - **Ponta a ponta:** `docs/scripts/testar-fluxo-caixa.sh`, com a stack no ar. Cada cenário usa um comerciante novo, para não ler valor do cache de uma rodada anterior:
   1. crédito e débito no mesmo dia: confere saldo, totais e quantidades;
   2. cinco créditos e três débitos no mesmo dia acumulam no mesmo consolidado;
@@ -188,4 +188,3 @@ Não há métricas (Prometheus, Grafana) na stack.
 - **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`), porque a linha do dia não tem controle de concorrência; dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
 - **Recusa silenciosa no worker:** se `Lancamento.Criar` recusar o comando, o worker registra um aviso e descarta a mensagem; o cliente já recebeu 202. A validação da API cobre quase as mesmas regras, então isso só acontece com comando enviado direto para a fila.
 - **Leitura defasada** até cerca de 60 s, como descrito acima.
-- **Redis sem efeito na leitura:** a desserialização do agregado falha, e toda leitura que passa da memória vai ao banco.

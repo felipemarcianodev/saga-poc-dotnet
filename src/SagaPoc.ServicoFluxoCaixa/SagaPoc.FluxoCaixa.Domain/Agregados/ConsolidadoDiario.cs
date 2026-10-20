@@ -34,6 +34,32 @@ public class ConsolidadoDiario : AggregateRoot
         };
     }
 
+    /// <summary>
+    /// Remonta um consolidado já existente a partir de valores gravados fora do banco (cache).
+    /// </summary>
+    public static ConsolidadoDiario Reconstituir(
+        Guid id,
+        DateTime data,
+        string comerciante,
+        decimal totalCreditos,
+        decimal totalDebitos,
+        int quantidadeCreditos,
+        int quantidadeDebitos,
+        DateTime ultimaAtualizacao)
+    {
+        return new ConsolidadoDiario
+        {
+            Id = id,
+            Data = data.Date,
+            Comerciante = comerciante,
+            TotalCreditos = totalCreditos,
+            TotalDebitos = totalDebitos,
+            QuantidadeCreditos = quantidadeCreditos,
+            QuantidadeDebitos = quantidadeDebitos,
+            UltimaAtualizacao = ultimaAtualizacao
+        };
+    }
+
     public void AplicarCredito(decimal valor)
     {
         if (valor <= 0)
