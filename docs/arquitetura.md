@@ -1,6 +1,6 @@
 # Arquitetura - POC SAGA Pattern
 
-Este documento detalha a arquitetura da POC, decisões técnicas, padrões utilizados e fluxos de comunicação entre os componentes.
+Este documento descreve a estrutura macro da POC: serviços, comunicação, persistência, deploy e observabilidade. Os padrões internos (SAGA, CQRS, Result Pattern, Unit of Work) estão em [design/padroes-utilizados.md](design/padroes-utilizados.md), e as escolhas de tecnologia em [design/escolhas-tecnicas.md](design/escolhas-tecnicas.md).
 
 ---
 
@@ -11,513 +11,311 @@ Este documento detalha a arquitetura da POC, decisões técnicas, padrões utili
 ```mermaid
 flowchart TB
     subgraph entrada["CAMADA DE ENTRADA"]
-        api["<b>SagaPoc.Api</b><br/>(ASP.NET Core Web API)<br/>:5000<br/><br/>• POST /api/pedidos<br/>• GET /api/pedidos/{id}<br/>• GET /health<br/>• GET /swagger"]
-        apifc["<b>FluxoCaixa.Api</b><br/>(ASP.NET Core Web API)<br/>:5100<br/><br/>• POST /api/lancamentos<br/>• GET /api/consolidado<br/>• GET /health"]
+        api["<b>SagaPoc.Api</b><br/>:5000<br/>• POST /api/pedidos<br/>• GET /api/pedidos/{id}/status (mock)<br/>• GET /health"]
+        apilanc["<b>Lancamentos.Api</b><br/>:5200 (escrita)<br/>• POST /api/lancamentos<br/>• GET /api/lancamentos"]
+        apifc["<b>FluxoCaixa.Api</b><br/>:5100 (consulta)<br/>• GET /api/consolidado/..."]
     end
 
     subgraph orquestracao["CAMADA DE ORQUESTRAÇÃO"]
-        orch["<b>SagaPoc.Orquestrador</b><br/>(Rebus Saga)"]
-
-        subgraph saga["PedidoSaga (Rebus)"]
-            direction TB
-            s1["Estados:<br/>• [Initial] → ValidandoRestaurante<br/>• ValidandoRestaurante → ProcessandoPagamento<br/>• ProcessandoPagamento → AlocandoEntregador<br/>• AlocandoEntregador → NotificandoCliente<br/>• NotificandoCliente → [Final: PedidoConfirmado]<br/>• Qualquer Estado → [Final: PedidoCancelado]"]
-            s2["<br/>Compensações (Ordem Reversa):<br/>• LiberarEntregador → EstornarPagamento →<br/>  CancelarPedidoRestaurante"]
-        end
+        orch["<b>SagaPoc.Orquestrador</b><br/>PedidoSaga (Rebus)"]
     end
 
-    subgraph bus["RABBITMQ MESSAGE BROKER :5672"]
+    subgraph bus["RABBITMQ :5672 (via Rebus)"]
         direction LR
-        transport["Transport Layer"]
-        q1["Queue: Restaurante"]
-        q2["Queue: Pagamento"]
-        q3["Queue: Entregador"]
-        q4["Queue: Notificação"]
-        q5["Queue: FluxoCaixa"]
+        qo["fila-orquestrador"]
+        q1["fila-restaurante"]
+        q2["fila-pagamento"]
+        q3["fila-entregador"]
+        q4["fila-notificacao"]
+        q5["fluxocaixa-lancamentos"]
+        topics["RebusTopics<br/>(Publish/Subscribe)"]
+        q6["fluxocaixa-consolidado"]
     end
 
-    subgraph servicos["CAMADA DE SERVIÇOS (SAGA)"]
+    subgraph servicos["SERVIÇOS DA SAGA (simulados)"]
         direction LR
-        rest["<b>Serviço Restaurante</b><br/><br/>• Validar pedido<br/>• Cancelar pedido<br/><br/>(Handlers)"]
-        pag["<b>Serviço Pagamento</b><br/><br/>• Processar pagamento<br/>• Estornar pagamento<br/><br/>(Handlers)"]
-        ent["<b>Serviço Entregador</b><br/><br/>• Alocar entregador<br/>• Liberar entregador<br/><br/>(Handlers)"]
-        notif["<b>Serviço Notificação</b><br/><br/>• Enviar notificação<br/><br/>(Handler)"]
+        rest["Restaurante"]
+        pag["Pagamento"]
+        ent["Entregador"]
+        notif["Notificação"]
     end
 
-    subgraph fluxocaixa["SERVIÇO FLUXO CAIXA (CQRS)"]
-        direction TB
-        lancamentos["<b>Lançamentos</b><br/>(Write Model)<br/>• Registrar lançamento<br/>• Confirmar/Cancelar"]
-        consolidado["<b>Consolidado</b><br/>(Read Model)<br/>• Calcular saldo diário<br/>• Atualizar agregado"]
+    subgraph fluxocaixa["FLUXO DE CAIXA (CQRS)"]
+        worker["<b>Lancamentos.Worker</b><br/>grava e publica eventos"]
+        consolidado["<b>FluxoCaixa.Consolidado</b><br/>aplica os eventos no saldo do dia"]
     end
 
-    subgraph databases["DATABASES"]
-        pg1[(PostgreSQL<br/>SAGA :5432)]
-        pg2[(PostgreSQL<br/>Lançamentos :5433)]
-        pg3[(PostgreSQL<br/>Consolidado :5434)]
-        redis[(Redis<br/>Cache :6379)]
+    subgraph databases["DADOS"]
+        pg1[(PostgreSQL :5432<br/>estado da SAGA)]
+        pg2[(PostgreSQL :5433<br/>lançamentos)]
+        pg3[(PostgreSQL :5434<br/>consolidado)]
+        redis[(Redis :6379)]
     end
 
-    subgraph observability["OBSERVABILIDADE"]
-        seq["SEQ :5342<br/>Logs Estruturados"]
-        jaeger["Jaeger :16686<br/>Distributed Tracing"]
-    end
-
-    api -->|"Publish: IniciarPedido"| orch
-    apifc -->|"Publish: RegistrarLancamento"| q5
-    orch --> transport
-    transport --> q1
-    transport --> q2
-    transport --> q3
-    transport --> q4
-    q5 --> lancamentos
-    lancamentos --> consolidado
+    api -->|"Send: IniciarPedido"| qo
+    qo --> orch
+    orch -->|Send| q1 & q2 & q3 & q4
     q1 --> rest
     q2 --> pag
     q3 --> ent
     q4 --> notif
+    rest & pag & ent & notif -->|Reply| qo
     orch --> pg1
-    lancamentos --> pg2
-    consolidado --> pg3
-    consolidado --> redis
 
-    style entrada fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style orquestracao fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style saga fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style bus fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style servicos fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style fluxocaixa fill:#e0f7fa,stroke:#00838f,stroke-width:2px
-    style databases fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style observability fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-    style apifc fill:#b2ebf2,stroke:#00838f,stroke-width:2px
-    style orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
-    style transport fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style notif fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    apilanc -->|"Send: RegistrarLancamento"| q5
+    q5 --> worker
+    worker --> pg2
+    worker -->|Publish| topics
+    topics --> q6
+    q6 --> consolidado
+    consolidado --> pg3
+    consolidado -->|apaga a chave do dia| redis
+    apifc --> pg3
+    apifc --> redis
 ```
+
+Toda a comunicação entre serviços passa pelo RabbitMQ, via Rebus. Nenhum serviço chama outro por HTTP.
+
 ---
 
 ## Componentes Principais
 
 ### 1. **SagaPoc.Api** (Camada de Entrada)
 
-**Responsabilidade**: Ponto de entrada HTTP para os clientes.
+**Responsabilidade**: Ponto de entrada HTTP dos pedidos.
 
 **Tecnologias**:
-- ASP.NET Core 9.0
-- Swagger/OpenAPI
-- Rebus (IBus como One-Way Client)
+- ASP.NET Core (.NET 10)
+- Swagger (na raiz, `http://localhost:5000`, só no ambiente Development, que é o do compose)
+- Rebus como cliente de mão única (`UseRabbitMqAsOneWayClient`): só envia, não consome fila
 
 **Endpoints**:
-```csharp
-POST   /api/pedidos              # Criar novo pedido
-GET    /api/pedidos/{id}/status  # Consultar status do pedido
+```
+POST   /api/pedidos              # Cria o pedido e inicia a SAGA (202 Accepted)
+GET    /api/pedidos/{id}/status  # MOCK: sempre responde "EmProcessamento"
 GET    /health                   # Health check
 ```
 
 **Fluxo**:
-1. Recebe requisição HTTP (POST /api/pedidos)
+1. Recebe `POST /api/pedidos`
 2. Valida o payload (DataAnnotations)
-3. Gera um `CorrelationId` único (Guid)
-4. Envia mensagem `IniciarPedido` via Rebus para o RabbitMQ
-5. Retorna **202 Accepted** com o `PedidoId`
+3. Gera um `CorrelacaoId` novo (Guid), que vira o `Id` da SAGA
+4. Envia `IniciarPedido` para a `fila-orquestrador`
+5. Retorna **202 Accepted** com o identificador do pedido
 
-**Características**:
-- Stateless (não mantém estado do pedido)
-- Assíncrono (fire-and-forget)
-- Idempotente (aceita múltiplas requisições com mesmo payload)
+**Características e limitações**:
+- Stateless: não guarda nada do pedido.
+- O 202 só diz que o pedido foi aceito. O desfecho aparece no log `[SAGA]` do orquestrador.
+- **Não é idempotente**: cada `POST` gera um `CorrelacaoId` novo, então reenviar o mesmo payload cria outra SAGA.
+- O status é mock porque a SAGA concluída é removida do banco (ver [Estado da SAGA](#estado-da-saga)).
 
 ---
 
 ### 2. **SagaPoc.Orquestrador** (Camada de Orquestração)
 
-**Responsabilidade**: Coordenar o fluxo da SAGA e gerenciar o estado.
-
-**Tecnologias**:
-- Rebus Sagas
-- RabbitMQ
-- In-Memory Saga Repository (POC) - **Para produção: Postgres**
+**Responsabilidade**: Coordenar a SAGA e guardar o estado de cada pedido em andamento.
 
 **Componentes**:
-- `PedidoSaga` - Saga com Message Handlers (lógica de transições)
-- `PedidoSagaData` - Estado da SAGA (dados persistidos, implementa ISagaData)
+- `PedidoSaga`: `Saga<PedidoSagaData>` com um handler por mensagem (`IAmInitiatedBy<IniciarPedido>` e `IHandleMessages<...>` para as respostas)
+- `PedidoSagaData`: estado da SAGA (`ISagaData`), persistido pelo Rebus no PostgreSQL
 
-**Estados da SAGA**:
+O estado é um texto em `EstadoAtual`, não uma máquina de estados declarativa. O diagrama abaixo reflete os valores e as transições do código:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Initial
-    Initial --> ValidandoRestaurante: IniciarPedido
+    [*] --> ValidandoRestaurante: IniciarPedido
 
-    ValidandoRestaurante --> ProcessandoPagamento: PedidoRestauranteValidado ✓
-    ValidandoRestaurante --> PedidoCancelado: RestauranteFechado ✗
-    ValidandoRestaurante --> PedidoCancelado: ItemIndisponível ✗
+    ValidandoRestaurante --> ProcessandoPagamento: PedidoRestauranteValidado (válido)
+    ValidandoRestaurante --> Cancelado: PedidoRestauranteValidado (inválido)
 
-    ProcessandoPagamento --> AlocandoEntregador: PagamentoProcessado ✓
-    ProcessandoPagamento --> CompensandoPagamento: PagamentoRecusado ✗
-    ProcessandoPagamento --> CompensandoPagamento: TimeoutPagamento ✗
+    ProcessandoPagamento --> AlocandoEntregador: PagamentoProcessado (sucesso)
+    ProcessandoPagamento --> ExecutandoCompensacao: PagamentoProcessado (falha)
 
-    AlocandoEntregador --> NotificandoCliente: EntregadorAlocado ✓
-    AlocandoEntregador --> CompensandoEntregador: SemEntregadorDisponível ✗
+    AlocandoEntregador --> NotificandoCliente: EntregadorAlocado (alocado)
+    AlocandoEntregador --> ExecutandoCompensacao: EntregadorAlocado (indisponível)
 
-    NotificandoCliente --> PedidoConfirmado: NotificacaoEnviada ✓
-    NotificandoCliente --> PedidoConfirmado: FalhaNotificacao (continua)
+    NotificandoCliente --> Concluido: NotificacaoEnviada (enviada ou não)
 
-    CompensandoPagamento --> CompensandoRestaurante: EstornoPagamento ↩️
-    CompensandoEntregador --> CompensandoPagamento: LiberarEntregador ↩️
-    CompensandoRestaurante --> PedidoCancelado: CancelarPedido ↩️
+    ExecutandoCompensacao --> Cancelado: todas as confirmações recebidas
 
-    PedidoConfirmado --> [*]
-    PedidoCancelado --> [*]
+    Concluido --> [*]
+    Cancelado --> [*]
 
-    note right of ValidandoRestaurante
-        Valida se restaurante
-        está aberto e item disponível
+    note right of ExecutandoCompensacao
+        Falha no pagamento: CancelarPedidoRestaurante
+        Falha no entregador: EstornarPagamento
+        e CancelarPedidoRestaurante
     end note
-
-    note right of ProcessandoPagamento
-        Processa pagamento
-        com gateway
-    end note
-
-    note right of AlocandoEntregador
-        Aloca entregador
-        disponível
-    end note
-
-    note right of CompensandoPagamento
-        Compensação em ordem reversa:
-        Estorna → Cancela
-    end note
-
-    style PedidoConfirmado fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
-    style PedidoCancelado fill:#ffcdd2,stroke:#c62828,stroke-width:3px
-    style CompensandoPagamento fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style CompensandoEntregador fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style CompensandoRestaurante fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
 ```
 
-**Eventos Tratados**:
-- `IniciarPedido` → Inicia a SAGA
-- `PedidoRestauranteValidado` → Resultado da validação
-- `PagamentoProcessado` → Resultado do pagamento
-- `EntregadorAlocado` → Resultado da alocação
-- `NotificacaoEnviada` → Confirmação de notificação
+**Mensagens tratadas**:
+- `IniciarPedido`: inicia a SAGA (ignorada se a SAGA já existir, por `IsNew`)
+- `PedidoRestauranteValidado`, `PagamentoProcessado`, `EntregadorAlocado`, `NotificacaoEnviada`: respostas do fluxo principal
+- `PedidoRestauranteCancelado`, `PagamentoEstornado`, `EntregadorLiberado`: confirmações das compensações
 
-**Escolhas de Design**:
-1. **Por que Rebus Sagas?**
-   - Controle centralizado do fluxo via handlers
-   - Implementação explícita e clara
-   - Suporte nativo a correlação de mensagens
-   - Compensações manuais porém explícitas
+**Compensação**: as compensações são enviadas na ordem reversa (estorno antes do cancelamento no restaurante), mas saem no mesmo handler e são processadas em paralelo por serviços diferentes; as confirmações podem chegar em qualquer ordem. A SAGA só termina quando todas as confirmações esperadas chegam (`PassosCompensados`). Se uma compensação falhar e nunca for confirmada, a SAGA fica parada em `ExecutandoCompensacao`: não há timeout nem recuperação automática.
 
-2. **Por que InMemory para POC?**
-   - Simplicidade (sem setup de banco)
-   - Rápido para testes
-   - **Não usar em produção** (perde estado ao reiniciar)
+**Observações sobre o código atual**:
+- `LiberarEntregador` tem rota e handler, mas a SAGA nunca o envia: nenhuma etapa depois da alocação dispara compensação (falha na notificação não cancela o pedido).
+- "Timeout no pagamento" é uma resposta de falha do serviço simulado (`CLI_TIMEOUT`), não um timeout da SAGA. A SAGA não agenda prazo para nenhuma resposta.
+- A falha no restaurante não compensa nada: a SAGA notifica o cliente e termina como `Cancelado`.
+
+**Por que Rebus Sagas?**
+- Controle centralizado do fluxo via handlers
+- Implementação explícita e clara
+- Suporte nativo a correlação de mensagens (`CorrelateMessages`, pelo `CorrelacaoId`)
+- Compensações manuais, porém explícitas
 
 ---
 
-### 3. **Serviços de Domínio** (Camada de Serviços)
+### 3. **Serviços da SAGA**
 
-Cada serviço é um **Worker Service** independente que consome mensagens do RabbitMQ.
+Cada serviço é um Worker Service que consome a própria fila e responde ao orquestrador com `Reply`. Todos são **simulados**: decidem pelo conteúdo do pedido e guardam dados em memória. As regras abaixo são as do código; os cenários que as exercitam estão em [casos-uso.md](casos-uso.md).
 
 #### 3.1 **SagaPoc.ServicoRestaurante**
 
-**Responsabilidade**: Validar disponibilidade do restaurante e dos itens.
+**Handlers**: `ValidarPedidoRestauranteHandler` e `CancelarPedidoRestauranteHandler` (compensação).
 
-**Handlers**:
-- `ValidarPedidoRestauranteHandler` → Valida o pedido
-- `CancelarPedidoRestauranteHandler` → Cancela o pedido (compensação)
+**Validação** (`ServicoRestaurante.ValidarPedidoAsync`, encadeada com Result Pattern):
 
-**Lógica de Validação**:
-
-![Fluxo de validacao](./images/fluxo-validacao.png)
-
-**Compensação**:
-```csharp
-CancelarPedidoRestaurante
-   ↓
-Marca o pedido como cancelado no sistema do restaurante
-Libera o estoque reservado (se aplicável)
+```mermaid
+flowchart TD
+    A[ValidarPedidoRestaurante] --> B{Restaurante}
+    B -->|REST_FECHADO, REST_INATIVO, REST_INVALIDO<br/>ou ID que não começa com REST| X[Reply: Valido = false]
+    B -->|ok| C{Itens}
+    C -->|ProdutoId INDISPONIVEL, quantidade > 10<br/>ou preço <= 0: junta todos os erros| X
+    C -->|ok| D{Valor total >= R$ 10,00?}
+    D -->|não: VALOR_MINIMO| X
+    D -->|sim| E[Tempo de preparo: 15 min por item<br/>REST_VIP: metade]
+    E --> F[Reply: Valido = true, ValorTotal, TempoPreparoMinutos, PedidoId]
 ```
+
+**Compensação**: `CancelarPedidoRestaurante` registra o cancelamento num dicionário em memória e responde `PedidoRestauranteCancelado`.
 
 ---
 
 #### 3.2 **SagaPoc.ServicoPagamento**
 
-**Responsabilidade**: Processar pagamentos e estornos.
+**Handlers**: `ProcessarPagamentoHandler` e `EstornarPagamentoHandler` (compensação).
 
-**Handlers**:
-- `ProcessarPagamentoHandler` → Processa o pagamento
-- `EstornarPagamentoHandler` → Estorna o pagamento (compensação)
+O orquestrador cobra o valor do pedido mais 15% de taxa de entrega.
 
-**Lógica de Processamento**:
-```csharp
-// Casos de rejeição:
-- ClienteId == "CLI_CARTAO_RECUSADO" → Pagamento recusado
-- ClienteId == "CLI_TIMEOUT" → Timeout no gateway
-- Valor > 1000.00 → Análise de fraude (simulado)
+**Regras**:
+- Valor <= 0 ou acima de R$ 10.000,00: recusado
+- Forma de pagamento fora de `CREDITO`, `DEBITO`, `PIX`, `DINHEIRO`: recusado
+- `CLI_CARTAO_RECUSADO`, `CLI_SALDO_INSUFICIENTE`, `CLI_TIMEOUT`, `CLI_ERRO_GATEWAY`: recusado (cada um com seu código de erro)
+- Demais casos: aprovado, com `TransacaoId` no formato `TXN_...`
 
-// Casos de sucesso:
-- Gera TransacaoId único
-- Retorna: PagamentoProcessado
-```
+**Estorno**: idempotente em duas camadas, ambas em memória (perdidas quando o serviço reinicia): a chave `estorno:{TransacaoId}` no `IRepositorioIdempotencia` e a marca de estornado na transação.
 
-**Compensação (Estorno)**:
-```csharp
-EstornarPagamento
-   ↓
-Valida TransacaoId
-Processa estorno no gateway de pagamento
-Gera comprovante de estorno
-Idempotente: Executar 2x não duplica estorno
-```
-
-**Idempotência**:
-```csharp
-// Verificar se já foi estornado:
-if (await _repositorio.JaEstornadoAsync(transacaoId))
-{
-    _logger.LogWarning("Estorno já processado (idempotente)");
-    return Resultado.Sucesso();
-}
-```
+Existe uma variante com Polly (`ServicoPagamentoComPolly`: retry, circuit breaker e timeout), mas ela **não está registrada** no `Program.cs`; o serviço em uso é o `ServicoPagamento`.
 
 ---
 
 #### 3.3 **SagaPoc.ServicoEntregador**
 
-**Responsabilidade**: Alocar entregadores disponíveis.
+**Handlers**: `AlocarEntregadorHandler` e `LiberarEntregadorHandler` (compensação, hoje sem uso pela SAGA).
 
-**Handlers**:
-- `AlocarEntregadorHandler` → Aloca entregador
-- `LiberarEntregadorHandler` → Libera o entregador (compensação)
-
-**Lógica de Alocação**:
-```csharp
-// Casos de indisponibilidade:
-- Endereço contém "LONGE" ou "DISTANTE"
-- Todos os entregadores ocupados
-- Restaurante fora da área de cobertura
-
-// Casos de sucesso:
-- Calcula distância (simulada)
-- Aloca entregador disponível
-- Calcula tempo estimado (15-30min base + distância)
-- Reduz 30% do tempo para pedidos VIP
-```
-
-**Compensação (Liberar)**:
-```csharp
-LiberarEntregador
-   ↓
-Marca o entregador como disponível novamente
-Cancela a rota alocada
-```
+**Regras**:
+- Taxa de entrega negativa ou acima de R$ 100,00: recusado
+- Endereço vazio, com menos de 10 caracteres ou contendo `LONGE`/`DISTANTE`: recusado
+- Horário de pico (12h a 14h59 UTC): 30% das alocações são recusadas. Desliga com `Simulacao:HorarioPico:Habilitado=false` (no compose, `SIMULAR_HORARIO_PICO=false`; o CI usa assim)
+- Pool de 10 entregadores; sem nenhum livre, recusa
+- Tempo estimado: distância simulada × 3 min + 5 a 15 min; `REST_VIP` reduz 30%
+- O entregador volta ao pool quando a entrega simulada termina (1 minuto estimado = 1 segundo)
 
 ---
 
 #### 3.4 **SagaPoc.ServicoNotificacao**
 
-**Responsabilidade**: Notificar o cliente sobre o status do pedido.
+**Handler**: `NotificarClienteHandler`.
 
-**Handlers**:
-- `NotificarClienteHandler` → Envia notificação
+**Regras**:
+- `CLI_SEM_NOTIFICACAO` e `CLI_INVALIDO`: falha
+- 5% de falha aleatória em qualquer cliente
+- Os "canais" (e-mail, SMS, push) existem só no log
 
-**Tipos de Notificação**:
-```csharp
-enum TipoNotificacao
-{
-    PedidoConfirmado,
-    PedidoCancelado,
-    EntregadorAlocado,
-    PedidoEmPreparacao,
-    PedidoSaiuParaEntrega,
-    PedidoEntregue
-}
-```
-
-**Canais de Notificação** (simulados):
-- Email
-- SMS
-- Push Notification
-- WhatsApp
-
-**Tratamento de Falha**:
-```csharp
-// Notificação NÃO é crítica:
-if (ClienteId == "CLI_SEM_NOTIFICACAO")
-{
-    _logger.LogWarning("Cliente sem notificações habilitadas");
-    return Resultado.Sucesso(); // Não cancela o pedido
-}
-```
----
-
-### 3.5 **SagaPoc.ServicoFluxoCaixa** (Sistema CQRS)
-
-**Responsabilidade**: Controle de fluxo de caixa utilizando o padrão CQRS (Command Query Responsibility Segregation).
-
-**Estrutura de Projetos**:
-```
-SagaPoc.ServicoFluxoCaixa/
-├── SagaPoc.FluxoCaixa.Api/           # API REST (:5100)
-│   ├── Controllers/
-│   │   ├── LancamentosController.cs
-│   │   └── ConsolidadoController.cs
-│   └── DTOs/
-│
-├── SagaPoc.FluxoCaixa.Domain/        # Domínio (Agregados, Eventos)
-│   ├── Agregados/
-│   │   ├── Lancamento.cs
-│   │   └── ConsolidadoDiario.cs
-│   ├── Eventos/
-│   │   ├── LancamentoCreditoRegistrado.cs
-│   │   └── LancamentoDebitoRegistrado.cs
-│   └── ValueObjects/
-│       └── EnumTipoLancamento.cs
-│
-├── SagaPoc.FluxoCaixa.Infrastructure/ # Persistência
-│   ├── Persistencia/
-│   │   ├── FluxoCaixaDbContext.cs
-│   │   └── ConsolidadoDbContext.cs
-│   └── Repositorios/
-│       ├── LancamentoRepository.cs
-│       └── ConsolidadoDiarioRepository.cs
-│
-├── SagaPoc.FluxoCaixa.Lancamentos/   # Write Model (Handlers)
-│   └── Handlers/
-│       ├── RegistrarLancamentoHandler.cs
-│       └── LancamentoRegistradoComSucessoHandler.cs
-│
-└── SagaPoc.FluxoCaixa.Consolidado/   # Read Model (Handlers + Cache)
-    ├── Handlers/
-    │   ├── LancamentoCreditoRegistradoHandler.cs
-    │   └── LancamentoDebitoRegistradoHandler.cs
-    └── Servicos/
-        ├── ICacheService.cs
-        └── RedisCacheService.cs
-```
-
-**Padrão CQRS**:
-- **Write Model**: Lançamentos são registrados via comandos e persistidos em banco separado
-- **Read Model**: Consolidado é atualizado via eventos de domínio e usa cache Redis
-- **Comunicação**: RabbitMQ para mensageria assíncrona entre Write e Read
-
-**NFRs Atendidos**:
-- Disponibilidade independente (Lançamentos não depende do Consolidado)
-- 50 requisições/segundo no Consolidado (com cache)
-- < 5% de perda de requisições
-- Latência P95 < 50ms (com cache em 3 camadas)
-
-**Endpoints**:
-```csharp
-POST   /api/lancamentos                    # Registrar lançamento
-GET    /api/lancamentos/{id}               # Obter lançamento por ID
-GET    /api/consolidado/{comerciante}/{data}    # Consultar consolidado diário
-GET    /api/consolidado/{comerciante}/periodo   # Consultar período
-GET    /health                             # Health check
-```
+**Tratamento de falha**: o handler sempre responde `NotificacaoEnviada` (com `Enviada = false` em caso de falha) e não relança exceção. Notificação é best effort: o pedido termina como `Concluido` mesmo sem ela.
 
 ---
 
-### 4. **BuildingBlocks** (Camada Compartilhada)
+### 4. **Fluxo de Caixa** (CQRS)
 
-**Responsabilidade**: Contratos, modelos e utilitários compartilhados entre todos os serviços.
+Contexto separado da SAGA, com escrita e leitura em serviços e bancos diferentes. Regras de negócio e diagramas em [fluxo-caixa.md](fluxo-caixa.md) e [diagramas-fluxo-caixa.md](diagramas-fluxo-caixa.md).
 
 **Projetos**:
-- **SagaPoc.Common** - Result Pattern, mensagens, modelos compartilhados
-- **SagaPoc.Observability** - OpenTelemetry, Serilog, métricas, rastreamento
-- **WebHost** - Configurações comuns de host, healthchecks e Extensions (SwaggerExtensions)
-- **SagaPoc.Infrastructure** - Implementações de infraestrutura
-- **SagaPoc.Infrastructure.Core** - Abstrações e interfaces core
 
-**Estrutura do WebHost**:
+| Projeto | Papel |
+|---|---|
+| `SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Api` | API de escrita (:5200): aceita o lançamento e envia `RegistrarLancamento` (202) |
+| `SagaPoc.ServicoLancamentos/SagaPoc.Lancamentos.Worker` | Consome `fluxocaixa-lancamentos`, grava o lançamento e publica o evento |
+| `SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Domain` | Agregados (`Lancamento`, `ConsolidadoDiario`), comandos, eventos, repositórios |
+| `SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Application` | Serviços de aplicação (consulta do consolidado com cache) |
+| `SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Infrastructure` | DbContexts, repositórios, Unit of Work, `RedisCacheService` |
+| `SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Consolidado` | Worker que assina os eventos e atualiza o saldo diário |
+| `SagaPoc.ServicoFluxoCaixa/SagaPoc.FluxoCaixa.Api` | API de consulta (:5100) |
+
+**Fluxo**:
+1. `POST /api/lancamentos` (:5200) envia `RegistrarLancamento` para `fluxocaixa-lancamentos` e responde 202.
+2. O worker grava o lançamento em `fluxocaixa_lancamentos` (:5433) dentro de `IUnitOfWork.ExecutarEmTransacaoAsync` e publica `LancamentoCreditoRegistrado` ou `LancamentoDebitoRegistrado` (Publish no exchange `RebusTopics`).
+3. O Consolidado assina os dois eventos ao subir (`onCreated`), recebe-os em `fluxocaixa-consolidado`, atualiza a linha do dia em `fluxocaixa_consolidado` (:5434) e apaga a chave do dia no Redis.
+4. A API de consulta lê na ordem: cache em memória (1 min), Redis (5 min), banco. O endpoint do dia ainda tem response cache de 60 s.
+
+**Endpoints**:
 ```
-WebHost/
-├── Extensions/
-│   └── SwaggerExtensions.cs     # Configuração centralizada do Swagger
-└── WebHost.csproj
+# API de lançamentos (:5200)
+POST   /api/lancamentos                          # Registrar lançamento (202)
+GET    /api/lancamentos/{id}                     # Lançamento por ID
+GET    /api/lancamentos?comerciante=...          # Lançamentos por período
+
+# API de consulta (:5100)
+GET    /api/consolidado/{comerciante}/{data}     # Consolidado do dia
+GET    /api/consolidado/{comerciante}/periodo    # Consolidado de um período
+GET    /health
 ```
 
-**Estrutura**:
-
-```mermaid
-graph TD
-    Root[📁 saga-poc-dotnet]
-    Root --> Sln[📄 SagaPoc.sln]
-
-    Root --> Docs[📂 docs/]
-    Docs --> Doc2[📄 arquitetura.md]
-    Doc2 --> Doc4[⭐ casos-uso.md<br/> Cenários]
-
-    Root --> Docker[📂 docker/]
-    Docker --> DC[📄 docker-compose.yml]
-
-    Root --> Src[📂 src/]
-
-    Src --> BB[📂 BuildingBlocks/]
-    BB --> Common[📦 SagaPoc.Common<br/>Result Pattern, Mensagens]
-    BB --> Obs[📦 SagaPoc.Observability<br/>OpenTelemetry, Serilog]
-    BB --> Infra[📦 SagaPoc.Infrastructure<br/>Implementações]
-    BB --> InfraCore[📦 SagaPoc.Infrastructure.Core<br/>Interfaces]
-    BB --> WebHost[📦 WebHost<br/>Extensions, Swagger]
-
-    Src --> Api[🌐 SagaPoc.Api<br/>:5000 - API SAGA]
-    Src --> Orch[🎭 SagaPoc.Orquestrador<br/>SAGA State Machine]
-    Src --> Rest[🏪 SagaPoc.ServicoRestaurante]
-    Src --> Pag[💳 SagaPoc.ServicoPagamento]
-    Src --> Ent[🚚 SagaPoc.ServicoEntregador]
-    Src --> Not[🔔 SagaPoc.ServicoNotificacao]
-
-    Src --> FC[📂 SagaPoc.ServicoFluxoCaixa/]
-    FC --> FCApi[🌐 FluxoCaixa.Api<br/>:5100 - API CQRS]
-    FC --> FCDomain[📦 FluxoCaixa.Domain<br/>Agregados, Eventos]
-    FC --> FCInfra[📦 FluxoCaixa.Infrastructure<br/>Repositórios, DbContext]
-    FC --> FCLanc[⚡ FluxoCaixa.Lancamentos<br/>Write Handlers]
-    FC --> FCCons[📊 FluxoCaixa.Consolidado<br/>Read Handlers, Cache]
-
-    style Root fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Docs fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style Docker fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style Src fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style BB fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-    style FC fill:#e0f7fa,stroke:#00838f,stroke-width:2px
-    style Api fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-    style FCApi fill:#b2ebf2,stroke:#00838f,stroke-width:2px
-    style Orch fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px
-    style Rest fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Pag fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Ent fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-    style Not fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
-```
----
-
-## Padroes de Design
-
-Para detalhes sobre os padroes de design utilizados (SAGA, Result Pattern, CQRS, etc.), consulte:
-
-- **[Padroes Utilizados](design/padroes-utilizados.md)** - Descricao dos padroes e trade-offs
-- **[Escolhas Tecnicas](design/escolhas-tecnicas.md)** - Por que escolhemos cada tecnologia
+**Limitações**:
+- **Leitura defasada até cerca de 60 s**: o Consolidado apaga a chave do Redis, mas o cache em memória e o response cache da API de consulta não são invalidados.
+- **Consolidado com `MaxParallelism = 1`**: a linha do dia não tem controle de concorrência, e dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
+- **Worker de lançamentos não é idempotente**: cada tentativa gera um `Id` novo; se o envio do evento falhar depois do commit, a repetição grava o lançamento de novo.
+- **Sem medição de desempenho**: as metas de vazão e latência dos ADRs ([001](decisoes-tecnicas/001-cqrs.md), [002](decisoes-tecnicas/002-cache.md)) são objetivos, não resultados.
 
 ---
 
-## Comunicacao e Mensageria
+### 5. **BuildingBlocks** (Camada Compartilhada)
 
-### RabbitMQ (Transport Layer)
+| Projeto | Conteúdo |
+|---|---|
+| `SagaPoc.Common` | Result Pattern (`Resultado<T>`, `Erro`), contratos de mensagem da SAGA, modelos compartilhados |
+| `SagaPoc.Infrastructure.Core` | `IRepositorioIdempotencia` e a implementação em memória |
+| `SagaPoc.Infrastructure` | Só referências de pacote (EF Core + Npgsql); não tem código próprio |
+| `SagaPoc.Observability` | `AddSagaOpenTelemetry`/`AddSagaOpenTelemetryForHost` e `UseCustomSerilog` |
+| `WebHost` | Extensões de Rebus, banco (com `EnableRetryOnFailure` e migração), cache, Swagger e tratamento global de exceções |
 
-**Configuração (Rebus)**:
+---
+
+## Comunicação e Mensageria
+
+### RabbitMQ (via Rebus)
+
+Configuração do orquestrador (resumida de `SagaPoc.Orquestrador/Program.cs`):
+
 ```csharp
 builder.Services.AddRebus((configure, provider) => configure
     .Logging(l => l.Serilog())
     .Transport(t => t.UseRabbitMq(
         $"amqp://{username}:{password}@{host}",
-        "nome-da-fila"))
+        "fila-orquestrador"))
+    .Sagas(s => s.StoreInPostgres(
+        connectionString,
+        "pedido_saga_data",
+        "pedido_saga_index",
+        automaticallyCreateTables: true))
     .Routing(r => r.TypeBased()
         .Map<ValidarPedidoRestaurante>("fila-restaurante")
-        .Map<ProcessarPagamento>("fila-pagamento"))
+        .Map<ProcessarPagamento>("fila-pagamento")
+        // ... demais comandos e compensações
+        .Map<LiberarEntregador>("fila-entregador"))
     .Options(o =>
     {
         o.SetNumberOfWorkers(1);
@@ -525,29 +323,32 @@ builder.Services.AddRebus((configure, provider) => configure
     })
 );
 
-builder.Services.AutoRegisterHandlersFromAssemblyOf<PrimeiroHandler>();
+builder.Services.AutoRegisterHandlersFromAssemblyOf<PedidoSaga>();
 ```
 
-**Filas Criadas Automaticamente no RabbitMQ**:
+**Filas** (criadas pelo Rebus ao subir cada serviço):
 ```
-RabbitMQ (localhost:5672)
-├── fila-restaurante              (Comandos para Serviço Restaurante)
-├── fila-pagamento                (Comandos para Serviço Pagamento)
-├── fila-entregador               (Comandos para Serviço Entregador)
-├── fila-notificacao              (Comandos para Serviço Notificação)
-└── fila-orquestrador             (Mensagens para a SAGA)
+fila-orquestrador         Respostas para a SAGA
+fila-restaurante          Comandos do serviço de restaurante
+fila-pagamento            Comandos do serviço de pagamento
+fila-entregador           Comandos do serviço de entregador
+fila-notificacao          Comandos do serviço de notificação
+fluxocaixa-lancamentos    RegistrarLancamento
+fluxocaixa-consolidado    Eventos assinados pelo Consolidado (ligada ao exchange RebusTopics)
+error                     Mensagens que esgotaram as tentativas
 ```
 
-**Dead Letter Queue (DLQ)**:
-- Mensagens que falharam após N tentativas vão para DLQ
-- RabbitMQ gerencia automaticamente
-- Rebus suporta configuração de retry policy e error handling
+**Send x Publish**: a SAGA usa `Send`/`Reply`, e o roteamento por tipo (`Map<T>`) define a fila de destino. Os eventos do fluxo de caixa usam `Publish`; o mapa de roteamento não vale para eles. Sem a assinatura do Consolidado, o RabbitMQ descarta os eventos em silêncio, por isso o `aguardar-stack.sh` espera as duas assinaturas antes dos testes.
+
+**Fila `error`**: o Rebus usa a estratégia de retry padrão (5 tentativas imediatas, sem espera entre elas) e depois move a mensagem para a fila `error`. Não há retry de segundo nível configurado. Mensagem na fila `error` é sempre bug.
 
 ---
 
-### Contratos de Mensagem (Strongly Typed)
+### Contratos de Mensagem
 
-**Comandos** (Requests):
+Os contratos são `record`s em `SagaPoc.Common/Mensagens` (comandos e respostas da SAGA) e em `SagaPoc.FluxoCaixa.Domain` (comandos e eventos do fluxo de caixa).
+
+**Comando**:
 ```csharp
 public record ValidarPedidoRestaurante(
     Guid CorrelacaoId,
@@ -556,22 +357,23 @@ public record ValidarPedidoRestaurante(
 );
 ```
 
-**Respostas** (Responses):
+**Resposta**:
 ```csharp
 public record PedidoRestauranteValidado(
     Guid CorrelacaoId,
     bool Valido,
     decimal ValorTotal,
     int TempoPreparoMinutos,
+    Guid? PedidoId,
     string? MotivoRejeicao
 );
 ```
 
-**Por que Records?**
+**Por que records?**
 - Imutáveis por padrão
-- Equality by value (útil para testes)
+- Igualdade por valor (útil em testes)
 - Sintaxe concisa
-- Serialização JSON automática
+- Serialização JSON sem configuração extra
 
 ---
 
@@ -579,27 +381,42 @@ public record PedidoRestauranteValidado(
 
 ### Estado da SAGA
 
-**Modelo (Rebus)**:
+O Rebus persiste o `PedidoSagaData` no PostgreSQL da SAGA (:5432, banco `sagapoc`), em duas tabelas que ele mesmo cria e mantém:
+
+| Tabela | Conteúdo |
+|---|---|
+| `pedido_saga_data` | `id`, `revision` e `data` (o `PedidoSagaData` serializado em JSON, em `bytea`) |
+| `pedido_saga_index` | Índice de correlação usado para localizar a SAGA a partir da mensagem |
+
+Regras e consequências:
+- **Nenhum outro componente cria ou altera essas tabelas** (EF Core, migration, SQL manual). Uma tabela com o mesmo nome criada pelo EF, com outro esquema, já quebrou a SAGA neste projeto.
+- `Revision` é o controle de concorrência otimista do Rebus: duas mensagens da mesma SAGA processadas ao mesmo tempo geram conflito, e a mensagem perdedora é repetida.
+- **SAGA concluída é removida**: `MarkAsComplete()` apaga a linha. O desfecho final não fica persistido em lugar nenhum, e é por isso que `GET /api/pedidos/{id}/status` ainda é mock.
+- O estado não passa pelo EF Core; o orquestrador não tem DbContext.
+
+Campos principais do `PedidoSagaData`:
 ```csharp
 public class PedidoSagaData : ISagaData
 {
-    // Propriedades obrigatórias do Rebus
-    public Guid Id { get; set; }                  // Chave primária (CorrelationId)
-    public int Revision { get; set; }             // Controle de concorrência
+    public Guid Id { get; set; }              // CorrelacaoId do pedido
+    public int Revision { get; set; }         // Concorrência otimista (Rebus)
+    public string EstadoAtual { get; set; }
 
-    public string EstadoAtual { get; set; }       // Estado atual da SAGA
-
-    // Dados do Pedido
+    // Dados do pedido
     public string ClienteId { get; set; }
     public string RestauranteId { get; set; }
     public decimal ValorTotal { get; set; }
     public string EnderecoEntrega { get; set; }
+    public string FormaPagamento { get; set; }
 
-    // Controle de Compensação
-    public string? TransacaoId { get; set; }      // Para estorno
-    public string? EntregadorId { get; set; }     // Para liberação
-    public bool EmCompensacao { get; set; }       // Flag de compensação
-    public List<string> PassosCompensados { get; set; } // Tracking
+    // Controle de compensação
+    public string? TransacaoId { get; set; }  // Para estorno
+    public string? EntregadorId { get; set; } // Para liberação
+    public bool RestauranteValidado { get; set; }
+    public bool PagamentoProcessado { get; set; }
+    public bool EntregadorAlocado { get; set; }
+    public bool EmCompensacao { get; set; }
+    public List<string> PassosCompensados { get; set; }
 
     // Timestamps
     public DateTime DataInicio { get; set; }
@@ -607,324 +424,90 @@ public class PedidoSagaData : ISagaData
 }
 ```
 
-**Persistência (POC vs Produção)**:
+### Fluxo de Caixa
 
-| Ambiente | Repository | Persistência | Quando usar |
-|----------|-----------|--------------|-------------|
-| **POC** | InMemory | RAM | Testes, desenvolvimento |
-| **Produção** | EntityFramework + SQL | Banco relacional | Auditoria, consistência ACID |
-| **Produção** | Redis | Cache distribuído | Alta performance |
+| Banco | Porta | Dono da migration |
+|---|---|---|
+| `fluxocaixa_lancamentos` | 5433 | `Lancamentos.Worker` |
+| `fluxocaixa_consolidado` | 5434 | `FluxoCaixa.Consolidado` |
 
-**Configuração SQL (Produção com Rebus)**:
-```csharp
-// No Program.cs do Orquestrador
-builder.Services.AddRebus((configure, provider) => configure
-    .Logging(l => l.Serilog())
-    .Transport(t => t.UseRabbitMq(...))
-    .Sagas(s => s.UseNpgsql(connectionString, "Sagas"))
-    // Ou MongoDB:
-    // .Sagas(s => s.UseMongoDb(connectionString, "sagas"))
-);
-```
+As APIs não migram, para não disputarem a mesma migration ao subir. Os DbContexts usam `EnableRetryOnFailure`, que recusa transação aberta à mão; por isso a transação passa por `IUnitOfWork.ExecutarEmTransacaoAsync`, que repete o bloco inteiro em falha transitória.
 
 ---
 
 ## Confiabilidade e Resiliência
 
-### 1. **Retry Policy**
+O que existe hoje, e o que não existe:
 
-**Configuração com Rebus (Produção)**:
-```csharp
-builder.Services.AddRebus((configure, provider) => configure
-    .Transport(t => t.UseRabbitMq(...))
-    .Options(o =>
-    {
-        o.SimpleRetryStrategy(maxDeliveryAttempts: 5);
-        // Ou estratégia customizada:
-        o.RetryStrategy(
-            secondLevelRetriesEnabled: true,
-            errorDetailsHeaderMaxLength: 500
-        );
-    })
-);
-```
+| Mecanismo | Situação |
+|---|---|
+| Retry de mensagens | Padrão do Rebus: 5 tentativas imediatas e depois a fila `error` |
+| Retry de banco | `EnableRetryOnFailure` do EF Core no fluxo de caixa (até 5 tentativas, espera máxima de 30 s) |
+| Idempotência | `IsNew` no início da SAGA; estorno e liberação deduplicados em memória; worker de lançamentos **sem** idempotência |
+| Circuit breaker | Não está em uso (a variante com Polly do pagamento não é registrada) |
+| Timeout de etapa da SAGA | Não existe |
+| Outbox | Não existe: se um serviço cair entre gravar no banco e enviar a mensagem, estado e mensageria divergem |
 
-**Estratégia**:
-- 1ª tentativa: imediata
-- 2ª tentativa: após 1s
-- 3ª tentativa: após 6s
-- 4ª tentativa: após 16s
-- 5ª tentativa: após 30s
-- Após 5 falhas: Dead Letter Queue
+### Idempotência das compensações
 
----
-
-### 2. **Idempotência**
-
-**Problema**: Retry pode processar a mesma mensagem 2x.
-
-**Solução**: Verificar se já foi processado.
+O estorno consulta o repositório de idempotência antes de processar e responde sucesso se a chave já existir:
 
 ```csharp
-public async Task Handle(EstornarPagamento mensagem)
+var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
+
+if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
 {
-    var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
-
-    if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
-    {
-        _logger.LogWarning("Estorno já processado (duplicado)");
-        return; // Ignorar
-    }
-
-    // Processar estorno...
-
-    await _idempotencia.MarcarProcessadaAsync(chaveIdempotencia);
-    await _bus.Reply(new PagamentoEstornado(...));
+    await _bus.Reply(new PagamentoEstornado(mensagem.CorrelacaoId, Sucesso: true, TransacaoId: mensagem.TransacaoId));
+    return;
 }
 ```
 
----
-
-### 3. **Circuit Breaker** (Produção)
-
-**Observação**: Rebus não possui Circuit Breaker nativo. Para implementar, use:
-- **Polly**: Biblioteca de resiliência .NET
-- **Integração**: Aplicar políticas Polly nos handlers
-
-```csharp
-// Exemplo com Polly
-var circuitBreakerPolicy = Policy
-    .Handle<Exception>()
-    .CircuitBreakerAsync(
-        exceptionsAllowedBeforeBreaking: 15,
-        durationOfBreak: TimeSpan.FromMinutes(5)
-    );
-
-// Aplicar no handler
-await circuitBreakerPolicy.ExecuteAsync(async () =>
-{
-    await ProcessarPagamentoAsync();
-});
-```
+O repositório é `RepositorioIdempotenciaInMemory`: a proteção vale só enquanto o processo estiver no ar e só para uma instância do serviço.
 
 ---
 
 ## Observabilidade
 
-### Stack Completa Implementada (Fase 12)
+### 1. Logs (Serilog + Seq)
 
-A POC implementa observabilidade completa usando **Serilog**, **SEQ** e **Jaeger** com **OpenTelemetry**.
+**Seq**: http://localhost:5342 (admin/admin123).
 
----
+| Serviço | Para onde vai o log |
+|---|---|
+| `SagaPoc.Api`, `Lancamentos.Api`, `FluxoCaixa.Api` | Console, arquivo JSON (`logs/saga-.log`) e Seq |
+| Orquestrador, serviços da SAGA, `Lancamentos.Worker` | Só console |
+| `FluxoCaixa.Consolidado` | Só console (configuração própria no `Program.cs`) |
 
-### 1. Logging Estruturado (Serilog)
+Os workers não chegam ao Seq porque a sobrecarga de `UseCustomSerilog` para `HostApplicationBuilder` monta a configuração com Seq e a descarta, lendo só o `appsettings.json` (que tem apenas o console). Para eles, use `docker logs`, por exemplo `docker logs saga-orquestrador 2>&1 | grep "\[SAGA\]"`.
 
-**Configuração**:
-```csharp
-Log.Logger = new LoggerConfiguration()
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Servico", "SagaPoc.Orquestrador")
-    .WriteTo.Console(outputTemplate:
-        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
-    .CreateLogger();
+Nas APIs, o Serilog acrescenta `Application`, `Environment`, `MachineName`, `ThreadId` e `ProcessId`. Os identificadores de negócio (`PedidoId`, `CorrelacaoId`, `LancamentoId`) entram como propriedades estruturadas da mensagem.
+
+**Consultas úteis no Seq**:
+```
+Application = "SagaPoc.Api"
+@Level = "Error"
+@MessageTemplate like '%Lancamento%'
 ```
 
-**Campos Logados**:
-- `CorrelationId` - Rastreamento end-to-end
-- `EstadoAtual` - Estado da SAGA
-- `Servico` - Qual serviço gerou o log
-- `Timestamp` - Data/hora
-- `Duracao` - Tempo de execução
+### 2. Traces (OpenTelemetry + Jaeger)
 
-**Exemplo de Log**:
-```json
-{
-  "Timestamp": "2026-01-07T16:45:32Z",
-  "Level": "Information",
-  "Message": "Pedido validado com sucesso",
-  "Properties": {
-    "CorrelationId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "RestauranteId": "REST001",
-    "ValorTotal": 45.90,
-    "TempoPreparo": 10,
-    "Servico": "SagaPoc.ServicoRestaurante"
-  }
-}
-```
+**Jaeger UI**: http://localhost:16686.
 
----
+`SagaPoc.Observability/OpenTelemetryExtensions.cs` configura, em todos os serviços que o chamam:
+- instrumentação de ASP.NET Core, HttpClient e EF Core;
+- `AddSource("SagaPoc.*")` (hoje nenhum código cria `ActivitySource` próprio);
+- exportação por OTLP gRPC para `Otlp:Endpoint` (no compose, `http://jaeger:4317`), ligada por `Otlp:Enabled`.
 
-### 2. Distributed Tracing (OpenTelemetry + Jaeger)
+Não há exportador de métricas nem endpoint `/metrics`.
 
-**Configuração OpenTelemetry**:
-```csharp
-// SagaPoc.Observability/OpenTelemetryExtensions.cs
-services.AddOpenTelemetry()
-    .ConfigureResource(r => r
-        .AddService(serviceName, serviceVersion)
-        .AddTelemetrySdk())
-    .WithTracing(tracing =>
-    {
-        tracing
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation()
-            .AddEntityFrameworkCoreInstrumentation()
-            .AddSource("SagaPoc.*")
-            .AddOtlpExporter(); // Otlp:Endpoint, no compose http://jaeger:4317
-    })
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddHttpClientInstrumentation());
-```
+**O que aparece no Jaeger hoje**: só `SagaPoc.Api`, `Lancamentos.Api` e `Lancamentos.Worker` (este pelos comandos do EF Core).
+- O orquestrador e os serviços da SAGA não geram span: não recebem HTTP, não usam EF Core, e o Rebus não tem instrumentação configurada.
+- Sem instrumentação do Rebus, o contexto do trace não atravessa o RabbitMQ: o span da API e os do worker não ficam no mesmo trace.
+- A `FluxoCaixa.Api` não recebe `Otlp__Endpoint` no compose e tenta exportar para `localhost:4317`, que não existe dentro do container.
+- O Consolidado não chama `AddSagaOpenTelemetryForHost`.
+- As portas 4317/4318 do Jaeger não são publicadas no host; um serviço rodando fora do Docker não exporta traces sem publicar a porta.
 
-**URL Jaeger UI**: http://localhost:16686
-
-**Trace de uma SAGA completa**:
-```
-[Trace: a1b2c3d4-e5f6-7890-abcd-ef1234567890]
-├── [Span] SagaPoc.Api: POST /api/pedidos (75ms)
-│   └── Tags: http.method=POST, http.status_code=202
-├── [Span] SagaPoc.Orquestrador: ValidarPedidoRestaurante (150ms)
-│   ├── Tags: saga.correlation_id, saga.state=ValidandoRestaurante
-│   └── [Span] RabbitMQ: Publish (ValidarPedidoRestaurante)
-├── [Span] SagaPoc.ServicoRestaurante: ValidarPedidoConsumer (120ms)
-│   └── Tags: restaurante.id=REST001, valor_total=45.90
-├── [Span] SagaPoc.Orquestrador: ProcessarPagamento (450ms)
-│   └── [Span] RabbitMQ: Publish (ProcessarPagamento)
-├── [Span] SagaPoc.ServicoPagamento: ProcessarPagamentoConsumer (400ms)
-│   └── Tags: transacao.id=TXN_abc123, payment.approved=true
-├── [Span] SagaPoc.Orquestrador: AlocarEntregador (220ms)
-│   └── [Span] RabbitMQ: Publish (AlocarEntregador)
-├── [Span] SagaPoc.ServicoEntregador: AlocarEntregadorConsumer (180ms)
-│   └── Tags: entregador.id=ENT001, tempo_estimado=25min
-└── [Span] SagaPoc.ServicoNotificacao: NotificarClienteConsumer (80ms)
-    └── Tags: notification.type=PedidoConfirmado, notification.sent=true
-
-Total Trace Duration: 1075ms
-```
-
-**Propagação de Contexto**:
-- Propagação automática através do RabbitMQ via Rebus
-- Header `traceparent` incluído em todas as mensagens
-- W3C Trace Context padrão
-- Rebus suporta activity propagation nativamente
-
----
-
-### 3. Logs Estruturados (Serilog + SEQ)
-
-**URL SEQ**: http://localhost:5342 (admin/admin123)
-
-**Configuração do Serilog**:
-```csharp
-builder.Host.UseCustomSerilog("SagaPoc.Api");
-```
-
-**Enrichers Configurados**:
-- Machine Name
-- Environment Name
-- Thread ID
-- Process ID
-- Application Name
-- CorrelationId (propagado via contexto)
-
-**Queries Úteis (SEQ)**:
-```sql
--- Logs de um serviço específico
-Application = "SagaPoc.Orquestrador"
-
--- Rastrear uma SAGA específica
-CorrelationId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-
--- Erros nas últimas 24h
-Level = "Error" AND @Timestamp > Now() - 1d
-
--- Compensações executadas
-@MessageTemplate LIKE "%Compensação%"
-
--- Performance de endpoints
-@MessageTemplate LIKE "%HTTP%Request%" AND Duration > 1000
-```
-
----
-
-### 4. Instrumentação Customizada
-
-**Criar Spans Manualmente**:
-```csharp
-using System.Diagnostics;
-
-public class ServicoRestaurante
-{
-    private static readonly ActivitySource ActivitySource = new("SagaPoc.ServicoRestaurante");
-
-    public async Task<Resultado<DadosValidacaoPedido>> ValidarPedidoAsync(
-        string restauranteId,
-        List<ItemPedido> itens)
-    {
-        using var activity = ActivitySource.StartActivity("ValidarPedidoRestaurante");
-        activity?.SetTag("restaurante.id", restauranteId);
-        activity?.SetTag("itens.count", itens.Count);
-
-        try
-        {
-            var resultado = await ValidarAsync(restauranteId, itens);
-
-            activity?.SetTag("resultado.sucesso", resultado.EhSucesso);
-            activity?.SetTag("valor_total", resultado.Valor?.ValorTotal);
-
-            if (!resultado.EhSucesso)
-            {
-                activity?.SetStatus(ActivityStatusCode.Error, resultado.Erro.Mensagem);
-            }
-
-            return resultado;
-        }
-        catch (Exception ex)
-        {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            activity?.RecordException(ex);
-            throw;
-        }
-    }
-}
-```
-
-**Tags Customizadas Úteis**:
-- `saga.correlation_id` - ID da SAGA
-- `saga.state` - Estado atual
-- `compensacao.executada` - Se compensação foi executada
-- `restaurante.id`, `cliente.id`, `entregador.id` - IDs de negócio
-- `transaction.id` - ID da transação de pagamento
-
----
-
-### 6. Configuração nos Serviços
-
-**Todos os serviços .NET estão configurados**:
-
-#### API (SagaPoc.Api/Program.cs):
-```csharp
-builder.Services.AddSagaOpenTelemetry(
-    builder.Configuration,
-    serviceName: "SagaPoc.Api",
-    serviceVersion: "1.0.0"
-);
-
-// ...
-
-app.UseSagaOpenTelemetry(); // Expõe endpoint /metrics
-```
-
-#### Workers (Orquestrador, Serviços):
-```csharp
-builder.AddSagaOpenTelemetryForHost(
-    serviceName: "SagaPoc.Orquestrador",
-    serviceVersion: "1.0.0"
-);
-```
-
-**Configuração via appsettings.json**:
+Configuração (`appsettings.json` ou variáveis de ambiente `Otlp__Enabled` e `Otlp__Endpoint`):
 ```json
 {
   "Otlp": {
@@ -936,100 +519,64 @@ builder.AddSagaOpenTelemetryForHost(
 
 ---
 
-### 7. Stack Docker Completa
+## Deploy (Docker Compose)
 
-**docker-compose.yml** inclui:
-- SEQ (logs estruturados)
-- Jaeger (distributed tracing)
-- RabbitMQ 3.13 (message broker)
-- PostgreSQL 16 (3 instâncias: sagapoc, fluxocaixa_lancamentos, fluxocaixa_consolidado)
-- Redis 7 (cache distribuído)
-- 7 serviços .NET (6 SAGA + 1 FluxoCaixa API)
+Toda a stack está em `docker/docker-compose.yml`:
 
-**Iniciar toda a stack**:
 ```bash
-cd docker
-docker-compose up -d
+docker compose -f docker/docker-compose.yml up -d --build
+bash docs/scripts/aguardar-stack.sh
 ```
 
-**URLs de Acesso**:
-| Serviço | URL | Credenciais |
-|---------|-----|-------------|
-| SEQ | http://localhost:5342 | admin/admin123 |
-| Jaeger | http://localhost:16686 | - |
-| RabbitMQ | http://localhost:15672 | saga/saga123 |
-| API SAGA | http://localhost:5000 | - |
-| API FluxoCaixa | http://localhost:5100 | - |
+| Grupo | Serviços (container) |
+|---|---|
+| Infraestrutura | `saga-rabbitmq` (RabbitMQ 3.13), `saga-postgres`, `fluxocaixa-postgres-lancamentos`, `fluxocaixa-postgres-consolidado` (PostgreSQL 16), `fluxocaixa-redis` (Redis 7) |
+| Observabilidade | `saga-seq`, `saga-jaeger` |
+| SAGA | `saga-api`, `saga-orquestrador`, `saga-servico-restaurante`, `saga-servico-pagamento`, `saga-servico-entregador`, `saga-servico-notificacao` |
+| Fluxo de caixa | `lancamentos-api`, `lancamentos-worker`, `fluxocaixa-consolidado`, `fluxocaixa-api` |
 
-**Portas dos Bancos**:
-| Banco | Porta | Database |
-|-------|-------|----------|
-| PostgreSQL SAGA | 5432 | sagapoc |
-| PostgreSQL Lançamentos | 5433 | fluxocaixa_lancamentos |
-| PostgreSQL Consolidado | 5434 | fluxocaixa_consolidado |
-| Redis | 6379 | - |
+**Portas no host**:
 
----
+| Componente | Porta | Observação |
+|---|---|---|
+| API de pedidos | 5000 | Swagger na raiz |
+| API de consulta do fluxo de caixa | 5100 | `/swagger` |
+| API de lançamentos | 5200 | `/swagger` |
+| RabbitMQ | 5672 / 15672 | management em 15672 (saga/saga123) |
+| PostgreSQL SAGA / lançamentos / consolidado | 5432 / 5433 / 5434 | bancos `sagapoc`, `fluxocaixa_lancamentos`, `fluxocaixa_consolidado` |
+| Redis | 6379 | |
+| Seq | 5342 | admin/admin123 |
+| Jaeger | 16686 | OTLP (4317) só na rede interna |
 
-## Escolhas Técnicas
-
-### Por que Rebus (e não outros)?
-
-| Alternativa | Prós | Contras | Quando usar |
-|-------------|------|---------|-------------|
-| **Rebus** | Leve, simples, flexível, Sagas com handlers explícitos | Sem State Machine visual, menos recursos prontos | POC, projetos médios, controle explícito |
-| **MassTransit** | State Machine integrada, Retry/CB embutidos | Curva de aprendizado, mais complexo | SAGA complexas, múltiplos transportes |
-| **NServiceBus** | Mais maduro, suporte enterprise | Pago | Enterprise |
-| **RabbitMQ direto** | Controle total | Muito boilerplate | Necessita customização extrema |
+Os Dockerfiles copiam `src/` inteiro e o `Directory.Build.props` (que define `net10.0`), com imagens `sdk:10.0` e `aspnet:10.0`. As connection strings do compose usam `GSS Encryption Mode=Disable`, porque a imagem `aspnet:10.0` não tem a biblioteca de Kerberos que o Npgsql tenta usar ao conectar. Operação da stack e consultas SQL em [docker/README.md](../docker/README.md).
 
 ---
 
-### Por que RabbitMQ (e não Kafka)?
+## Segurança
 
-| Transport | Prós | Contras | Quando usar |
-|-----------|------|---------|-------------|
-| **RabbitMQ** | Dead Letter Queue, garantia de ordem, Request/Reply nativo | Menor vazão que Kafka | SAGA, POC, Request/Response |
-| **Kafka** | Alta vazão, log distribuído, retenção longa | Overkill para SAGA, sem Request/Reply | Event Sourcing, analytics, streaming |
-| **Azure Service Bus** | Gerenciado, integração Azure | Custo, vendor lock-in | Cloud Azure |
+**Hoje**: as APIs não têm autenticação, e as credenciais (RabbitMQ, PostgreSQL, Seq) estão fixas no compose. É aceitável numa POC local, não fora dela.
 
----
-
-## Segurança (Produção)
-
-### 1. **Autenticação RabbitMQ**
-
-Usar usuários específicos por serviço com permissões limitadas:
-```csharp
-// Configuração Rebus com autenticação
-.Transport(t => t.UseRabbitMq(
-    $"amqp://{username}:{password}@rabbitmq.production.com",
-    "fila-servico"
-))
-// Ou usar AMQPS (AMQP over TLS):
-// amqps://username:password@rabbitmq.production.com
-```
-
-### 2. **Encryption at Rest**
-
-Configurar RabbitMQ com persistência criptografada usando plugins.
-
-### 3. **Encryption in Transit**
-
-- HTTPS/TLS para API REST
-- AMQPS (AMQP over TLS) para RabbitMQ
-- Certificados SSL/TLS válidos
+**Para produção**:
+1. **Autenticação no RabbitMQ**: um usuário por serviço, com permissão só nas próprias filas, e AMQPS (AMQP sobre TLS):
+   ```csharp
+   .Transport(t => t.UseRabbitMq(
+       $"amqps://{username}:{password}@rabbitmq.exemplo.com",
+       "fila-servico"))
+   ```
+2. **Segredos fora do compose**: variáveis injetadas por um cofre (Key Vault, Secrets Manager etc.).
+3. **Criptografia em trânsito**: HTTPS nas APIs, TLS no RabbitMQ, PostgreSQL e Redis.
+4. **Autenticação nas APIs** (JWT ou OIDC).
 
 ---
 
 ## Referências
 
-- **[casos-uso.md](./casos-uso.md)** - Cenários implementados
-- **[Rebus Documentation](https://github.com/rebus-org/Rebus)** - Documentação oficial
-- **[SAGA Pattern - Microsoft](https://docs.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
+- **[casos-uso.md](./casos-uso.md)**: cenários da SAGA
+- **[diagramas-compensacao.md](./diagramas-compensacao.md)**: estados e compensações
+- **[design/escolhas-tecnicas.md](design/escolhas-tecnicas.md)**: por que Rebus, RabbitMQ, PostgreSQL e Redis (com as alternativas comparadas)
+- **[Rebus](https://github.com/rebus-org/Rebus)**: documentação oficial
+- **[Padrão SAGA - Microsoft](https://learn.microsoft.com/azure/architecture/reference-architectures/saga/saga)**
 
 ---
 
-**Documento criado em**: 2026-01-07
-**Versão**: 3.0
-**Última atualização**: 2026-01-17 - Adicionado Sistema de Fluxo de Caixa (CQRS), BuildingBlocks atualizado com WebHost/Extensions, portas e stack atualizadas
-**Status**: Completo
+**Última atualização**: 2026-10-20 (revisão da fase 6: estado da SAGA no PostgreSQL pelo Rebus, fluxo de caixa com escrita no compose, .NET 10, observabilidade como está hoje)

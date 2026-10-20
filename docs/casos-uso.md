@@ -1,679 +1,378 @@
-# Casos de Uso - POC SAGA Pattern
+# Casos de uso da SAGA
 
-Este documento detalha os **12 casos de uso** implementados na POC, com cenários de **sucesso**, **falha** e **compensação**.
+Este documento descreve os **12 casos de uso** da SAGA de pedidos: o que cada um força nos serviços simulados e qual desfecho o orquestrador deve registrar. Os payloads são os mesmos de `docs/scripts/testar-casos-de-uso.sh`, que envia os 12 casos e confere o desfecho de cada pedido.
 
----
-
-## Tabela de Resumo
-
-![Tabela de resumo de caso de uso](./images/tabela-resumo-caso-uso.png)
+Os serviços não têm banco nem integração externa: as falhas são disparadas por valores fixos no payload (identificador do restaurante, do cliente, do produto ou palavras no endereço).
 
 ---
 
-## Detalhamento dos Casos de Uso
+## Resumo
 
-### **Caso 1: Pedido Normal (Happy Path)**
+| Nº | Caso | O que falha | Desfecho esperado | Compensação executada |
+|---|---|---|---|---|
+| 1 | Pedido Normal | nada | CONCLUIDO | nenhuma |
+| 2 | Restaurante Fechado | restaurante (`REST_FECHADO`) | CANCELADO | nenhuma (nada foi feito ainda) |
+| 3 | Item Indisponível | restaurante (produto `INDISPONIVEL`) | CANCELADO | nenhuma |
+| 4 | Pagamento Recusado | pagamento (`CLI_CARTAO_RECUSADO`) | COMPENSADO | cancelamento no restaurante |
+| 5 | Sem Entregador Disponível | entregador (endereço com `LONGE`) | COMPENSADO | estorno do pagamento e cancelamento no restaurante |
+| 6 | Timeout no Pagamento | pagamento (`CLI_TIMEOUT`) | COMPENSADO | cancelamento no restaurante |
+| 7 | Pedido Premium | nada | CONCLUIDO | nenhuma |
+| 8 | Múltiplos Itens | nada | CONCLUIDO | nenhuma |
+| 9 | Endereço Longe | nada | CONCLUIDO | nenhuma |
+| 10 | Falha na Notificação | notificação (`CLI_SEM_NOTIFICACAO`) | CONCLUIDO | nenhuma: notificação não compensa |
+| 11 | Pedido Agendado | nada | CONCLUIDO | nenhuma |
+| 12 | Compensação Total | entregador (endereço com `LONGE` e `DISTANTE`) | COMPENSADO | estorno do pagamento e cancelamento no restaurante |
 
-**Descrição**: Pedido processado com sucesso em todas as etapas.
+Como o script classifica o desfecho, pelas linhas `[SAGA]` do orquestrador:
 
-**Fluxo**:
-1. Restaurante valida o pedido
-2. Pagamento aprovado
-3. Entregador alocado
-4. Cliente notificado
+- **CONCLUIDO**: `Pedido {PedidoId} - CONCLUÍDO COM SUCESSO!`
+- **CANCELADO**: `Pedido {PedidoId} - Cancelado: {Motivo}` (o restaurante recusou; não havia nada a desfazer)
+- **COMPENSADO**: `Pedido {PedidoId} - COMPENSAÇÃO CONCLUÍDA ({Duracao}s)` (alguma etapa já tinha sido feita e foi desfeita)
 
-**Payload**:
+A compensação de liberar o entregador (`LiberarEntregador`) existe no orquestrador e no serviço, mas nenhum dos 12 casos a dispara: a única etapa depois da alocação é a notificação, e falha de notificação não compensa.
+
+---
+
+## Regras dos serviços simulados
+
+**Restaurante** (`ServicoRestaurante`)
+- `REST_FECHADO`: recusa com `RESTAURANTE_FECHADO`. `REST_INATIVO` e `REST_INVALIDO` também recusam; qualquer outro identificador que não comece com `REST` é "não encontrado".
+- Produto com `produtoId` igual a `INDISPONIVEL`: recusa com `PRODUTO_INDISPONIVEL`. Quantidade acima de 10 ou preço menor ou igual a zero também recusam.
+- Pedido abaixo de R$ 10,00: recusa com `VALOR_MINIMO`.
+- Tempo de preparo: 15 minutos por item da lista (não por unidade); `REST_VIP` leva metade.
+
+**Orquestrador** (`PedidoSaga`)
+- Taxa de entrega de 15% sobre o valor dos itens; o pagamento cobra itens + taxa.
+
+**Pagamento** (`ServicoPagamento`; a variante `ServicoPagamentoComPolly` existe, mas não está registrada no `Program.cs`)
+- `CLI_CARTAO_RECUSADO`, `CLI_SALDO_INSUFICIENTE`, `CLI_TIMEOUT` e `CLI_ERRO_GATEWAY`: recusam, cada um com seu código.
+- Valor acima de R$ 10.000,00 ou forma de pagamento fora de `CREDITO`, `DEBITO`, `PIX` e `DINHEIRO`: recusa.
+
+**Entregador** (`ServicoEntregador`)
+- Endereço com `LONGE` ou `DISTANTE`: recusa com `AREA_NAO_COBERTA` ("Endereço fora da área de cobertura"). Endereço com menos de 10 caracteres também recusa.
+- Horário de pico simulado: entre 12h e 14h59 UTC, 30% das alocações são recusadas com `HORARIO_PICO`. Desliga com `SIMULAR_HORARIO_PICO=false` no compose (o CI faz isso). Nesse horário, um caso que deveria terminar CONCLUIDO pode terminar COMPENSADO; o script marca isso como AVISO, não como falha.
+- Pool de 10 entregadores (`ENT001` a `ENT010`). Cada um volta ao pool quando a entrega simulada termina (1 minuto estimado = 1 segundo). Com o pool esgotado, recusa com `SEM_ENTREGADOR_DISPONIVEL`.
+- Distância sorteada entre 1 e 15 km; o tempo estimado é de cerca de 3 minutos por km mais uma base aleatória; `REST_VIP` tem tempo 30% menor.
+
+**Notificação** (`ServicoNotificacao`)
+- `CLI_SEM_NOTIFICACAO` e `CLI_INVALIDO`: falham. Fora isso, 5% dos envios falham ao acaso.
+- O handler responde ao orquestrador mesmo quando o envio falha, e a SAGA conclui do mesmo jeito.
+
+---
+
+## Detalhamento
+
+Todos os casos usam `POST /api/pedidos`. A API responde **202** com o `pedidoId` assim que envia o comando `IniciarPedido` para a `fila-orquestrador`; o 202 não diz nada sobre o desfecho.
+
+```json
+{
+  "pedidoId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "mensagem": "Pedido recebido e está sendo processado. Use o PedidoId para consultar o status.",
+  "status": "Pendente",
+  "dataRecebimento": "2026-10-20T15:00:00Z"
+}
+```
+
+### Caso 1: Pedido Normal (Happy Path)
+
+Restaurante valida, pagamento aprova, entregador é alocado e o cliente é notificado.
+
 ```json
 {
   "clienteId": "CLI001",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD001",
-      "nome": "Pizza Margherita",
-      "quantidade": 1,
-      "precoUnitario": 45.90
-    }
+    { "produtoId": "PROD001", "nome": "Pizza Margherita", "quantidade": 1, "precoUnitario": 45.90 }
   ],
   "enderecoEntrega": "Rua das Flores, 123 - Centro",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Resposta Esperada**:
-```json
-{
-  "pedidoId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "mensagem": "Pedido recebido e está sendo processado.",
-  "status": "Pendente"
-}
+Valor dos itens R$ 45,90, taxa de entrega R$ 6,89 (15%), preparo de 15 minutos.
+
+Linhas `[SAGA]` do orquestrador (o identificador do pedido foi omitido):
+
+```
+[SAGA] Iniciando pedido ... - Cliente: CLI001
+[SAGA] Pedido ... - Validação restaurante: APROVADO
+[SAGA] Pedido ... - Pagamento: APROVADO
+[SAGA] Pedido ... - Entregador: ALOCADO
+[SAGA] Pedido ... - Entregador ENT001 alocado com sucesso!
+[SAGA] Pedido ... - CONCLUÍDO COM SUCESSO!
+[SAGA] Pedido ... - Tempo total: {segundos}s
+[SAGA] Pedido ... - Tempo estimado entrega: {minutos} minutos
 ```
 
-**Logs Esperados**:
-```
-[INFO] Validando pedido no restaurante REST001 com 1 itens
-[INFO] Pedido validado com sucesso. ValorTotal: R$ 45,90, TempoPreparo: 10min
-[INFO] Processando pagamento. ClienteId: CLI001, Valor: R$ 45,90
-[INFO] Pagamento aprovado. TransacaoId: TXN_abc123
-[INFO] Alocando entregador. RestauranteId: REST001
-[INFO] Entregador alocado. EntregadorId: ENT001, TempoEstimado: 25min
-[INFO] Notificação enviada com sucesso. Tipo: PedidoConfirmado
-```
+O entregador alocado e os tempos variam a cada execução (a distância é sorteada).
 
----
+### Caso 2: Restaurante Fechado
 
-### **Caso 2: Restaurante Fechado**
+O restaurante recusa; a SAGA termina sem chamar pagamento nem entregador e notifica o cliente.
 
-**Descrição**: Pedido rejeitado porque o restaurante está fechado.
-
-**Fluxo**:
-1. Restaurante rejeita (fechado)
-2. Cliente notificado sobre cancelamento
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI001",
   "restauranteId": "REST_FECHADO",
   "itens": [
-    {
-      "produtoId": "PROD001",
-      "nome": "Hambúrguer Artesanal",
-      "quantidade": 2,
-      "precoUnitario": 28.50
-    }
+    { "produtoId": "PROD001", "nome": "Hambúrguer Artesanal", "quantidade": 2, "precoUnitario": 28.50 }
   ],
   "enderecoEntrega": "Av. Principal, 456",
   "formaPagamento": "DEBITO"
 }
 ```
 
-**Resposta Esperada**:
-```json
-{
-  "pedidoId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-  "mensagem": "Pedido recebido e está sendo processado.",
-  "status": "Pendente"
-}
+```
+[SAGA] Pedido ... - Validação restaurante: REJEITADO
+[SAGA] Pedido ... - Cancelado: [RESTAURANTE_FECHADO] Restaurante está fechado no momento
 ```
 
-**Logs Esperados**:
-```
-[WARN] Restaurante REST_FECHADO está fechado
-[INFO] Transição de estado: ValidandoRestaurante → PedidoCancelado
-[INFO] Notificação enviada: "Pedido cancelado: Restaurante fechado no momento"
-```
+### Caso 3: Item Indisponível
 
-**Observação**: O pedido é rejeitado imediatamente, sem processar pagamento ou entregador.
+Mesmo caminho do caso 2, com outro motivo.
 
----
-
-### **Caso 3: Item Indisponível**
-
-**Descrição**: Pedido rejeitado porque um ou mais itens não estão disponíveis.
-
-**Fluxo**:
-1. Restaurante rejeita (item indisponível)
-2. Cliente notificado
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI002",
   "restauranteId": "REST002",
   "itens": [
-    {
-      "produtoId": "INDISPONIVEL",
-      "nome": "Produto Esgotado",
-      "quantidade": 1,
-      "precoUnitario": 35.00
-    }
+    { "produtoId": "INDISPONIVEL", "nome": "Produto Esgotado", "quantidade": 1, "precoUnitario": 35.00 }
   ],
   "enderecoEntrega": "Rua das Palmeiras, 789",
   "formaPagamento": "PIX"
 }
 ```
 
-**Logs Esperados**:
 ```
-[WARN] Item INDISPONIVEL indisponível no restaurante REST002
-[INFO] Pedido cancelado: O item 'Produto Esgotado' não está disponível no momento
+[SAGA] Pedido ... - Cancelado: [PRODUTO_INDISPONIVEL] Produto 'Produto Esgotado' está indisponível
 ```
 
----
+### Caso 4: Pagamento Recusado
 
-### **Caso 4: Pagamento Recusado**
+O restaurante aceita e o pagamento é recusado. A SAGA compensa a única etapa feita: cancela o pedido no restaurante.
 
-**Descrição**: Restaurante aceita, mas pagamento é recusado pela operadora.
-
-**Fluxo**:
-1. Restaurante valida o pedido
-2. Pagamento recusado
-3. **COMPENSAÇÃO**: Cancelar pedido no restaurante
-4. Cliente notificado
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI_CARTAO_RECUSADO",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD003",
-      "nome": "Sushi Combo",
-      "quantidade": 1,
-      "precoUnitario": 89.90
-    }
+    { "produtoId": "PROD003", "nome": "Sushi Combo", "quantidade": 1, "precoUnitario": 89.90 }
   ],
   "enderecoEntrega": "Rua das Acácias, 321",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Logs Esperados**:
 ```
-[INFO] Pedido validado com sucesso. ValorTotal: R$ 89,90
-[WARN] Pagamento recusado. ClienteId: CLI_CARTAO_RECUSADO, Motivo: Cartão recusado
-[WARN] COMPENSAÇÃO: Cancelando pedido no restaurante REST001
-[INFO] Pedido cancelado com sucesso
-[INFO] Notificação enviada: Pedido cancelado (pagamento recusado)
+[SAGA] Pedido ... - Pagamento: REJEITADO
+[SAGA] Pedido ... - COMPENSAÇÃO INICIADA
+[SAGA] Pedido ... - Motivo: Cartão de crédito recusado pela operadora
+[SAGA] Pedido ... - Pedido cancelado no restaurante
+[SAGA] Pedido ... - COMPENSAÇÃO CONCLUÍDA ({segundos}s)
+[SAGA] Pedido ... - Passos compensados: 1
 ```
 
-**Compensação Executada**: Cancelamento do pedido no restaurante
+### Caso 5: Sem Entregador Disponível
 
----
+Restaurante e pagamento aprovam; o entregador recusa. A SAGA estorna o pagamento e cancela no restaurante.
 
-### **Caso 5: Sem Entregador Disponível**
-
-**Descrição**: Restaurante e pagamento OK, mas não há entregadores disponíveis.
-
-**Fluxo**:
-1. Restaurante valida o pedido
-2. Pagamento aprovado
-3. Nenhum entregador disponível
-4. **COMPENSAÇÃO**: Estornar pagamento
-5. **COMPENSAÇÃO**: Cancelar pedido no restaurante
-6. Cliente notificado
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI003",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD004",
-      "nome": "Salada Caesar",
-      "quantidade": 3,
-      "precoUnitario": 22.50
-    }
+    { "produtoId": "PROD004", "nome": "Salada Caesar", "quantidade": 3, "precoUnitario": 22.50 }
   ],
   "enderecoEntrega": "Rua MUITO LONGE do centro, 9999",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Observação**: Usar endereço com palavras "LONGE" ou "DISTANTE" força a indisponibilidade de entregador.
+O que força a recusa é a palavra `LONGE` no endereço, e o motivo registrado é "Endereço fora da área de cobertura" (`AREA_NAO_COBERTA`), não falta de entregador no pool. A falta real de entregador (pool esgotado ou horário de pico) leva ao mesmo desfecho.
 
-**Logs Esperados**:
 ```
-[INFO] Pedido validado com sucesso. ValorTotal: R$ 67,50
-[INFO] Pagamento aprovado. TransacaoId: TXN_xyz789
-[WARN] Nenhum entregador disponível para endereço distante
-[WARN] COMPENSAÇÃO: Estornando pagamento. TransacaoId: TXN_xyz789
-[INFO] Pagamento estornado com sucesso. Valor: R$ 67,50
-[WARN] COMPENSAÇÃO: Cancelando pedido no restaurante
-[INFO] Notificação enviada: Pedido cancelado (sem entregador disponível)
+[SAGA] Pedido ... - Entregador: INDISPONÍVEL
+[SAGA] Pedido ... - COMPENSAÇÃO INICIADA
+[SAGA] Pedido ... - Motivo: Endereço fora da área de cobertura
+[SAGA] Pedido ... - Pagamento estornado com sucesso
+[SAGA] Pedido ... - Pedido cancelado no restaurante
+[SAGA] Pedido ... - COMPENSAÇÃO CONCLUÍDA ({segundos}s)
+[SAGA] Pedido ... - Passos compensados: 2
 ```
 
-**Compensações Executadas**:
-- Estorno do pagamento
-- Cancelamento do pedido no restaurante
+O orquestrador envia o estorno e o cancelamento no mesmo handler, um depois do outro, mas eles são processados em paralelo por serviços diferentes; a ordem das duas confirmações no log pode variar.
 
----
+### Caso 6: Timeout no Pagamento
 
-### **Caso 6: Timeout no Pagamento**
-
-**Descrição**: Gateway de pagamento não responde (timeout).
-
-**Fluxo**:
-1. Restaurante valida o pedido
-2. Timeout no gateway de pagamento
-3. **COMPENSAÇÃO**: Cancelar pedido no restaurante
-4. Cliente notificado
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI_TIMEOUT",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD005",
-      "nome": "Açaí 500ml",
-      "quantidade": 1,
-      "precoUnitario": 18.90
-    }
+    { "produtoId": "PROD005", "nome": "Açaí 500ml", "quantidade": 1, "precoUnitario": 18.90 }
   ],
   "enderecoEntrega": "Rua dos Pinheiros, 555",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Logs Esperados**:
-```
-[INFO] Pedido validado com sucesso. ValorTotal: R$ 18,90
-[ERROR] Timeout ao processar pagamento. ClienteId: CLI_TIMEOUT
-[WARN] COMPENSAÇÃO: Cancelando pedido no restaurante
-[INFO] Notificação enviada: Pedido cancelado (timeout no pagamento)
-```
+Desfecho e compensação iguais aos do caso 4, com o motivo "Timeout ao comunicar com gateway de pagamento". O timeout é simulado: o serviço devolve um erro do tipo `Timeout` logo depois do atraso normal (200 a 800 ms). O handler tem um limite real de 10 segundos, que este caso não chega a atingir, e não há repetição com Polly, porque a variante com Polly não está registrada.
 
----
+### Caso 7: Pedido Premium (VIP)
 
-### **Caso 7: Pedido Premium (VIP)**
-
-**Descrição**: Pedido em restaurante VIP com priorização em todas as etapas.
-
-**Fluxo**:
-1. Restaurante valida (tempo de preparo reduzido)
-2. Pagamento aprovado
-3. Entregador prioritário alocado (tempo reduzido)
-4. Cliente notificado
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI_VIP",
   "restauranteId": "REST_VIP",
   "itens": [
-    {
-      "produtoId": "PROD_PREMIUM",
-      "nome": "Prato Executivo Premium",
-      "quantidade": 1,
-      "precoUnitario": 120.00
-    }
+    { "produtoId": "PROD_PREMIUM", "nome": "Prato Executivo Premium", "quantidade": 1, "precoUnitario": 120.00 }
   ],
   "enderecoEntrega": "Av. Empresarial, 1000 - Sala 301",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Logs Esperados**:
-```
-[INFO] Pedido validado com sucesso. RestauranteId: REST_VIP, TempoPreparo: 5min (reduzido)
-[INFO] Pagamento aprovado
-[INFO] Entregador alocado (prioritário). TempoEstimado: 15min (reduzido 30%)
-[INFO] Notificação enviada: Pedido confirmado (Premium)
-```
+Caminho feliz. `REST_VIP` reduz o preparo à metade (7 minutos para 1 item, divisão inteira) e o tempo de entrega em 30%. O `clienteId` `CLI_VIP` não tem regra própria.
 
-**Diferencial**:
-- Tempo de preparo 50% menor
-- Tempo de entrega 30% menor
+### Caso 8: Múltiplos Itens
 
----
-
-### **Caso 8: Múltiplos Itens**
-
-**Descrição**: Pedido com vários itens diferentes.
-
-**Fluxo**: Normal (Happy Path)
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI004",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD001",
-      "nome": "Pizza Margherita",
-      "quantidade": 2,
-      "precoUnitario": 45.90
-    },
-    {
-      "produtoId": "PROD002",
-      "nome": "Refrigerante 2L",
-      "quantidade": 1,
-      "precoUnitario": 8.50
-    },
-    {
-      "produtoId": "PROD003",
-      "nome": "Sorvete 1L",
-      "quantidade": 1,
-      "precoUnitario": 22.00
-    }
+    { "produtoId": "PROD001", "nome": "Pizza Margherita", "quantidade": 2, "precoUnitario": 45.90 },
+    { "produtoId": "PROD002", "nome": "Refrigerante 2L", "quantidade": 1, "precoUnitario": 8.50 },
+    { "produtoId": "PROD003", "nome": "Sorvete 1L", "quantidade": 1, "precoUnitario": 22.00 }
   ],
   "enderecoEntrega": "Rua das Margaridas, 222",
   "formaPagamento": "PIX"
 }
 ```
 
-**Logs Esperados**:
-```
-[INFO] Validando pedido com 3 itens
-[INFO] ValorTotal: R$ 122,30
-[INFO] TempoPreparo: 30min (10min por item)
-[INFO] Pedido processado com sucesso
-```
+Caminho feliz. Valor dos itens R$ 122,30; preparo de 45 minutos (3 itens na lista × 15 minutos).
 
----
+### Caso 9: Endereço Longe
 
-### **Caso 9: Endereço Longe (Taxa de Entrega Alta)**
-
-**Descrição**: Pedido para endereço distante (pode ter dificuldade de achar entregador ou taxa elevada).
-
-**Fluxo**:
-1. Restaurante valida
-2. Pagamento aprovado (com taxa de entrega 15%)
-3. Entregador alocado (ou indisponível se muito longe)
-4. Cliente notificado
-
-**Payload (Distante, mas com entregador)**:
 ```json
 {
   "clienteId": "CLI005",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD001",
-      "nome": "Marmita Fitness",
-      "quantidade": 1,
-      "precoUnitario": 32.00
-    }
+    { "produtoId": "PROD001", "nome": "Marmita Fitness", "quantidade": 1, "precoUnitario": 32.00 }
   ],
   "enderecoEntrega": "Bairro Afastado, Km 15",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Observação**: Endereço sem palavras-chave "LONGE" ou "DISTANTE" pode ter entregador, mas com tempo maior.
+Caminho feliz. O serviço não calcula distância a partir do endereço (a distância é sorteada) e não tem taxa por distância; o endereço só não contém `LONGE` nem `DISTANTE`. O caso mostra que um endereço "afastado" sem essas palavras é atendido normalmente. Com `LONGE` ou `DISTANTE`, o desfecho seria o do caso 5.
 
-**Payload (Muito Longe, SEM entregador)**:
-```json
-{
-  "enderecoEntrega": "Zona Rural MUITO LONGE, Km 50"
-}
-```
+### Caso 10: Falha na Notificação
 
----
-
-### **Caso 10: Falha na Notificação**
-
-**Descrição**: Pedido processado com sucesso, mas notificação falha (não crítico).
-
-**Fluxo**:
-1. Restaurante valida
-2. Pagamento aprovado
-3. Entregador alocado
-4. Falha ao enviar notificação (5% de probabilidade aleatória)
-5. **Pedido confirmado mesmo assim** (notificação não é crítica)
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI_SEM_NOTIFICACAO",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD001",
-      "nome": "Lanche Natural",
-      "quantidade": 1,
-      "precoUnitario": 15.50
-    }
+    { "produtoId": "PROD001", "nome": "Lanche Natural", "quantidade": 1, "precoUnitario": 15.50 }
   ],
   "enderecoEntrega": "Rua das Oliveiras, 444",
   "formaPagamento": "DEBITO"
 }
 ```
 
-**Logs Esperados**:
-```
-[INFO] Pedido validado com sucesso
-[INFO] Pagamento aprovado
-[INFO] Entregador alocado
-[WARN] Cliente CLI_SEM_NOTIFICACAO tem notificações desativadas
-[WARN] Falha na notificação, mas pedido foi confirmado
-[INFO] Estado final: PedidoConfirmado (mesmo sem notificação)
-```
+Restaurante, pagamento e entregador aprovam; a notificação falha com `NOTIFICACOES_DESATIVADAS`. O serviço de notificação registra `Falha ao enviar notificação (não crítico)` e responde ao orquestrador do mesmo jeito; a SAGA termina com `CONCLUÍDO COM SUCESSO!`. Notificação é tratada como melhor esforço: não há compensação nem nova tentativa.
 
-**Observação**: A falha de notificação **NÃO** cancela o pedido. É tratada como operação não-crítica.
+### Caso 11: Pedido Agendado
 
----
-
-### **Caso 11: Pedido Agendado**
-
-**Descrição**: Pedido para entrega futura (agendada).
-
-**Fluxo**: Igual ao normal, mas com marcação de agendamento
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI006",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD007",
-      "nome": "Bolo de Aniversário",
-      "quantidade": 1,
-      "precoUnitario": 85.00
-    }
+    { "produtoId": "PROD007", "nome": "Bolo de Aniversário", "quantidade": 1, "precoUnitario": 85.00 }
   ],
   "enderecoEntrega": "Rua das Festas, 123 - Apto 501",
-  "formaPagamento": "PIX",
-  "dataAgendamento": "2026-01-08T18:00:00Z"
+  "formaPagamento": "PIX"
 }
 ```
 
-**Logs Esperados**:
-```
-[INFO] Pedido agendado para 08/01/2026 às 18:00
-[INFO] Pedido validado e processado normalmente
-[INFO] Entregador será alocado próximo ao horário agendado
-```
+Caminho feliz. **O agendamento não existe no código:** `CriarPedidoRequest` não tem campo de data agendada, e um `dataAgendamento` enviado no JSON é ignorado. O caso existe para marcar o lugar da funcionalidade; implementá-la exigiria um agendador (Quartz.NET, Hangfire ou mensagem com entrega adiada no Rebus).
 
-**Observação**: Para esta POC, o agendamento é apenas informativo nos logs. Em produção, seria necessário um scheduler (Quartz.NET, Hangfire, etc).
+### Caso 12: Compensação Total
 
----
-
-### **Caso 12: Compensação Total (Rollback Completo)**
-
-**Descrição**: Teste de todas as compensações em cascata.
-
-**Cenário Forçado**:
-1. Restaurante valida
-2. Pagamento aprovado
-3. Entregador falha (forçado)
-4. Estornar pagamento
-5. Cancelar pedido no restaurante
-
-**Como Testar**:
-Use endereço com "LONGE" para forçar falha de entregador após pagamento aprovado.
-
-**Payload**:
 ```json
 {
   "clienteId": "CLI007",
   "restauranteId": "REST001",
   "itens": [
-    {
-      "produtoId": "PROD008",
-      "nome": "Combo Família",
-      "quantidade": 1,
-      "precoUnitario": 150.00
-    }
+    { "produtoId": "PROD008", "nome": "Combo Família", "quantidade": 1, "precoUnitario": 150.00 }
   ],
   "enderecoEntrega": "Endereço MUITO LONGE E DISTANTE",
   "formaPagamento": "CREDITO"
 }
 ```
 
-**Logs Esperados (Fluxo Completo de Compensação)**:
-```
-[INFO] Pedido validado com sucesso. PedidoId: {guid}, ValorTotal: R$ 150,00
-[INFO] Pagamento aprovado. TransacaoId: TXN_abc123
-[WARN] Nenhum entregador disponível para endereço distante
-[WARN] ⬅️ COMPENSAÇÃO: Estornando pagamento. TransacaoId: TXN_abc123
-[INFO] Pagamento estornado com sucesso. Valor: R$ 150,00
-[WARN] ⬅️ COMPENSAÇÃO: Cancelando pedido {guid} no restaurante REST001
-[INFO] Pedido cancelado com sucesso
-[INFO] Transição de estado: AlocandoEntregador → PedidoCancelado
-[INFO] Todas as compensações executadas com sucesso
-```
-
-**Compensações Executadas**:
-1. Estorno do pagamento
-2. Cancelamento do pedido no restaurante
+Mesmo mecanismo do caso 5 (recusa do entregador por `AREA_NAO_COBERTA` depois do pagamento aprovado), com valor maior: R$ 150,00 de itens mais R$ 22,50 de taxa, estornados. Compensações: estorno do pagamento e cancelamento no restaurante (`Passos compensados: 2`). "Total" quer dizer todas as etapas concluídas até a falha; a liberação do entregador não entra, porque ele não chegou a ser alocado.
 
 ---
 
-## Como Testar os Casos de Uso
+## Como testar
 
-### **1. Via Swagger UI**
+### Script (recomendado)
 
-Acesse: `http://localhost:5000/swagger`
+```bash
+bash docs/scripts/testar-casos-de-uso.sh        # os 12 casos
+bash docs/scripts/testar-casos-de-uso.sh 4      # um caso
+```
 
-1. Expanda `POST /api/pedidos`
-2. Clique em "Try it out"
-3. Cole o payload do caso de uso desejado
-4. Clique em "Execute"
-5. Observe a resposta e os logs dos serviços
+O script envia os payloads, espera os desfechos no log do orquestrador (até 60 s) e sai com 1 se algum caso divergir do esperado. Veja `docs/scripts/readme-script.md`.
 
-### **2. Via curl**
+### Swagger ou curl
+
+Swagger em `http://localhost:5000/swagger` (`POST /api/pedidos`, "Try it out").
+
+No Git Bash do Windows, passar JSON com acento direto no argumento do `curl` corrompe o UTF-8; grave o payload num arquivo e envie com `--data-binary`:
 
 ```bash
 curl -X POST http://localhost:5000/api/pedidos \
-  -H "Content-Type: application/json" \
-  -d '{
-    "clienteId": "CLI001",
-    "restauranteId": "REST001",
-    "itens": [
-      {
-        "produtoId": "PROD001",
-        "nome": "Pizza Margherita",
-        "quantidade": 1,
-        "precoUnitario": 45.90
-      }
-    ],
-    "enderecoEntrega": "Rua das Flores, 123",
-    "formaPagamento": "CREDITO"
-  }'
+  -H "Content-Type: application/json; charset=utf-8" \
+  --data-binary @pedido.json
 ```
 
-### **3. Via Postman**
+### Conferir o desfecho
 
-Importe a collection (se disponível) ou crie uma nova request:
-
-- **Method**: POST
-- **URL**: `http://localhost:5000/api/pedidos`
-- **Headers**: `Content-Type: application/json`
-- **Body**: Cole o JSON do caso de uso
-
----
-
-## Observando os Logs
-
-### **Logs dos Serviços**
-
-Cada serviço (Orquestrador, Restaurante, Pagamento, Entregador, Notificação) gera logs estruturados.
-
-**Exemplo de log bem-sucedido**:
-```
-[16:45:32 INF] Validando pedido no restaurante REST001 com 1 itens
-[16:45:33 INF] Pedido validado. ValorTotal: R$ 45,90, TempoPreparo: 10min
-[16:45:34 INF] Processando pagamento. Valor: R$ 45,90
-[16:45:35 INF] Pagamento aprovado. TransacaoId: TXN_abc123
-[16:45:36 INF] Alocando entregador
-[16:45:37 INF] Entregador ENT001 alocado. TempoEstimado: 25min
-[16:45:38 INF] Notificação enviada com sucesso
-[16:45:38 INF] SAGA finalizada com sucesso. Estado: PedidoConfirmado
-```
-
-**Exemplo de log com compensação**:
-```
-[16:50:10 INF] Pedido validado com sucesso
-[16:50:11 INF] Pagamento aprovado. TransacaoId: TXN_xyz789
-[16:50:12 WARN] Nenhum entregador disponível
-[16:50:12 WARN] ⬅️ COMPENSAÇÃO: Estornando pagamento TXN_xyz789
-[16:50:13 INF] Pagamento estornado. Valor: R$ 67,50
-[16:50:13 WARN] ⬅️ COMPENSAÇÃO: Cancelando pedido no restaurante
-[16:50:14 INF] Pedido cancelado com sucesso
-[16:50:14 INF] SAGA finalizada. Estado: PedidoCancelado
-```
-
----
-
-## Rastreando uma SAGA
-
-Cada pedido tem um **CorrelationId** único que aparece em todos os logs:
+O desfecho está no log do orquestrador, não na resposta da API:
 
 ```bash
-# Filtrar logs por CorrelationId
-grep "a1b2c3d4-e5f6-7890-abcd-ef1234567890" logs/*.log
+docker logs saga-orquestrador 2>&1 | grep '\[SAGA\]' | grep <pedidoId>
 ```
 
-Ou use ferramentas como:
-- **Seq** (recomendado para Serilog - open source) ✅ **Implementado**
-- **ELK Stack** (Elasticsearch + Logstash + Kibana)
-- **Jaeger** (distributed tracing - open source) ✅ **Implementado**
+`GET /api/pedidos/{id}/status` ainda é um **mock**: responde sempre `EmProcessamento`. A SAGA concluída (com sucesso ou compensada) é removida do banco pelo Rebus (`MarkAsComplete()`), e o desfecho final não fica persistido em lugar nenhum; uma projeção de status está no backlog.
+
+Mensagem na fila `error` do RabbitMQ (http://localhost:15672) indica bug: nenhum dos 12 casos deveria levar mensagem para lá.
 
 ---
 
-## Critérios de Aceitação
+## Rastreando um pedido
 
-Para cada caso de uso, validar:
+O `pedidoId` devolvido pela API é o `CorrelacaoId` de todas as mensagens da SAGA e aparece nos logs de cada serviço.
 
-- [ ] **Payload aceito pela API** (201/202 Accepted)
-- [ ] **Logs mostram o fluxo completo** (todas as transições de estado)
-- [ ] **Compensações executadas corretamente** (em ordem reversa)
-- [ ] **Estado final correto** (PedidoConfirmado ou PedidoCancelado)
-- [ ] **Idempotência das compensações** (rodar 2x a mesma compensação não causa erro)
+- **Logs:** `docker logs <container>` ou o Seq (http://localhost:5342), filtrando por `CorrelacaoId`.
+- **Traces:** o Jaeger (http://localhost:16686) mostra hoje só a API de pedidos; o orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada). Ver o backlog no `CLAUDE.md`.
 
 ---
 
-## Métricas e Observabilidade
+## Limitações
 
-### **Métricas Importantes**
-
-| Métrica | Descrição | Ferramenta |
-|---------|-----------|------------|
-| Taxa de Sucesso | % de pedidos confirmados | Application Insights |
-| Taxa de Compensação | % de pedidos que precisaram rollback | Custom Metrics |
-| Tempo Médio de SAGA | Duração da SAGA (início → fim) | Distributed Tracing |
-| Erros por Serviço | Quantidade de falhas por componente | Logs estruturados |
-
-### **Dashboard Sugerido**
-
-```
-┌─────────────────────────────────────────────────────┐
-│ Total de Pedidos: 1.523                             │
-│ Confirmados: 1.401 (92%)                         │
-│ ❌ Cancelados: 122 (8%)                             │
-├─────────────────────────────────────────────────────┤
-│ Motivos de Cancelamento:                            │
-│ • Restaurante Fechado: 45                           │
-│ • Item Indisponível: 28                             │
-│ • Pagamento Recusado: 31                            │
-│ • Sem Entregador: 18                                │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## Próximos Passos
-
-1. **Testes Automatizados**: Criar testes de integração para cada caso de uso
-2. **Collection Postman/Insomnia**: Exportar coleção com todos os cenários
-3. **Testes de Carga**: Validar comportamento com 100+ pedidos simultâneos
-4. **Chaos Engineering**: Derrubar serviços aleatoriamente e verificar recuperação
+- Os serviços são simulações em memória: o estado de transações, cancelamentos e entregadores se perde quando o container reinicia.
+- Não há teste automatizado da SAGA além do script de ponta a ponta; os testes xUnit da solution cobrem só o domínio do fluxo de caixa.
+- Não há métricas de negócio (taxa de sucesso, taxa de compensação, duração da SAGA) coletadas; o tempo total aparece só no log `[SAGA]` de cada pedido.
 
 ---
 
 ## Referências
 
-- [arquitetura.md](./arquitetura.md) - Detalhes da arquitetura
-
----
-
-**Documento criado em**: 2026-01-07
-**Versão**: 1.0
+- [arquitetura.md](./arquitetura.md): visão macro dos serviços
+- [diagramas-compensacao.md](./diagramas-compensacao.md): diagramas dos fluxos de compensação

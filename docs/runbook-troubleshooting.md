@@ -1,804 +1,197 @@
-# Runbook de Troubleshooting - SAGA POC
+# Runbook da SAGA de pedidos
 
-Este documento fornece procedimentos passo a passo para diagnosticar e resolver problemas comuns no sistema SAGA.
+Diagnóstico dos problemas que acontecem de fato nesta stack (compose local). Todos os comandos rodam no Git Bash a partir da raiz do repositório e usam só `docker`, `curl`, `grep` e `awk`; nenhuma ferramenta extra precisa ser instalada. Nomes de container, portas e consultas SQL de apoio estão em [docker/README.md](../docker/README.md).
+
+Duas regras valem para todo o documento:
+
+- **O 202 da API não prova nada.** `POST /api/pedidos` responde assim que envia `IniciarPedido` para a fila. Quem diz como a SAGA terminou é o log `[SAGA]` do orquestrador.
+- **`GET /api/pedidos/{id}/status` é mock** e responde sempre `EmProcessamento`. Não use esse endpoint para diagnóstico.
 
 ---
 
 ## Índice
 
-1. [SAGA Travada](#1-saga-travada)
-2. [Mensagens em Dead Letter Queue](#2-mensagens-em-dead-letter-queue)
-3. [Compensação Falhou](#3-compensacao-falhou)
-4. [Alta Latência nas SAGAs](#4-alta-latencia-nas-sagas)
-5. [Circuit Breaker Aberto](#5-circuit-breaker-aberto)
-6. [Perda de Mensagens](#6-perda-de-mensagens)
-7. [Memória Alta no Orquestrador](#7-memoria-alta-no-orquestrador)
-8. [Duplicação de Pedidos](#8-duplicacao-de-pedidos)
+1. [Verificação rápida da stack](#1-verificação-rápida-da-stack)
+2. [Pedido aceito, mas a SAGA não termina](#2-pedido-aceito-mas-a-saga-não-termina)
+3. [Mensagem na fila error](#3-mensagem-na-fila-error)
+4. [Compensação que não termina](#4-compensação-que-não-termina)
+5. [Pedido cancelado ou compensado sem motivo aparente](#5-pedido-cancelado-ou-compensado-sem-motivo-aparente)
+6. [Logs e traces faltando](#6-logs-e-traces-faltando)
 
 ---
 
-## 1. SAGA Travada
+## 1. Verificação rápida da stack
 
-### Sintomas
-- SAGA não progride há mais de 10 minutos
-- Estado da SAGA permanece inalterado
-- Cliente reporta que pedido está "pendente" por muito tempo
-- Mensagens presas na fila sem serem processadas
+```bash
+# APIs, filas e assinaturas prontas (sai 1 e lista o que falta se o tempo acabar)
+bash docs/scripts/aguardar-stack.sh
+
+# Containers e há quanto tempo estão no ar (reinício recente indica queda)
+docker compose -f docker/docker-compose.yml ps
+
+# Filas: mensagens prontas, em processamento e consumidores
+docker exec saga-rabbitmq rabbitmqctl list_queues -q name messages_ready messages_unacknowledged consumers
+```
+
+Estado saudável, sem pedidos em andamento: todas as filas `fila-*` com `0 0 1` (nada acumulado, um consumidor) e a fila `error` com `0`. Só `saga-api` tem `/health` (`curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5000/health`); o orquestrador e os serviços da SAGA são workers sem porta, e o sinal de vida deles é o consumidor na fila.
+
+---
+
+## 2. Pedido aceito, mas a SAGA não termina
+
+### Sintoma
+
+`POST /api/pedidos` devolveu 202 com um `pedidoId`, mas o log do orquestrador não mostra `CONCLUÍDO COM SUCESSO` nem `COMPENSAÇÃO CONCLUÍDA` para ele.
 
 ### Diagnóstico
 
-#### Passo 1: Verificar Estado da SAGA
+**Passo 1: o que o orquestrador registrou.**
 
 ```bash
-# Via API
-curl http://localhost:5000/api/pedidos/{pedidoId}/estado
+docker logs saga-orquestrador 2>&1 | grep '\[SAGA\]' | grep '<pedidoId>'
 ```
 
-```csharp
-// Query direta no repositório (MongoDB - se usar persistência MongoDB)
-db.PedidoSagaData.find({
-    Id: "{correlationId}"
-}).sort({ DataInicio: -1 })
-```
+A última linha diz em que passo a SAGA parou: `Validação restaurante`, `Pagamento`, `Entregador`, ou nenhuma linha (o orquestrador nem recebeu o pedido).
 
-```csharp
-// Query no Postgres(se usar persistência SQL)
-SELECT
-    CorrelationId,
-    EstadoAtual,
-    DataInicio,
-    UltimaAtualizacao,
-    EmCompensacao,
-    PassosCompensados
-FROM PedidoSagaData
-WHERE Id = '{id}'
-ORDER BY DataInicio DESC;
-```
-
-#### Passo 2: Verificar Filas do RabbitMQ
+**Passo 2: estado persistido.** SAGA em andamento fica em `pedido_saga_data`; concluída ou compensada é removida pelo Rebus (`MarkAsComplete()`).
 
 ```bash
-# Acessar Management UI
-http://localhost:15672
-
-# Ou via API do RabbitMQ
-curl -u guest:guest http://localhost:15672/api/queues/%2F/fila-restaurante
+docker exec saga-postgres psql -U saga -d sagapoc -c \
+  "SELECT id, convert_from(data, 'UTF8')::json->>'EstadoAtual' AS estado FROM pedido_saga_data WHERE id = '<pedidoId>';"
 ```
 
-Verificar:
-- `messages_ready`: Mensagens aguardando processamento
-- `messages_unacknowledged`: Mensagens em processamento
-- `consumers`: Número de consumidores ativos
+| Resultado | Leitura |
+|---|---|
+| nenhuma linha e log com desfecho | a SAGA terminou; o problema está em quem consultou |
+| nenhuma linha e nenhum log `[SAGA]` | `IniciarPedido` não chegou ao orquestrador (passo 3) |
+| `ValidandoRestaurante`, `ProcessandoPagamento`, `AlocandoEntregador` ou `NotificandoCliente` | a resposta do serviço daquele passo não voltou (passo 3) |
+| `ExecutandoCompensacao` | ver a [seção 4](#4-compensação-que-não-termina) |
 
-#### Passo 3: Verificar Logs do Orquestrador
+**Passo 3: fila do passo travado.**
 
 ```bash
-# Filtrar por CorrelationId
-grep "{correlationId}" logs/saga-*.log
-
-# Verificar últimas 100 linhas de erros
-tail -n 100 logs/saga-*.log | grep "ERROR"
+docker exec saga-rabbitmq rabbitmqctl list_queues -q name messages_ready messages_unacknowledged consumers
 ```
 
-#### Passo 4: Verificar Health dos Serviços
+- `messages_ready` > 0 com `consumers` = 0: o serviço daquela fila caiu. `docker compose -f docker/docker-compose.yml ps` e `docker logs <container> --tail 100` mostram a exceção.
+- Fila vazia e mensagem na `error`: ver a [seção 3](#3-mensagem-na-fila-error).
+- Tudo vazio e nenhum log `[SAGA]`: a API não conseguiu enviar. Procure o `pedidoId` no log da API (`docker logs saga-api 2>&1 | grep '<pedidoId>'`).
+
+### Ação
+
+Subir de novo o serviço que caiu, depois de entender a exceção no log:
 
 ```bash
-# Restaurante
-curl http://localhost:5001/health
-
-# Pagamento
-curl http://localhost:5002/health
-
-# Entregador
-curl http://localhost:5003/health
-
-# Orquestrador
-curl http://localhost:5004/health
+docker compose -f docker/docker-compose.yml up -d --build <serviço>
 ```
 
-### Ações Corretivas
-
-#### Caso 1: Timeout em Serviço Downstream
-
-**Diagnóstico**: Log mostra "Request timeout after 30 seconds"
-
-**Ação**:
-```bash
-# 1. Verificar saúde do serviço
-curl http://localhost:5001/health
-
-# 2. Se serviço está down, reiniciar
-docker restart saga-poc-restaurante
-
-# 3. Aguardar 30s e verificar retry automático
-```
-
-#### Caso 2: Mensagem Presa em Processamento
-
-**Diagnóstico**: `messages_unacknowledged > 0` mas sem progresso
-
-**Ação**:
-```bash
-# 1. Identificar consumidor travado
-curl -u guest:guest http://localhost:15672/api/channels
-
-# 2. Fechar conexão do consumidor problemático
-# (isso fará a mensagem retornar à fila)
-curl -u guest:guest -X DELETE \
-  http://localhost:15672/api/channels/{channel_name}
-
-# 3. Reiniciar consumidor
-docker restart saga-poc-orquestrador
-```
-
-#### Caso 3: Dead Letter Queue com Mensagens
-
-**Diagnóstico**: Mensagem foi para DLQ após 3 tentativas
-
-**Ação**: Ver seção [Mensagens em Dead Letter Queue](#2-mensagens-em-dead-letter-queue)
-
-#### Caso 4: Estado Inconsistente
-
-**Diagnóstico**: Estado da SAGA não corresponde às mensagens processadas
-
-**Ação**:
-```csharp
-// Executar compensação manual via API
-POST http://localhost:5000/api/pedidos/{pedidoId}/compensar
-Content-Type: application/json
-
-{
-  "motivo": "Estado inconsistente detectado em troubleshooting",
-  "executarEstorno": true,
-  "notificarCliente": true
-}
-```
-
-### Scripts de Utilidade
-
-```bash
-# Script para verificar SAGAs travadas
-#!/bin/bash
-# check-stuck-sagas.sh
-
-THRESHOLD_MINUTES=10
-
-# Query no MongoDB (se usar persistência MongoDB)
-mongo saga-poc --eval "
-  db.PedidoSagaData.find({
-    EstadoAtual: { \$nin: ['Concluido', 'Compensado', 'Falhou'] },
-    UltimaAtualizacao: {
-      \$lt: new Date(Date.now() - $THRESHOLD_MINUTES * 60 * 1000)
-    }
-  }).forEach(saga => {
-    print('SAGA Travada: ' + saga.Id + ' - Estado: ' + saga.EstadoAtual);
-  })
-"
-```
+A mensagem que estava na fila é consumida quando o serviço volta; a SAGA continua do ponto em que parou. Não edite `pedido_saga_data` nem `pedido_saga_index` à mão: as duas tabelas são do Rebus.
 
 ---
 
-## 2. Mensagens em Dead Letter Queue
+## 3. Mensagem na fila error
 
-### Sintomas
-- Mensagens aparecem na Dead Letter Queue (DLQ)
-- Logs mostram "Message moved to DLQ after 3 retries"
-- Taxa de erro acima de 5%
+### Sintoma
+
+`rabbitmqctl list_queues` mostra `error` com mensagens. Nenhum dos 12 casos de uso deveria levar mensagem para lá: **é sempre bug**.
+
+O Rebus tenta entregar cada mensagem algumas vezes (o padrão da biblioteca; o projeto não muda essa configuração) e, se o handler lançar exceção em todas, move a mensagem para `error` com cabeçalhos que dizem de onde ela veio e por quê.
 
 ### Diagnóstico
 
-#### Passo 1: Inspecionar Mensagens na DLQ
+**Passo 1: ler a mensagem sem tirá-la da fila.** Pela UI (http://localhost:15672, `saga`/`saga123`): Queues → `error` → Get messages, com "Ack mode" em "Nack message requeue true". Ou pela API de management:
 
 ```bash
-# Via RabbitMQ Management
-http://localhost:15672/#/queues/%2F/fila-pagamento-dlq
+curl -s -u saga:saga123 -H 'content-type: application/json' -X POST \
+  -d '{"count":1,"ackmode":"ack_requeue_true","encoding":"auto"}' \
+  http://localhost:15672/api/queues/%2F/error/get > erro.json
 
-# Obter mensagem via API
-curl -u guest:guest -X POST \
-  http://localhost:15672/api/queues/%2F/fila-pagamento-dlq/get \
-  -H "content-type: application/json" \
-  -d '{"count":1,"ackmode":"ack_requeue_false","encoding":"auto"}'
+# Fila de origem e começo da exceção
+grep -o '"rbs2-source-queue":"[^"]*"' erro.json
+grep -o '"rbs2-error-details":"[^"]\{0,400\}' erro.json
 ```
 
-#### Passo 2: Analisar Motivo da Falha
+**Passo 2: log do serviço dono da fila de origem**, no horário da falha. O handler loga a exceção com o identificador da operação:
 
 ```bash
-# Verificar headers da mensagem
-# Procurar por: x-exception-message, x-exception-stacktrace
+docker logs saga-servico-pagamento --since 30m 2>&1 | grep -iE 'erro|exception' | tail -20
 ```
 
-Motivos comuns:
-- **Validation failed**: Dados inválidos na mensagem
-- **Service unavailable**: Serviço downstream fora do ar
-- **Timeout**: Operação demorou mais que o limite
-- **Duplicate key**: Violação de idempotência
+### Ação
 
-### Ações Corretivas
+1. Corrigir a causa no código e subir de novo o serviço (`docker compose -f docker/docker-compose.yml up -d --build <serviço>`).
+2. Repetir o cenário (`bash docs/scripts/testar-casos-de-uso.sh <caso>`) e conferir que a fila `error` não recebe nada novo.
+3. Só então purgar a fila, e só se as mensagens forem de teste da própria sessão:
 
-#### Caso 1: Validação Falhou
-
-**Diagnóstico**: `x-exception-message: "ClienteId inválido"`
-
-**Ação**:
-```csharp
-// 1. Corrigir dados no banco (se possível)
-UPDATE Pedidos SET ClienteId = 'CLI001'
-WHERE PedidoId = '{id}';
-
-// 2. Reprocessar mensagem manualmente
-POST http://localhost:5000/api/pedidos/{pedidoId}/reprocessar
-```
-
-#### Caso 2: Serviço Temporariamente Indisponível
-
-**Diagnóstico**: `x-exception-message: "Connection refused"`
-
-**Ação**:
 ```bash
-# 1. Verificar se serviço voltou
-curl http://localhost:5002/health
-
-# 2. Mover mensagens de volta à fila principal
-curl -u guest:guest -X POST \
-  http://localhost:15672/api/shovel/move-from-dlq
+docker exec saga-rabbitmq rabbitmqctl purge_queue error
 ```
 
-#### Caso 3: Erro de Lógica no Código
-
-**Diagnóstico**: `x-exception-message: "NullReferenceException"`
-
-**Ação**:
-1. Corrigir código e fazer deploy
-2. Aguardar retry automático ou mover manualmente de DLQ
+Não há shovel nem reenvio automático da `error` configurados nesta stack. Para reprocessar uma mensagem específica, use "Move messages" na UI (exige o plugin `rabbitmq_shovel_management`, que não vem habilitado) ou repita o pedido.
 
 ---
 
-## 3. Compensação Falhou
+## 4. Compensação que não termina
 
-### Sintomas
-- SAGA em estado "ExecutandoCompensacao" por muito tempo
-- Logs mostram "Compensação falhou após 3 tentativas"
-- Cliente cobrado mas pedido cancelado (inconsistência)
+### Sintoma
+
+O log mostra `COMPENSAÇÃO INICIADA` para o pedido, mas não `COMPENSAÇÃO CONCLUÍDA`, e a linha continua em `pedido_saga_data` com `EstadoAtual` = `ExecutandoCompensacao`.
+
+### Como a compensação funciona aqui
+
+A SAGA envia os comandos de compensação dos passos que deram certo (`EstornarPagamento`, `CancelarPedidoRestaurante`, `LiberarEntregador`) e só finaliza quando recebe todas as respostas (`PagamentoEstornado`, `PedidoRestauranteCancelado`, `EntregadorLiberado`). Não há timeout: se uma resposta não volta, a SAGA fica parada para sempre.
 
 ### Diagnóstico
 
-#### Passo 1: Verificar Passos Compensados
-
 ```bash
-# Via API
-curl http://localhost:5000/api/pedidos/{pedidoId}/compensacao/status
+# Passos já compensados e passos que a SAGA espera
+docker exec saga-postgres psql -U saga -d sagapoc -c \
+  "SELECT convert_from(data, 'UTF8')::json->>'PassosCompensados' AS compensados,
+          convert_from(data, 'UTF8')::json->>'PagamentoProcessado' AS pagamento,
+          convert_from(data, 'UTF8')::json->>'RestauranteValidado' AS restaurante,
+          convert_from(data, 'UTF8')::json->>'EntregadorAlocado' AS entregador
+   FROM pedido_saga_data WHERE id = '<pedidoId>';"
 ```
 
-```json
-{
-  "emCompensacao": true,
-  "passosCompensados": ["RestauranteCancelado"],
-  "passosPendentes": ["PagamentoEstornado"],
-  "tentativasCompensacao": 2,
-  "ultimoErro": "Timeout ao estornar pagamento"
-}
-```
+O passo marcado como `true` que não aparece em `PassosCompensados` é o que falta. Confira a fila desse serviço (`fila-pagamento`, `fila-restaurante` ou `fila-entregador`), a fila `error` e o log do serviço, como nas seções 2 e 3.
 
-#### Passo 2: Verificar Sistema de Pagamento
+### Ação
 
-```bash
-# Verificar se pagamento foi realmente processado
-curl http://localhost:5002/api/pagamentos/{transacaoId}/status
-
-# Verificar se estorno já foi executado
-curl http://localhost:5002/api/pagamentos/{transacaoId}/estornos
-```
-
-### Ações Corretivas
-
-#### Caso 1: Estorno Já Foi Executado (Idempotência)
-
-**Diagnóstico**: Sistema de pagamento retorna "Estorno já processado"
-
-**Ação**:
-```csharp
-// Marcar compensação como concluída manualmente
-POST http://localhost:5000/api/pedidos/{pedidoId}/compensacao/marcar-completa
-
-{
-  "passo": "PagamentoEstornado",
-  "motivo": "Verificado manualmente - estorno já processado"
-}
-```
-
-#### Caso 2: Sistema de Pagamento Indisponível
-
-**Diagnóstico**: Timeout contínuo ao chamar serviço de estorno
-
-**Ação**:
-```bash
-# 1. Verificar circuit breaker
-curl http://localhost:5004/api/circuit-breaker/status
-
-# 2. Forçar reset do circuit breaker (se necessário)
-POST http://localhost:5004/api/circuit-breaker/reset
-
-# 3. Aguardar retry automático ou executar manualmente
-POST http://localhost:5000/api/pedidos/{pedidoId}/compensacao/retry
-```
-
-#### Caso 3: Compensação Manual Necessária
-
-**Diagnóstico**: Sistema não consegue estornar automaticamente
-
-**Ação**:
-1. Executar estorno manual no sistema de pagamento
-2. Registrar compensação manual na SAGA:
-
-```csharp
-POST http://localhost:5000/api/pedidos/{pedidoId}/compensacao/manual
-
-{
-  "passo": "PagamentoEstornado",
-  "transacaoId": "TXN123",
-  "executadoPor": "Operador João Silva",
-  "evidencia": "Ticket ServiceNow #12345",
-  "dataHoraExecucao": "2026-01-07T14:30:00Z"
-}
-```
+Mesma da seção 2: subir o serviço que caiu ou corrigir o bug que levou o comando para a `error`. A idempotência dos handlers de estorno e de liberação de entregador fica em memória (`RepositorioIdempotenciaInMemory`): ela se perde quando o container reinicia, então um comando reprocessado depois de um reinício é executado de novo.
 
 ---
 
-## 4. Alta Latência nas SAGAs
+## 5. Pedido cancelado ou compensado sem motivo aparente
 
-### Sintomas
-- SAGAs demorando mais de 30 segundos para concluir
-- Clientes reclamando de lentidão
-- Métricas mostram `saga_duracao_segundos` acima de P95 = 20s
+Antes de tratar como bug, confira as regras dos serviços simulados em [casos-uso.md](casos-uso.md#regras-dos-serviços-simulados). As que mais confundem:
 
-### Diagnóstico
+- **Horário de pico:** entre 12h e 14h59 UTC, o entregador recusa 30% das alocações com `HORARIO_PICO`, e um pedido que deveria concluir termina compensado. O script de casos de uso marca isso como AVISO. Para desligar:
 
-#### Passo 1: Identificar Gargalo
+  ```bash
+  SIMULAR_HORARIO_PICO=false docker compose -f docker/docker-compose.yml up -d saga-servico-entregador
+  ```
 
-```bash
-# Verificar métricas de duração por passo
-curl http://localhost:5004/metrics | grep saga_passo_duracao
-```
+- **Pool de entregadores:** são 10; cada um volta ao pool quando a entrega simulada termina (1 minuto estimado = 1 segundo). Uma rajada de pedidos esgota o pool e gera `SEM_ENTREGADOR_DISPONIVEL`.
+- **Estado em memória:** transações, cancelamentos e alocações dos serviços simulados se perdem quando o container reinicia.
 
-```bash
-# Analisar logs para identificar passo lento
-grep "Passo.*concluído" logs/saga-*.log | \
-  awk '{print $5, $8}' | \
-  sort -k2 -rn | \
-  head -10
-```
-
-#### Passo 2: Verificar Recursos
-
-```bash
-# CPU e memória dos containers
-docker stats
-
-# Conexões de banco de dados
-# MongoDB
-mongo saga-poc --eval "db.serverStatus().connections"
-
-# Verificar latência de rede entre serviços
-time curl http://localhost:5002/health
-```
-
-### Ações Corretivas
-
-#### Caso 1: Serviço Específico Lento
-
-**Diagnóstico**: Serviço de Pagamento está demorando 15s
-
-**Ação**:
-```bash
-# 1. Investigar logs do serviço
-docker logs saga-poc-pagamento --tail 100
-
-# 2. Verificar health check detalhado
-curl http://localhost:5002/health/detailed
-
-# 3. Escalar serviço (se necessário)
-docker-compose up -d --scale pagamento=3
-```
-
-#### Caso 2: Banco de Dados Lento
-
-**Diagnóstico**: Queries no MongoDB demorando muito
-
-**Ação**:
-```javascript
-// 1. Analisar slow queries
-db.setProfilingLevel(1, { slowms: 100 })
-db.system.profile.find().sort({ ts: -1 }).limit(10)
-
-// 2. Criar índices faltantes
-db.EstadoPedido.createIndex({ CorrelationId: 1 })
-db.EstadoPedido.createIndex({ EstadoAtual: 1, UltimaAtualizacao: -1 })
-
-// 3. Verificar estatísticas de índices
-db.EstadoPedido.stats()
-```
-
-#### Caso 3: Muitas SAGAs Concorrentes
-
-**Diagnóstico**: Sistema está processando 500+ SAGAs simultaneamente
-
-**Ação**:
-```csharp
-// Configurar limit de concorrência no Rebus
-builder.Services.AddRebus((configure, provider) => configure
-    .Transport(t => t.UseRabbitMq(...))
-    .Options(o =>
-    {
-        o.SetNumberOfWorkers(1);  // Manter 1 worker
-        o.SetMaxParallelism(50);  // Reduzir de 100 para 50
-    })
-);
-```
+O motivo da recusa aparece no log do orquestrador (`[SAGA] Pedido <id> - Motivo: ...` ou `- Cancelado: ...`).
 
 ---
 
-## 5. Circuit Breaker Aberto
+## 6. Logs e traces faltando
 
-### Sintomas
-- Logs mostram "Circuit breaker is open"
-- Requisições falhando imediatamente sem tentar chamar serviço
-- Taxa de erro 100% para um serviço específico
+| Onde | O que aparece |
+|---|---|
+| `docker logs <container>` | todos os serviços; é a fonte confiável |
+| Seq (http://localhost:5342) | só as APIs (`saga-api`, `lancamentos-api`, `fluxocaixa-api`). Os workers (orquestrador e serviços da SAGA) não mandam log para o Seq: a configuração do Serilog dos hosts lê só o `appsettings.json` |
+| Jaeger (http://localhost:16686) | só `SagaPoc.Api`, `SagaPoc.Lancamentos.Api` e `SagaPoc.Lancamentos.Worker`. O orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada) |
 
-### Diagnóstico
-
-#### Passo 1: Verificar Estado do Circuit Breaker
-
-```bash
-# Via endpoint de diagnóstico
-curl http://localhost:5004/api/circuit-breaker/status
-```
-
-```json
-{
-  "pagamento": {
-    "estado": "Open",
-    "falhasConsecutivas": 15,
-    "ultimaFalha": "2026-01-07T14:25:30Z",
-    "proximaTentativa": "2026-01-07T14:30:30Z",
-    "motivoAbertura": "Timeout threshold exceeded"
-  }
-}
-```
-
-#### Passo 2: Verificar Saúde do Serviço Downstream
+Os dois buracos estão no backlog do projeto. Até lá, rastreie um pedido pelo `pedidoId`, que é o `CorrelacaoId` de todas as mensagens da SAGA:
 
 ```bash
-# Testar manualmente
-curl -v http://localhost:5002/health
-```
-
-### Ações Corretivas
-
-#### Caso 1: Serviço Voltou ao Normal
-
-**Diagnóstico**: Health check retorna 200 OK
-
-**Ação**:
-```bash
-# 1. Aguardar reset automático (5 minutos)
-# OU
-# 2. Forçar reset manual
-POST http://localhost:5004/api/circuit-breaker/reset/pagamento
-
-# 3. Verificar se voltou a funcionar
-curl http://localhost:5004/api/circuit-breaker/status
-```
-
-#### Caso 2: Serviço Ainda Está Com Problemas
-
-**Diagnóstico**: Health check retorna 503 ou timeout
-
-**Ação**:
-```bash
-# 1. Investigar logs do serviço
-docker logs saga-poc-pagamento --tail 200
-
-# 2. Reiniciar serviço
-docker restart saga-poc-pagamento
-
-# 3. Monitorar recuperação
-watch -n 5 'curl -s http://localhost:5002/health | jq'
-```
-
----
-
-## 6. Perda de Mensagens
-
-### Sintomas
-- Pedido criado mas SAGA nunca iniciou
-- Mensagem enviada mas nunca processada
-- Diferença entre contador de mensagens enviadas e recebidas
-
-### Diagnóstico
-
-#### Passo 1: Verificar Filas
-
-```bash
-# Verificar todas as filas
-curl -u guest:guest http://localhost:15672/api/queues | jq '.[] | {name, messages}'
-```
-
-#### Passo 2: Verificar Durabilidade
-
-```bash
-# Verificar se filas são duráveis
-curl -u guest:guest http://localhost:15672/api/queues/%2F/fila-pagamento | \
-  jq '.durable'
-```
-
-#### Passo 3: Verificar Logs de Publicação
-
-```bash
-grep "Publicando mensagem" logs/saga-*.log | \
-  grep "{correlationId}"
-```
-
-### Ações Corretivas
-
-#### Caso 1: Fila Não Durável
-
-**Diagnóstico**: `durable: false`
-
-**Ação**:
-```csharp
-// Rebus cria filas duráveis por padrão
-// Se necessário, verificar configuração do RabbitMQ
-// Filas criadas pelo Rebus são automaticamente:
-// - Durable: true
-// - AutoDelete: false
-// - Exclusive: false
-
-// Recriar fila manualmente via RabbitMQ Management se necessário
-```
-
-#### Caso 2: RabbitMQ Reiniciou
-
-**Diagnóstico**: Logs mostram "Connection lost" no horário do problema
-
-**Ação**:
-```bash
-# 1. Verificar se mensagens foram persistidas
-curl -u guest:guest http://localhost:15672/api/queues | \
-  jq '.[] | select(.messages > 0)'
-
-# 2. Se perdidas, reprocessar a partir de evento source
-POST http://localhost:5000/api/pedidos/reprocessar-perdidos
-
-{
-  "dataInicio": "2026-01-07T14:00:00Z",
-  "dataFim": "2026-01-07T15:00:00Z"
-}
-```
-
----
-
-## 7. Memória Alta no Orquestrador
-
-### Sintomas
-- Container usando > 80% da memória alocada
-- Logs de "OutOfMemoryException"
-- Performance degradada gradualmente
-
-### Diagnóstico
-
-#### Passo 1: Verificar Uso de Memória
-
-```bash
-# Por container
-docker stats saga-poc-orquestrador
-
-# Dentro do container (.NET)
-curl http://localhost:5004/api/diagnostics/memory
-```
-
-#### Passo 2: Capturar Heap Dump
-
-```bash
-# Instalar dotnet-dump no container
-docker exec -it saga-poc-orquestrador bash
-dotnet tool install -g dotnet-dump
-
-# Capturar dump
-dotnet-dump collect -p 1 -o /dumps/heap.dmp
-
-# Analisar dump
-dotnet-dump analyze /dumps/heap.dmp
-> dumpheap -stat
-```
-
-### Ações Corretivas
-
-#### Caso 1: Memory Leak em SAGA State
-
-**Diagnóstico**: Muitas instâncias de `PedidoSagaData` na memória
-
-**Ação**:
-```csharp
-// Para POC com InMemory, não há persistência
-// Para produção com MongoDB:
-builder.Services.AddRebus((configure, provider) => configure
-    .Transport(t => t.UseRabbitMq(...))
-    .Sagas(s => s.UseMongoDb(connectionString, "sagas"))
-);
-
-// Criar índice TTL no MongoDB para cleanup automático
-db.PedidoSagaData.createIndex(
-    { "DataConclusao": 1 },
-    { expireAfterSeconds: 604800 } // 7 dias
-)
-
-// Ou usar Postgres:
-// .Sagas(s => s.UseNpgsql(connectionString, "Sagas"))
-```
-
-#### Caso 2: Muitas Conexões Abertas
-
-**Diagnóstico**: HttpClient ou conexões de banco não sendo liberadas
-
-**Ação**:
-```csharp
-// Usar HttpClientFactory
-services.AddHttpClient<IPagamentoService, PagamentoService>()
-    .SetHandlerLifetime(TimeSpan.FromMinutes(5));
-
-// Configurar pool de conexões do MongoDB
-services.AddSingleton<IMongoClient>(sp =>
-{
-    var settings = MongoClientSettings.FromConnectionString(connectionString);
-    settings.MaxConnectionPoolSize = 100;
-    settings.MinConnectionPoolSize = 10;
-    return new MongoClient(settings);
-});
-```
-
----
-
-## 8. Duplicação de Pedidos
-
-### Sintomas
-- Cliente recebe múltiplas confirmações de pedido
-- Múltiplas cobranças no cartão
-- Logs mostram mesmo pedido processado 2+ vezes
-
-### Diagnóstico
-
-#### Passo 1: Verificar Idempotência
-
-```bash
-# Buscar pedidos duplicados
-curl http://localhost:5000/api/pedidos/duplicados
-```
-
-```javascript
-// Query no MongoDB (se usar persistência MongoDB)
-db.PedidoSagaData.aggregate([
-    {
-        $group: {
-            _id: "$ClienteId",
-            pedidos: { $push: "$$ROOT" },
-            count: { $sum: 1 }
-        }
-    },
-    {
-        $match: { count: { $gt: 1 } }
-    }
-])
-```
-
-#### Passo 2: Verificar Logs de Idempotência
-
-```bash
-grep "Mensagem duplicada detectada" logs/saga-*.log
-```
-
-### Ações Corretivas
-
-#### Caso 1: Idempotência Não Implementada
-
-**Diagnóstico**: Código não verifica `MessageId` antes de processar
-
-**Ação**:
-```csharp
-// Implementar verificação de idempotência nos handlers
-public class ProcessarPagamentoHandler : IHandleMessages<ProcessarPagamento>
-{
-    private readonly IRepositorioIdempotencia _idempotencia;
-    private readonly IBus _bus;
-
-    public async Task Handle(ProcessarPagamento mensagem)
-    {
-        var chaveIdempotencia = $"pagamento:{mensagem.CorrelacaoId}";
-
-        if (await _idempotencia.JaProcessadoAsync(chaveIdempotencia))
-        {
-            _logger.LogWarning("Mensagem duplicada detectada: {CorrelacaoId}",
-                mensagem.CorrelacaoId);
-            return; // Ignorar mensagem
-        }
-
-        // Processar pagamento...
-        var resultado = await _servicoPagamento.ProcessarAsync(mensagem);
-
-        await _idempotencia.MarcarProcessadaAsync(chaveIdempotencia,
-            TimeSpan.FromHours(24));
-
-        await _bus.Reply(new PagamentoProcessado(...));
-    }
-}
-```
-
-#### Caso 2: Cache de Idempotência Expirou
-
-**Diagnóstico**: TTL do cache muito curto (ex: 5 minutos)
-
-**Ação**:
-```csharp
-// Aumentar TTL para 24-48 horas
-AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(48)
-```
-
----
-
-## Scripts de Utilidade
-
-### Limpar SAGAs Antigas
-
-```bash
-#!/bin/bash
-# cleanup-old-sagas.sh
-
-DAYS_AGO=30
-
-mongo saga-poc --eval "
-  db.PedidoSagaData.deleteMany({
-    EstadoAtual: { \$in: ['Concluido', 'Compensado'] },
-    DataConclusao: {
-      \$lt: new Date(Date.now() - $DAYS_AGO * 24 * 60 * 60 * 1000)
-    }
-  })
-"
-```
-
-### Health Check Completo
-
-```bash
-#!/bin/bash
-# health-check-all.sh
-
-SERVICES=("restaurante:5001" "pagamento:5002" "entregador:5003" "orquestrador:5004")
-
-for service in "${SERVICES[@]}"; do
-  IFS=':' read -r name port <<< "$service"
-  echo "Checking $name..."
-
-  response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health)
-
-  if [ "$response" == "200" ]; then
-    echo " $name está saudável"
-  else
-    echo "❌ $name está com problemas (HTTP $response)"
-  fi
+for c in saga-api saga-orquestrador saga-servico-restaurante saga-servico-pagamento saga-servico-entregador saga-servico-notificacao; do
+  echo "== $c"; docker logs "$c" 2>&1 | grep '<pedidoId>'
 done
 ```
 
----
-
-## Contatos de Escalação
-
-| Severidade | Time | Contato | SLA |
-|------------|------|---------|-----|
-| P0 - Crítico | On-call Engineering | oncall@empresa.com | 15 min |
-| P1 - Alto | Platform Team | platform@empresa.com | 1 hora |
-| P2 - Médio | DevOps | devops@empresa.com | 4 horas |
-| P3 - Baixo | Squad SAGA | saga-team@empresa.com | 1 dia útil |
-
----
-
-**Última atualização**: 2026-01-08
-**Versão**: 2.0 - Atualizado para Rebus
-**Mantenedor**: Equipe Platform Engineering
+Um serviço rodando fora do Docker (`dotnet run`) não exporta traces, porque o OTLP do Jaeger (4317) não é publicado no host.

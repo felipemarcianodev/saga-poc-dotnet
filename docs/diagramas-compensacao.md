@@ -1,338 +1,200 @@
-# Diagramas de Compensação - SAGA Pattern
+# Diagramas de compensação da SAGA
 
-Este documento apresenta os diagramas detalhados dos fluxos de compensação implementados no projeto SAGA POC.
+Fluxos de sucesso e de compensação da `PedidoSaga` (`src/SagaPoc.Orquestrador/Sagas/PedidoSaga.cs`), como estão implementados. Os casos citados são os de [casos-uso.md](./casos-uso.md).
+
+Toda a comunicação passa pelo RabbitMQ: a SAGA envia comandos (`Send`) para a fila de cada serviço, e o serviço responde (`Reply`) para a `fila-orquestrador`. O estado da SAGA fica no PostgreSQL, na tabela `pedido_saga_data`, criada e mantida pelo Rebus.
 
 ---
 
-## 1. Fluxo de Compensação - Falha no Pagamento
+## 1. Fluxo de sucesso (referência)
 
-Cenário onde a validação do restaurante é bem-sucedida, mas o processamento do pagamento falha.
+Casos 1, 7, 8, 9, 10 e 11.
 
 ```mermaid
 sequenceDiagram
     participant API
-    participant SAGA
-    participant Restaurante
-    participant Pagamento
-
-    API->>SAGA: IniciarPedido
-    SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado
-
-    SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Falha ❌
-
-    Note over SAGA: Iniciando Compensação
-
-    SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado
-
-    Note over SAGA: Compensação Concluída
-    SAGA-->>API: Pedido Compensado
-```
-
-### Detalhes do Fluxo
-
-1. **Início**: API recebe requisição de criação de pedido
-2. **Validação**: Restaurante valida disponibilidade dos itens
-3. **Falha no Pagamento**: Cartão recusado, saldo insuficiente, etc.
-4. **Compensação**: Cancela a reserva dos itens no restaurante
-5. **Resultado**: SAGA finalizada com status "Compensado"
-
-### Estados da SAGA
-
-- `Iniciado` → `AguardandoValidacaoRestaurante` → `AguardandoPagamento` → `ExecutandoCompensacao` → `Compensado`
-
----
-
-## 2. Fluxo de Compensação - Falha no Entregador (Total)
-
-Cenário onde restaurante e pagamento são bem-sucedidos, mas a alocação do entregador falha, exigindo compensação total.
-
-```mermaid
-sequenceDiagram
-    participant SAGA
+    participant SAGA as Orquestrador
     participant Restaurante
     participant Pagamento
     participant Entregador
+    participant Notificacao as Notificação
 
-    SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado
+    API->>SAGA: IniciarPedido
+    Note over API: responde 202 sem esperar a SAGA
 
-    SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Aprovado
+    SAGA->>Restaurante: ValidarPedidoRestaurante
+    Restaurante-->>SAGA: PedidoRestauranteValidado (válido)
+
+    SAGA->>Pagamento: ProcessarPagamento (itens + 15% de taxa)
+    Pagamento-->>SAGA: PagamentoProcessado (sucesso)
 
     SAGA->>Entregador: AlocarEntregador
-    Entregador-->>SAGA: Indisponível ❌
+    Entregador-->>SAGA: EntregadorAlocado (alocado)
 
-    Note over SAGA: Compensação Total
+    SAGA->>Notificacao: NotificarCliente (PedidoConfirmado)
+    Notificacao-->>SAGA: NotificacaoEnviada
 
-    par Compensar em Paralelo
+    Note over SAGA: CONCLUÍDO COM SUCESSO<br/>MarkAsComplete() remove a SAGA do banco
+```
+
+A resposta da notificação conclui a SAGA mesmo quando o envio falhou (caso 10): `NotificacaoEnviada` carrega `Enviada = false`, e o orquestrador não olha esse campo.
+
+---
+
+## 2. Restaurante recusa (sem compensação)
+
+Casos 2 e 3. Nada foi feito ainda, então não há o que desfazer.
+
+```mermaid
+sequenceDiagram
+    participant SAGA as Orquestrador
+    participant Restaurante
+    participant Notificacao as Notificação
+
+    SAGA->>Restaurante: ValidarPedidoRestaurante
+    Restaurante-->>SAGA: PedidoRestauranteValidado (inválido, motivo)
+
+    Note over SAGA: Cancelado: [CÓDIGO] motivo
+    SAGA->>Notificacao: NotificarCliente (PedidoCancelado)
+    Note over SAGA: MarkAsComplete()
+```
+
+A SAGA é concluída no mesmo handler que envia a notificação; a resposta da notificação chega depois que a SAGA já saiu do banco e não tem efeito.
+
+---
+
+## 3. Pagamento falha: cancela no restaurante
+
+Casos 4 e 6.
+
+```mermaid
+sequenceDiagram
+    participant SAGA as Orquestrador
+    participant Restaurante
+    participant Pagamento
+    participant Notificacao as Notificação
+
+    SAGA->>Restaurante: ValidarPedidoRestaurante
+    Restaurante-->>SAGA: PedidoRestauranteValidado (válido)
+
+    SAGA->>Pagamento: ProcessarPagamento
+    Pagamento-->>SAGA: PagamentoProcessado (falha, motivo)
+
+    Note over SAGA: COMPENSAÇÃO INICIADA
+
+    SAGA->>Restaurante: CancelarPedidoRestaurante
+    Restaurante-->>SAGA: PedidoRestauranteCancelado
+
+    Note over SAGA: COMPENSAÇÃO CONCLUÍDA (1 passo)
+    SAGA->>Notificacao: NotificarCliente (PedidoCancelado)
+    Note over SAGA: MarkAsComplete()
+```
+
+---
+
+## 4. Entregador falha: estorna e cancela
+
+Casos 5 e 12, e qualquer pedido recusado no horário de pico simulado ou com o pool de entregadores esgotado.
+
+```mermaid
+sequenceDiagram
+    participant SAGA as Orquestrador
+    participant Restaurante
+    participant Pagamento
+    participant Entregador
+    participant Notificacao as Notificação
+
+    SAGA->>Restaurante: ValidarPedidoRestaurante
+    Restaurante-->>SAGA: válido
+    SAGA->>Pagamento: ProcessarPagamento
+    Pagamento-->>SAGA: sucesso (TransacaoId)
+    SAGA->>Entregador: AlocarEntregador
+    Entregador-->>SAGA: EntregadorAlocado (não alocado, motivo)
+
+    Note over SAGA: COMPENSAÇÃO INICIADA
+
+    par enviados em sequência, processados em paralelo
         SAGA->>Pagamento: EstornarPagamento
-        SAGA->>Restaurante: CancelarPedido
+        Pagamento-->>SAGA: PagamentoEstornado
+    and
+        SAGA->>Restaurante: CancelarPedidoRestaurante
+        Restaurante-->>SAGA: PedidoRestauranteCancelado
     end
 
-    Pagamento-->>SAGA: Estornado
-    Restaurante-->>SAGA: Cancelado
-
-    Note over SAGA: Compensação Concluída
+    Note over SAGA: COMPENSAÇÃO CONCLUÍDA (2 passos)
+    SAGA->>Notificacao: NotificarCliente (PedidoCancelado)
+    Note over SAGA: MarkAsComplete()
 ```
 
-### Detalhes do Fluxo
+O orquestrador envia o estorno antes do cancelamento, mas as duas respostas podem chegar em qualquer ordem. A cada resposta, `VerificarSeCompensacaoCompleta()` confere se todos os passos feitos (`RestauranteValidado`, `PagamentoProcessado`, `EntregadorAlocado`) têm a compensação registrada em `PassosCompensados`; só então a SAGA é finalizada.
 
-1. **Validação**: Restaurante confirma disponibilidade
-2. **Pagamento**: Cobrança aprovada e confirmada
-3. **Falha na Entrega**: Nenhum entregador disponível na região
-4. **Compensação Paralela**:
-   - Estorno do pagamento
-   - Cancelamento do pedido no restaurante
-5. **Resultado**: SAGA finalizada com status "Compensado"
-
-### Estados da SAGA
-
-- `Iniciado` → `AguardandoValidacaoRestaurante` → `AguardandoPagamento` → `AguardandoEntregador` → `ExecutandoCompensacao` → `Compensado`
+As duas respostas podem ser processadas ao mesmo tempo (o orquestrador usa `MaxParallelism = 10`). O Rebus controla a concorrência da SAGA pela coluna `revision`: a segunda gravação falha por conflito e a mensagem é reprocessada com o estado atualizado.
 
 ---
 
-## 3. Fluxo Completo de Sucesso (Referência)
+## 5. Estados da SAGA
 
-Para comparação, este é o fluxo quando tudo funciona corretamente.
-
-```mermaid
-sequenceDiagram
-    participant API
-    participant SAGA
-    participant Restaurante
-    participant Pagamento
-    participant Entregador
-
-    API->>SAGA: IniciarPedido
-
-    SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado
-
-    SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Aprovado
-
-    SAGA->>Entregador: AlocarEntregador
-    Entregador-->>SAGA: Alocado
-
-    Note over SAGA: Pedido Concluído
-    SAGA-->>API: Pedido Confirmado
-```
-
-### Estados da SAGA
-
-- `Iniciado` → `AguardandoValidacaoRestaurante` → `AguardandoPagamento` → `AguardandoEntregador` → `Concluido`
-
----
-
-## 4. Diagrama de Estados da SAGA
+Valores de `EstadoAtual` em `PedidoSagaData`:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Iniciado
+    [*] --> ValidandoRestaurante: IniciarPedido
 
-    Iniciado --> AguardandoValidacaoRestaurante: IniciarPedido
+    ValidandoRestaurante --> ProcessandoPagamento: restaurante válido
+    ValidandoRestaurante --> Cancelado: restaurante recusa
 
-    AguardandoValidacaoRestaurante --> AguardandoPagamento: PedidoValidado
-    AguardandoValidacaoRestaurante --> ExecutandoCompensacao: ValidacaoFalhou
+    ProcessandoPagamento --> AlocandoEntregador: pagamento aprovado
+    ProcessandoPagamento --> ExecutandoCompensacao: pagamento recusado
 
-    AguardandoPagamento --> AguardandoEntregador: PagamentoAprovado
-    AguardandoPagamento --> ExecutandoCompensacao: PagamentoFalhou
+    AlocandoEntregador --> NotificandoCliente: entregador alocado
+    AlocandoEntregador --> ExecutandoCompensacao: entregador recusa
 
-    AguardandoEntregador --> Concluido: EntregadorAlocado
-    AguardandoEntregador --> ExecutandoCompensacao: EntregadorIndisponivel
+    NotificandoCliente --> Concluido: NotificacaoEnviada
 
-    ExecutandoCompensacao --> Compensado: CompensacaoConcluida
+    ExecutandoCompensacao --> Cancelado: todas as compensações confirmadas
 
     Concluido --> [*]
-    Compensado --> [*]
+    Cancelado --> [*]
 ```
 
----
+O estado final não é persistido: ao chegar em `Concluido` ou `Cancelado`, a SAGA chama `MarkAsComplete()` e o Rebus apaga a linha. Por isso `GET /api/pedidos/{id}/status` ainda é mock, e o desfecho só aparece no log `[SAGA]` do orquestrador.
 
-## 5. Fluxo de Compensação com Retry
-
-Cenário onde um passo de compensação falha e precisa ser reexecutado.
-
-```mermaid
-sequenceDiagram
-    participant SAGA
-    participant Pagamento
-    participant Restaurante
-
-    Note over SAGA: Compensação Iniciada
-
-    SAGA->>Pagamento: EstornarPagamento
-    Pagamento-->>SAGA: Timeout ⏱️
-
-    Note over SAGA: Retry 1/3
-    SAGA->>Pagamento: EstornarPagamento
-    Pagamento-->>SAGA: Timeout ⏱️
-
-    Note over SAGA: Retry 2/3
-    SAGA->>Pagamento: EstornarPagamento
-    Pagamento-->>SAGA: Estornado
-
-    SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado
-
-    Note over SAGA: Compensação Concluída
-```
-
-### Política de Retry
-
-- **Tentativas**: 3 vezes
-- **Intervalo**: Exponencial (1s, 2s, 4s)
-- **Ação se falhar**: Enviar para Dead Letter Queue
+Não existe estado separado para "compensado": recusa no restaurante e compensação concluída terminam ambas em `Cancelado`. O script de casos de uso distingue os dois pela linha de log (`Cancelado:` ou `COMPENSAÇÃO CONCLUÍDA`).
 
 ---
 
-## 6. Compensação com Idempotência
+## 6. Matriz de compensação
 
-Diagrama mostrando como a idempotência previne execução duplicada.
+| Falha em | Restaurante | Pagamento | Entregador | Compensações executadas |
+|---|---|---|---|---|
+| Validação do restaurante | recusou | não chamado | não chamado | nenhuma |
+| Pagamento | validado | recusou | não chamado | cancelar no restaurante |
+| Entregador | validado | aprovado | recusou | estornar pagamento e cancelar no restaurante |
+| Notificação | validado | aprovado | alocado | nenhuma: a SAGA conclui |
 
-```mermaid
-sequenceDiagram
-    participant SAGA
-    participant Pagamento
-    participant Cache
-
-    SAGA->>Pagamento: EstornarPagamento (Tentativa 1)
-    Pagamento->>Cache: Verificar idempotência (chave: transacao-123)
-    Cache-->>Pagamento: Não encontrado
-    Pagamento->>Cache: Armazenar (transacao-123: "processando")
-    Pagamento-->>SAGA: Estornado
-
-    Note over SAGA: Retry acidental ou mensagem duplicada
-
-    SAGA->>Pagamento: EstornarPagamento (Tentativa 2)
-    Pagamento->>Cache: Verificar idempotência (chave: transacao-123)
-    Cache-->>Pagamento: Já processado
-    Pagamento-->>SAGA: OK (Idempotente)
-```
+`LiberarEntregador` está implementado no serviço e tratado pela SAGA (`EntregadorLiberado`), mas nenhum fluxo atual o envia: não há etapa compensável depois da alocação.
 
 ---
 
-## 7. Matriz de Compensação
+## 7. Idempotência e falhas na compensação
 
-Tabela de referência rápida para entender quais compensações são executadas em cada cenário.
+O que o código garante hoje:
 
-| Falha no Passo | Restaurante | Pagamento | Entregador | Compensações Executadas |
-|---------------|-------------|-----------|------------|------------------------|
-| Validação Restaurante | ❌ | - | - | Nenhuma |
-| Pagamento | | ❌ | - | Cancelar Restaurante |
-| Entregador | | | ❌ | Estornar Pagamento + Cancelar Restaurante |
+- **Início duplicado:** o handler de `IniciarPedido` ignora a mensagem se a SAGA já existe (`IsNew`).
+- **Estorno repetido:** o handler do pagamento guarda a chave `estorno:{TransacaoId}` num repositório de idempotência em memória, e o serviço marca a transação como estornada; uma segunda chamada responde sucesso sem estornar de novo.
+- **Liberação repetida:** o serviço de entregador guarda a chave `liberacao:{EntregadorId}:{CorrelacaoId}` num repositório de idempotência em memória.
+- **Cancelamento repetido no restaurante:** sobrescreve o mesmo registro em memória, sem efeito adicional.
 
----
+Esses controles vivem na memória de cada serviço e se perdem quando o container reinicia.
 
-## 8. Tempo de Execução Típico
-
-```mermaid
-gantt
-    title Duração Típica da SAGA (Sucesso)
-    dateFormat  ss
-    axisFormat  %Ss
-
-    section Validação
-    Validar Restaurante     :a1, 00, 2s
-
-    section Pagamento
-    Processar Pagamento     :a2, after a1, 3s
-
-    section Entrega
-    Alocar Entregador       :a3, after a2, 2s
-
-    section Total
-    SAGA Concluída          :milestone, after a3, 0s
-```
-
-**Tempo Total**: ~7 segundos (em condições normais)
+Quando um handler lança exceção, o Rebus repete a mensagem (sem política configurada, vale o padrão do Rebus: 5 tentativas imediatas, sem intervalo) e, esgotadas as tentativas, a move para a fila `error`. A resposta de falha que os handlers enviam antes de relançar a exceção não sai, porque o Rebus só envia as mensagens de saída quando o handler termina sem erro.
 
 ---
 
-## 9. Cenário de Compensação Parcial
+## O que pode dar errado
 
-Quando apenas uma parte da transação precisa ser compensada.
-
-```mermaid
-sequenceDiagram
-    participant SAGA
-    participant Restaurante
-    participant Pagamento
-    participant Estoque
-
-    SAGA->>Restaurante: ValidarPedido
-    Restaurante-->>SAGA: Validado
-
-    SAGA->>Estoque: ReservarItens
-    Estoque-->>SAGA: Reservado
-
-    SAGA->>Pagamento: ProcessarPagamento
-    Pagamento-->>SAGA: Falha (Saldo Insuficiente) ❌
-
-    Note over SAGA: Compensação Parcial
-
-    SAGA->>Estoque: LiberarReserva
-    Estoque-->>SAGA: Liberado
-
-    SAGA->>Restaurante: CancelarPedido
-    Restaurante-->>SAGA: Cancelado
-```
-
----
-
-## 10. Observabilidade da Compensação
-
-Eventos e logs gerados durante o processo de compensação.
-
-```mermaid
-sequenceDiagram
-    participant SAGA
-    participant Logger
-    participant Metrics
-    participant Alertas
-
-    Note over SAGA: Compensação Iniciada
-
-    SAGA->>Logger: Log: "Iniciando compensação para pedido {id}"
-    SAGA->>Metrics: Incrementar: saga_compensacoes_total
-
-    loop Para cada passo
-        SAGA->>Logger: Log: "Compensando {passo}"
-        SAGA->>Metrics: Incrementar: passo_compensado_{nome}
-    end
-
-    alt Compensação com falhas
-        SAGA->>Alertas: Enviar alerta: "Compensação com retry"
-    end
-
-    Note over SAGA: Compensação Concluída
-
-    SAGA->>Logger: Log: "Compensação finalizada - {passos} passos"
-    SAGA->>Metrics: Registrar: saga_compensacao_duracao_ms
-```
-
----
-
-## Notas Importantes
-
-### Princípios de Compensação
-
-1. **Ordem Reversa**: Compensações sempre executam na ordem inversa das transações
-2. **Idempotência**: Cada compensação pode ser executada múltiplas vezes com o mesmo resultado
-3. **Resiliência**: Compensações têm retry automático com backoff exponencial
-4. **Auditoria**: Todos os passos de compensação são logados e rastreáveis
-
-### Garantias
-
-- Eventual consistência através das compensações
-- Nenhuma transação fica "meio processada"
-- Todos os passos bem-sucedidos são compensados em caso de falha
-- Sistema retorna a um estado consistente mesmo após falhas
-
----
-
-**Última atualização**: 2026-01-07
-**Versão**: 1.0
+- **Compensação com falha contada como feita:** `PagamentoEstornado` e `PedidoRestauranteCancelado` têm um campo `Sucesso`, mas a SAGA não o lê; uma resposta de estorno com `Sucesso = false` entra em `PassosCompensados` e a SAGA termina com `COMPENSAÇÃO CONCLUÍDA`.
+- **Compensação que nunca termina:** se o estorno ou o cancelamento for para a fila `error`, a SAGA fica em `ExecutandoCompensacao` para sempre. Não há timeout de SAGA nem alerta; a única pista é a mensagem na fila `error`.
+- **Serviço sem resposta:** a SAGA não tem prazo para esperar uma resposta. Se uma resposta não chegar, o pedido fica parado no estado atual.
+- **Estado dos serviços em memória:** um restart do serviço de pagamento entre a cobrança e o estorno faz o estorno falhar com "transação não encontrada", e pelo item acima essa falha passa despercebida pela SAGA.
+- **Ordem das compensações:** estorno e cancelamento correm em paralelo. Para estes serviços simulados a ordem não importa; num sistema real em que ela importe, a SAGA teria de esperar uma confirmação antes de enviar o comando seguinte.

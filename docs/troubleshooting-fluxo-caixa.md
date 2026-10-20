@@ -1,639 +1,216 @@
-# Troubleshooting - Sistema de Fluxo de Caixa
+# Runbook do fluxo de caixa
 
-Guia de diagnóstico e resolução de problemas específicos do sistema de Fluxo de Caixa (CQRS + Event-Driven).
+Diagnóstico do contexto de fluxo de caixa (CQRS: lançamentos → eventos → consolidado) na stack do compose. Todos os comandos rodam no Git Bash a partir da raiz do repositório e usam só `docker`, `curl`, `grep` e `awk`. Nomes de container, portas e bancos estão em [docker/README.md](../docker/README.md).
+
+O caminho de um lançamento:
+
+1. `lancamentos-api` (5200) recebe `POST /api/lancamentos`, valida o payload, envia `RegistrarLancamento` para a fila `fluxocaixa-lancamentos` e responde **202**.
+2. `lancamentos-worker` grava o lançamento em `fluxocaixa_lancamentos` e publica `LancamentoCreditoRegistrado` ou `LancamentoDebitoRegistrado` no exchange `RebusTopics`.
+3. O RabbitMQ entrega o evento à fila `fluxocaixa-consolidado`, **desde que o Consolidado tenha assinado o tópico**. Sem a assinatura, o evento é descartado em silêncio.
+4. `fluxocaixa-consolidado` atualiza a linha do dia em `fluxocaixa_consolidado` (uma mensagem por vez) e apaga a chave do dia no Redis.
+5. `fluxocaixa-api` (5100) responde `GET /api/consolidado/{comerciante}/{data}`, com cache.
+
+Como na SAGA, o 202 não prova nada. O script `bash docs/scripts/testar-fluxo-caixa.sh` percorre esse caminho e confere o saldo.
 
 ---
 
 ## Índice
 
-1. [Consolidado Não Está Atualizando](#1-consolidado-não-está-atualizando)
-2. [Latência Alta no Consolidado](#2-latência-alta-no-consolidado)
-3. [Lançamento Rejeitado](#3-lançamento-rejeitado)
-4. [Cache Não Está Funcionando](#4-cache-não-está-funcionando)
-5. [Eventos Não Estão Sendo Processados](#5-eventos-não-estão-sendo-processados)
-6. [Erro 429 - Rate Limit Excedido](#6-erro-429-rate-limit-excedido)
-7. [Dessincronização entre Lançamentos e Consolidado](#7-dessincronização-entre-lançamentos-e-consolidado)
-8. [PostgreSQL com Alta Carga](#8-postgresql-com-alta-carga)
+1. [Verificação rápida](#1-verificação-rápida)
+2. [Consolidado não atualiza](#2-consolidado-não-atualiza)
+3. [Consulta devolve valor antigo](#3-consulta-devolve-valor-antigo)
+4. [Erros da API de lançamentos (400)](#4-erros-da-api-de-lançamentos-400)
+5. [Erros da API de consulta (404 e 503)](#5-erros-da-api-de-consulta-404-e-503)
+6. [Mensagem na fila error](#6-mensagem-na-fila-error)
+7. [Lançamentos e consolidado divergentes](#7-lançamentos-e-consolidado-divergentes)
 
 ---
 
-## 1. Consolidado Não Está Atualizando
-
-### Sintomas
-
-- Lançamento criado com sucesso (202 Accepted)
-- Consolidado não reflete o novo lançamento
-- Valores totais desatualizados
-
-### Diagnóstico
-
-#### Passo 1: Verificar se o Lançamento Foi Persistido
+## 1. Verificação rápida
 
 ```bash
-# Via API
-curl http://localhost:5000/api/lancamentos/{id}
+# APIs, filas e as duas assinaturas do Consolidado (sai 1 e lista o que falta)
+bash docs/scripts/aguardar-stack.sh
 
-# Ou via PostgreSQL
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_lancamentos \
-  -c "SELECT * FROM lancamentos WHERE id = '{id}';"
+# Health das duas APIs
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5200/health
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5100/health
+
+# Filas do fluxo de caixa e da fila de erro
+docker exec saga-rabbitmq rabbitmqctl list_queues -q name messages_ready messages_unacknowledged consumers \
+  | grep -E 'fluxocaixa|error'
+
+# Assinaturas: devem aparecer as duas linhas, com destino fluxocaixa-consolidado
+docker exec saga-rabbitmq rabbitmqctl list_bindings -q source_name destination_name routing_key | grep RebusTopics
+
+# Redis
+docker exec fluxocaixa-redis redis-cli ping
 ```
 
-#### Passo 2: Verificar Eventos no RabbitMQ
-
-```bash
-# Acessar Management UI
-http://localhost:15672
-
-# Verificar fila fluxocaixa-consolidado
-# Deve ter mensagens prontas (Ready) ou em processamento (Unacked)
-```
-
-#### Passo 3: Verificar Logs do Serviço Consolidado
-
-```bash
-# Se rodando via Docker
-docker logs fluxocaixa-consolidado --tail 100
-
-# Procurar por erros
-docker logs fluxocaixa-consolidado 2>&1 | grep -i "error\|exception"
-```
-
-#### Passo 4: Verificar se o Serviço Consolidado Está Rodando
-
-```bash
-# Verificar containers
-docker ps | grep consolidado
-
-# Verificar health (se implementado)
-curl http://localhost:5002/health
-```
-
-### Ações Corretivas
-
-#### Caso 1: Serviço Consolidado Parado
-
-**Diagnóstico**: `docker ps` não mostra o container consolidado
-
-**Ação**:
-```bash
-# Reiniciar serviço
-docker-compose restart fluxocaixa-consolidado
-
-# Ou se rodando manualmente
-cd src/SagaPoc.FluxoCaixa.Consolidado
-dotnet run
-```
-
-#### Caso 2: Eventos na Dead Letter Queue
-
-**Diagnóstico**: Mensagens na fila `fluxocaixa-consolidado-dlq`
-
-**Ação**:
-```bash
-# 1. Ver mensagem na DLQ
-curl -u saga:saga123 -X POST \
-  http://localhost:15672/api/queues/%2F/fluxocaixa-consolidado-dlq/get \
-  -H "content-type: application/json" \
-  -d '{"count":1,"ackmode":"ack_requeue_false","encoding":"auto"}'
-
-# 2. Analisar motivo do erro (campo x-exception-message)
-
-# 3. Corrigir o problema (código/config)
-
-# 4. Mover mensagens de volta à fila principal (via Shovel ou manualmente)
-```
-
-#### Caso 3: Erro de Conexão com PostgreSQL
-
-**Diagnóstico**: Logs mostram "Connection refused" ou "Unable to connect"
-
-**Ação**:
-```bash
-# 1. Verificar se PostgreSQL está rodando
-docker ps | grep postgres
-
-# 2. Verificar porta correta (Consolidado usa 5434)
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_consolidado -c "\dt"
-
-# 3. Verificar string de conexão no appsettings.json
-cat src/SagaPoc.FluxoCaixa.Consolidado/appsettings.json | grep ConsolidadoDb
-
-# 4. Reiniciar serviço após correção
-```
+O worker e o Consolidado não têm porta nem `/health`; o sinal de vida deles é o consumidor (`consumers` = 1) nas filas `fluxocaixa-lancamentos` e `fluxocaixa-consolidado`.
 
 ---
 
-## 2. Latência Alta no Consolidado
+## 2. Consolidado não atualiza
 
-### Sintomas
+### Sintoma
 
-- Consultas ao consolidado demorando > 100ms
-- Timeout em requisições
-- Usuários reclamando de lentidão
+O `POST` devolveu 202, mas a consulta do dia não mostra o lançamento (404 ou saldo antigo). Se o lançamento acabou de ser feito, leia antes a [seção 3](#3-consulta-devolve-valor-antigo): a consulta pode estar só defasada.
 
-### Diagnóstico
+### Diagnóstico, na ordem do caminho
 
-#### Passo 1: Verificar Cache Hit Rate
+**Passo 1: o lançamento foi gravado?**
 
 ```bash
-# Verificar headers de resposta
-curl -I http://localhost:5000/api/consolidado/COM001/2026-01-15
-
-# Procurar por:
-# X-Cache-Status: HIT-L1 (ideal)
-# X-Cache-Status: HIT-L2 (ok)
-# X-Cache-Status: MISS (ruim se frequente)
+curl -s "http://localhost:5200/api/lancamentos?comerciante=<comerciante>&inicio=<yyyy-MM-dd>&fim=<yyyy-MM-dd>"
 ```
 
-#### Passo 2: Verificar Redis
+Lista vazia: o worker não gravou. Confira a fila `fluxocaixa-lancamentos` (mensagem parada com `consumers` = 0 significa worker fora do ar) e o log:
 
 ```bash
-# Verificar se Redis está rodando
-docker ps | grep redis
-
-# Conectar ao Redis
-docker exec -it redis redis-cli
-
-# Verificar chaves
-127.0.0.1:6379> KEYS FluxoCaixa:*
-
-# Verificar TTL de uma chave
-127.0.0.1:6379> TTL FluxoCaixa:consolidado:COM001:2026-01-15
-
-# Ver estatísticas
-127.0.0.1:6379> INFO stats
+docker logs lancamentos-worker --since 30m 2>&1 | grep -E 'RegistrarLancamento|Falha ao criar|Erro ao gravar'
 ```
 
-#### Passo 3: Verificar Performance do PostgreSQL
+`Falha ao criar lancamento` indica que o domínio recusou o lançamento (por exemplo, valor acima de 1 bilhão, regra que a API não confere). O worker registra o aviso e descarta a mensagem: ela não vai para a `error`.
+
+**Passo 2: o evento foi publicado?**
 
 ```bash
-# Executar query diretamente e medir tempo
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_consolidado \
-  -c "\timing on" \
-  -c "SELECT * FROM consolidado_diario WHERE comerciante = 'COM001' AND data = '2026-01-15';"
+docker logs lancamentos-worker --since 30m 2>&1 | grep 'Publicando evento'
 ```
 
-### Ações Corretivas
+**Passo 3: o evento chegou ao Consolidado?** Sem as duas assinaturas no `RebusTopics` (comando da seção 1), o evento publicado no passo 2 se perde sem erro. A assinatura é feita pelo Consolidado ao subir; se ela faltar, suba o container de novo (`docker compose -f docker/docker-compose.yml up -d fluxocaixa-consolidado`) e confira com `aguardar-stack.sh`. Os eventos descartados antes disso não voltam: repita os lançamentos.
 
-#### Caso 1: Redis Parado ou Inacessível
-
-**Diagnóstico**: Logs mostram "Unable to connect to Redis"
-
-**Ação**:
 ```bash
-# 1. Verificar se Redis está rodando
-docker-compose restart redis
-
-# 2. Verificar conectividade
-docker exec -it fluxocaixa-api ping redis
-
-# 3. Verificar string de conexão
-# appsettings.json → ConnectionStrings:Redis
-
-# 4. Aguardar cache popular novamente (5-10 minutos)
+docker logs fluxocaixa-consolidado --since 30m 2>&1 | grep -E 'Processando (credito|debito)|Consolidado atualizado|Erro ao processar'
 ```
 
-#### Caso 2: Cache Miss Frequente
+**Passo 4: a linha do dia foi gravada?**
 
-**Diagnóstico**: Maioria das requisições retorna `X-Cache-Status: MISS`
-
-**Ação**:
 ```bash
-# 1. Verificar TTL configurado (pode estar muito curto)
-# Program.cs → AddMemoryCache / AddStackExchangeRedisCache
-
-# 2. Verificar se cache está sendo invalidado desnecessariamente
-docker logs fluxocaixa-consolidado | grep "Invalidando cache"
-
-# 3. Aumentar TTL se necessário (ex: 1min → 5min no L1)
+docker exec fluxocaixa-postgres-consolidado psql -U saga -d fluxocaixa_consolidado -c \
+  "SELECT \"Data\", \"TotalCreditos\", \"TotalDebitos\", \"QuantidadeCreditos\", \"QuantidadeDebitos\", \"UltimaAtualizacao\"
+   FROM \"ConsolidadosDiarios\" WHERE \"Comerciante\" = '<comerciante>' ORDER BY \"Data\" DESC LIMIT 5;"
 ```
 
-#### Caso 3: Query SQL Lenta
+Se a linha está certa no banco e a API devolve outro valor, o problema é cache ([seção 3](#3-consulta-devolve-valor-antigo)).
 
-**Diagnóstico**: Query no PostgreSQL demora > 50ms
+### Ação
 
-**Ação**:
-```sql
--- 1. Verificar se índices existem
-SELECT indexname, indexdef
-FROM pg_indexes
-WHERE tablename = 'consolidado_diario';
-
--- 2. Criar índices faltantes
-CREATE INDEX IF NOT EXISTS idx_consolidado_comerciante_data
-    ON consolidado_diario(comerciante, data DESC);
-
--- 3. Analisar plano de execução
-EXPLAIN ANALYZE
-SELECT * FROM consolidado_diario
-WHERE comerciante = 'COM001' AND data = '2026-01-15';
-
--- 4. Atualizar estatísticas
-ANALYZE consolidado_diario;
-```
+- Container fora do ar: `docker logs <container> --tail 100` para ver a exceção da subida e `docker compose -f docker/docker-compose.yml up -d --build <serviço>`. As mensagens que ficaram na fila são consumidas quando ele volta.
+- Erro de conexão com banco ou Redis no log: os serviços usam os nomes do compose (`postgres-fluxocaixa`, `postgres-consolidado`, `redis`), não `localhost`. Confira as connection strings no `docker-compose.yml`.
 
 ---
 
-## 3. Lançamento Rejeitado
+## 3. Consulta devolve valor antigo
 
-### Sintomas
+### Por que acontece
 
-- API retorna 400 Bad Request
-- Mensagem de erro: "Lançamento rejeitado"
+A API de consulta tem três camadas de cache, e o Consolidado só invalida uma delas:
+
+| Camada | Duração | Invalidada pelo Consolidado? |
+|---|---|---|
+| Response cache do ASP.NET Core (`Cache-Control: public,max-age=60`) | 60 s | não |
+| Memory cache da API | 1 min | não |
+| Redis (`FluxoCaixa:consolidado:<comerciante>:<yyyy-MM-dd>`) | 5 min | sim, a cada evento |
+
+Por isso a leitura pode vir defasada **até cerca de 60 s** depois de o consolidado ser gravado. É uma limitação conhecida, não um defeito do momento; o script de teste contorna usando um comerciante novo por cenário.
 
 ### Diagnóstico
 
-#### Passo 1: Verificar Payload
-
 ```bash
-# Ver body da requisição
-curl -X POST http://localhost:5000/api/lancamentos \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tipo": 2,
-    "valor": -150.00,  # ERRO: valor negativo
-    "dataLancamento": "2026-01-15",
-    "descricao": "Venda",
-    "comerciante": "COM001"
-  }' -v
+# Chaves do consolidado no Redis (são hashes do IDistributedCache; o JSON fica no campo "data")
+docker exec fluxocaixa-redis redis-cli --scan --pattern 'FluxoCaixa:consolidado:*'
+docker exec fluxocaixa-redis redis-cli hget 'FluxoCaixa:consolidado:<comerciante>:<yyyy-MM-dd>' data
+docker exec fluxocaixa-redis redis-cli ttl 'FluxoCaixa:consolidado:<comerciante>:<yyyy-MM-dd>'
 ```
 
-#### Passo 2: Ver Mensagem de Erro Detalhada
+Compare com a linha do banco (passo 4 da seção 2). Banco atualizado e chave ausente no Redis significam que só os caches da própria API estão defasados.
 
-A resposta 400 deve conter detalhes:
+### Ação
+
+Esperar cerca de 1 minuto. Se o valor não mudar depois disso, não é cache: volte à [seção 2](#2-consolidado-não-atualiza).
+
+---
+
+## 4. Erros da API de lançamentos (400)
+
+A validação do payload é feita por atributos no `RegistrarLancamentoRequest`, e a resposta 400 é o `ValidationProblemDetails` padrão do ASP.NET Core, com o campo e a mensagem:
+
 ```json
 {
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
   "title": "One or more validation errors occurred.",
   "status": 400,
-  "errors": {
-    "Valor": ["O valor deve ser maior que zero"]
-  }
+  "errors": { "Valor": ["O valor deve ser maior que zero"] }
 }
 ```
 
-### Ações Corretivas
+| Campo | Regra |
+|---|---|
+| `tipo` | `1` = débito, `2` = crédito |
+| `valor` | maior ou igual a 0,01 |
+| `descricao` | obrigatória, de 3 a 500 caracteres |
+| `comerciante` | obrigatório, de 3 a 100 caracteres |
+| `categoria` | opcional, até 100 caracteres |
+| `dataLancamento` | opcional (padrão: hoje), no formato `yyyy-MM-dd` |
 
-#### Caso 1: Validação de Dados
+Payload com acento enviado direto no argumento do `curl` chega corrompido no Git Bash do Windows. Grave o JSON em arquivo e envie com `--data-binary`:
 
-**Erros Comuns**:
-- `valor`: Deve ser maior que zero
-- `tipo`: Deve ser 1 (Débito) ou 2 (Crédito)
-- `dataLancamento`: Formato inválido (use yyyy-MM-dd)
-- `descricao`: Vazio ou maior que 500 caracteres
-- `comerciante`: Vazio ou maior que 100 caracteres
-
-**Ação**: Corrigir payload e reenviar
-
-#### Caso 2: Regras de Negócio
-
-Verificar logs do serviço de Lançamentos:
 ```bash
-docker logs fluxocaixa-lancamentos --tail 50 | grep "Validação falhou"
+printf '{"tipo":2,"valor":150.00,"dataLancamento":"2026-10-20","descricao":"Venda balcão","comerciante":"COM001","categoria":"Vendas"}' > lancamento.json
+curl -s -H 'Content-Type: application/json' --data-binary @lancamento.json http://localhost:5200/api/lancamentos
 ```
 
 ---
 
-## 4. Cache Não Está Funcionando
+## 5. Erros da API de consulta (404 e 503)
 
-### Sintomas
-
-- Todas as requisições retornam `X-Cache-Status: MISS`
-- Latência sempre alta (~100ms)
-- Cache Hit Rate = 0%
-
-### Diagnóstico
-
-#### Passo 1: Verificar Headers de Cache
-
-```bash
-curl -I http://localhost:5000/api/consolidado/COM001/2026-01-15
-```
-
-Esperado:
-```
-X-Cache-Status: HIT-L1
-Cache-Control: public, max-age=60
-Age: 45
-```
-
-#### Passo 2: Verificar Logs de Cache
-
-```bash
-docker logs fluxocaixa-api | grep -i cache
-```
-
-#### Passo 3: Verificar Configuração
-
-```bash
-# Ver configuração do Redis
-cat src/SagaPoc.FluxoCaixa.Api/appsettings.json | grep Redis
-
-# Ver configuração do Memory Cache
-cat src/SagaPoc.FluxoCaixa.Api/Program.cs | grep AddMemoryCache -A 5
-```
-
-### Ações Corretivas
-
-#### Caso 1: Cache Desabilitado
-
-**Diagnóstico**: `AddMemoryCache()` ou `AddResponseCaching()` comentados
-
-**Ação**: Descomentar e reiniciar aplicação
-
-#### Caso 2: Redis com Problema
-
-```bash
-# Testar conexão com Redis
-docker exec -it fluxocaixa-api sh
-nc -zv redis 6379
-
-# Se falhar, verificar:
-# 1. Redis está rodando?
-docker ps | grep redis
-
-# 2. String de conexão correta?
-# appsettings.json → ConnectionStrings:Redis
-```
+- **404 em `GET /api/consolidado/{comerciante}/{data}`:** não existe linha para aquele comerciante e dia. Ou nenhum lançamento foi feito, ou ele ainda não passou pelo Consolidado ([seção 2](#2-consolidado-não-atualiza)). A data vai na rota (`/api/consolidado/COM001/2026-10-20`); para um intervalo, use `/api/consolidado/COM001/periodo?inicio=2026-10-01&fim=2026-10-20`.
+- **503 em rajada de requisições:** os controllers da API de consulta têm rate limit de janela fixa (50 requisições por segundo e fila de 10). Excedido o limite, o ASP.NET Core responde 503, o código padrão do rate limiter, já que o projeto não configura outro. O `/health` fica fora do limite.
 
 ---
 
-## 5. Eventos Não Estão Sendo Processados
+## 6. Mensagem na fila error
 
-### Sintomas
-
-- Mensagens acumulando na fila `fluxocaixa-consolidado`
-- Nenhum consumo de mensagens
-
-### Diagnóstico
-
-#### Passo 1: Verificar Filas no RabbitMQ
+Mensagem na `error` é sempre bug. O procedimento para ler a mensagem sem tirá-la da fila, achar a fila de origem (`rbs2-source-queue`) e a exceção (`rbs2-error-details`) é o mesmo da SAGA: [runbook da SAGA, seção 3](runbook-troubleshooting.md#3-mensagem-na-fila-error). Logs a conferir, conforme a origem:
 
 ```bash
-# Acessar Management UI
-http://localhost:15672
-
-# Verificar fila fluxocaixa-consolidado
-# Ready: Número de mensagens aguardando processamento
-# Consumers: Deve ser > 0
+docker logs lancamentos-worker --since 30m 2>&1 | grep -iE 'erro|exception'
+docker logs fluxocaixa-consolidado --since 30m 2>&1 | grep -iE 'erro|exception'
 ```
 
-#### Passo 2: Verificar Consumidores
+Só purgue a fila (`docker exec saga-rabbitmq rabbitmqctl purge_queue error`) depois de corrigir a causa e conferir que as mensagens são de teste da própria sessão.
 
-```bash
-# No RabbitMQ Management UI:
-# Queues → fluxocaixa-consolidado → Consumers
-
-# Deve mostrar:
-# - Consumer tag
-# - Channel
-# - Connection
-```
-
-### Ações Corretivas
-
-#### Caso 1: Nenhum Consumidor Ativo
-
-**Diagnóstico**: `Consumers: 0`
-
-**Ação**:
-```bash
-# Verificar se serviço Consolidado está rodando
-docker ps | grep consolidado
-
-# Se não estiver, iniciar
-docker-compose up -d fluxocaixa-consolidado
-
-# Verificar logs
-docker logs fluxocaixa-consolidado
-```
-
-#### Caso 2: Mensagens na DLQ
-
-Ver seção [Consolidado Não Está Atualizando - Caso 2](#caso-2-eventos-na-dead-letter-queue)
+Cuidado ao reprocessar mensagens de `fluxocaixa-lancamentos`: o worker não tem idempotência. Cada tentativa de `RegistrarLancamento` gera um `Id` novo, então uma mensagem que falhou depois do commit grava o lançamento de novo (item do backlog).
 
 ---
 
-## 6. Erro 429 - Rate Limit Excedido
+## 7. Lançamentos e consolidado divergentes
 
-### Sintomas
-
-- API retorna 429 Too Many Requests
-- Mensagem: "Rate limit exceeded"
-
-### Diagnóstico
+Os dois lados ficam em bancos diferentes, então a comparação é feita em duas consultas:
 
 ```bash
-# Fazer múltiplas requisições rápidas
-for i in {1..60}; do
-  curl -w "%{http_code}\n" http://localhost:5000/api/consolidado/COM001/2026-01-15 &
-done
+# Lado da escrita: soma por dia
+docker exec fluxocaixa-postgres-lancamentos psql -U saga -d fluxocaixa_lancamentos -c \
+  "SELECT data_lancamento,
+          SUM(CASE WHEN tipo = 'Credito' THEN valor ELSE 0 END) AS creditos,
+          SUM(CASE WHEN tipo = 'Debito' THEN valor ELSE 0 END) AS debitos,
+          COUNT(*) AS quantidade
+   FROM lancamentos WHERE comerciante = '<comerciante>' GROUP BY data_lancamento ORDER BY data_lancamento DESC;"
+
+# Lado do consolidado
+docker exec fluxocaixa-postgres-consolidado psql -U saga -d fluxocaixa_consolidado -c \
+  "SELECT \"Data\"::date, \"TotalCreditos\", \"TotalDebitos\", \"QuantidadeCreditos\" + \"QuantidadeDebitos\" AS quantidade
+   FROM \"ConsolidadosDiarios\" WHERE \"Comerciante\" = '<comerciante>' ORDER BY \"Data\" DESC;"
 ```
 
-Se configurado para 50 req/s, a partir da 51ª requisição no mesmo segundo retornará 429.
+Causas possíveis, todas já descritas acima:
 
-### Ações Corretivas
+- **Consolidado com menos:** evento descartado por falta de assinatura (seção 2, passo 3) ou parado na `error` (seção 6).
+- **Lançamentos com mais do que foi enviado:** reprocessamento no worker sem idempotência (seção 6).
 
-#### Caso 1: Carga Legítima Excedeu Limite
+Não há rotina de reconciliação: para acertar um ambiente de teste, apague os volumes (`docker compose -f docker/docker-compose.yml down -v`) e suba de novo.
 
-**Ação**: Aumentar limite ou implementar estratégia de retry com backoff no cliente
+### Logs e traces
 
-```csharp
-// Program.cs
-options.AddFixedWindowLimiter("consolidado", opt =>
-{
-    opt.PermitLimit = 100;  // Aumentar de 50 para 100
-    opt.Window = TimeSpan.FromSeconds(1);
-});
-```
-
-#### Caso 2: Cliente Não Está Respeitando Rate Limit
-
-**Ação**: Implementar retry com backoff exponencial no cliente
-
-```csharp
-var retryPolicy = Policy
-    .Handle<HttpRequestException>()
-    .OrResult<HttpResponseMessage>(r => r.StatusCode == HttpStatusCode.TooManyRequests)
-    .WaitAndRetryAsync(3, retryAttempt =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
-```
-
----
-
-## 7. Dessincronização entre Lançamentos e Consolidado
-
-### Sintomas
-
-- Lançamentos existem no banco de Lançamentos
-- Consolidado não reflete esses lançamentos
-- Valores totais incorretos
-
-### Diagnóstico
-
-#### Passo 1: Comparar Dados
-
-```sql
--- Banco de Lançamentos
-SELECT
-    comerciante,
-    data_lancamento,
-    SUM(CASE WHEN tipo = 'Credito' THEN valor ELSE 0 END) AS total_creditos,
-    SUM(CASE WHEN tipo = 'Debito' THEN valor ELSE 0 END) AS total_debitos
-FROM lancamentos
-WHERE comerciante = 'COM001' AND data_lancamento = '2026-01-15'
-GROUP BY comerciante, data_lancamento;
-
--- Banco de Consolidado
-SELECT * FROM consolidado_diario
-WHERE comerciante = 'COM001' AND data = '2026-01-15';
-```
-
-#### Passo 2: Verificar Eventos Perdidos
-
-```bash
-# Ver eventos publicados (logs do Lançamentos)
-docker logs fluxocaixa-lancamentos | grep "Evento publicado"
-
-# Ver eventos consumidos (logs do Consolidado)
-docker logs fluxocaixa-consolidado | grep "Evento recebido"
-```
-
-### Ações Corretivas
-
-#### Caso 1: Eventos Foram Perdidos
-
-**Ação**: Reconciliação manual via job batch
-
-```csharp
-// Script de reconciliação (executar manualmente)
-POST /api/admin/reconciliar
-{
-    "dataInicio": "2026-01-01",
-    "dataFim": "2026-01-31"
-}
-```
-
-#### Caso 2: Processamento Parcial
-
-**Ação**: Reprocessar eventos específicos
-
-```bash
-# 1. Identificar lançamentos não processados
-# 2. Republicar eventos manualmente
-# 3. Aguardar processamento
-```
-
----
-
-## 8. PostgreSQL com Alta Carga
-
-### Sintomas
-
-- CPU do PostgreSQL > 80%
-- Queries lentas
-- Timeouts frequentes
-
-### Diagnóstico
-
-```bash
-# Ver processos ativos
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_consolidado \
-  -c "SELECT pid, usename, application_name, state, query
-      FROM pg_stat_activity
-      WHERE state != 'idle'
-      ORDER BY query_start;"
-
-# Ver queries lentas
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_consolidado \
-  -c "SELECT query, calls, total_time, mean_time
-      FROM pg_stat_statements
-      ORDER BY mean_time DESC
-      LIMIT 10;"
-```
-
-### Ações Corretivas
-
-#### Caso 1: Índices Faltando
-
-```sql
--- Criar índices necessários
-CREATE INDEX CONCURRENTLY idx_consolidado_comerciante_data
-    ON consolidado_diario(comerciante, data DESC);
-
--- Verificar uso de índices
-EXPLAIN ANALYZE
-SELECT * FROM consolidado_diario
-WHERE comerciante = 'COM001';
-```
-
-#### Caso 2: Muitas Conexões Abertas
-
-```sql
--- Ver conexões ativas
-SELECT count(*) FROM pg_stat_activity;
-
--- Configurar pool de conexões no appsettings.json
-"FluxoCaixaDb": "Host=localhost;Port=5433;...;MaxPoolSize=50;MinPoolSize=5"
-```
-
----
-
-## Scripts de Utilidade
-
-### Verificar Saúde Completa do Sistema
-
-```bash
-#!/bin/bash
-# health-check-fluxocaixa.sh
-
-echo "=== Verificando Serviços ==="
-docker ps | grep -E "fluxocaixa|postgres|rabbitmq|redis"
-
-echo "\n=== Verificando PostgreSQL ==="
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_lancamentos -c "\dt"
-docker exec -it postgres-fluxocaixa psql -U saga -d fluxocaixa_consolidado -c "\dt"
-
-echo "\n=== Verificando Redis ==="
-docker exec -it redis redis-cli ping
-
-echo "\n=== Verificando RabbitMQ ==="
-curl -s -u saga:saga123 http://localhost:15672/api/queues | \
-  jq '.[] | select(.name | contains("fluxocaixa")) | {name, messages}'
-
-echo "\n=== Verificando API ==="
-curl -s http://localhost:5000/health | jq '.'
-```
-
-### Limpar Cache Manualmente
-
-```bash
-#!/bin/bash
-# clear-cache.sh
-
-echo "Limpando Redis..."
-docker exec -it redis redis-cli FLUSHALL
-
-echo "Reiniciando API (para limpar Memory Cache)..."
-docker-compose restart fluxocaixa-api
-
-echo "Cache limpo!"
-```
-
----
-
-## Contatos de Escalação
-
-| Severidade | Time | Contato | SLA |
-|------------|------|---------|-----|
-| P0 - Sistema Fora | On-call Engineering | oncall@empresa.com | 15 min |
-| P1 - Degradação Severa | Platform Team | platform@empresa.com | 1 hora |
-| P2 - Performance Degradada | DevOps | devops@empresa.com | 4 horas |
-| P3 - Questões Gerais | Squad FluxoCaixa | fluxocaixa-team@empresa.com | 1 dia útil |
-
----
-
-**Versão**: 1.0
-**Data de criação**: 2026-01-15
-**Última atualização**: 2026-01-15
-**Mantenedor**: Equipe de Arquitetura
+O Consolidado não manda log para o Seq nem gera trace; use `docker logs fluxocaixa-consolidado`. No Jaeger (http://localhost:16686) aparecem `SagaPoc.Lancamentos.Api` e `SagaPoc.Lancamentos.Worker`. No Seq (http://localhost:5342) aparecem os logs das duas APIs; o worker de lançamentos também não manda log para o Seq.

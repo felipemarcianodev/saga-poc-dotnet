@@ -92,9 +92,9 @@ O CI (`.github/workflows/ci.yml`) roda os mesmos portões em todo PR: build, tes
 
 | Serviço | Endereço |
 |---|---|
-| API de pedidos (SAGA) | http://localhost:5000 (Swagger em `/swagger`) |
-| API de lançamentos (escrita) | http://localhost:5200 |
-| API do fluxo de caixa (consulta) | http://localhost:5100 |
+| API de pedidos (SAGA) | http://localhost:5000 (Swagger na raiz) |
+| API de lançamentos (escrita) | http://localhost:5200 (Swagger em `/swagger`) |
+| API do fluxo de caixa (consulta) | http://localhost:5100 (Swagger em `/swagger`) |
 | RabbitMQ (management) | http://localhost:15672 (saga / saga123) |
 | Seq (logs) | http://localhost:5342 |
 | Jaeger (traces) | http://localhost:16686 |
@@ -122,7 +122,7 @@ docker/docker-compose.yml               stack completa
 docs/                                   documentação (ver abaixo)
 ```
 
-Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregador`, `fila-notificacao`, `fluxocaixa-lancamentos`, `fluxocaixa-consolidado`.
+Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregador`, `fila-notificacao`, `fluxocaixa-lancamentos`, `fluxocaixa-consolidado`. A API de lançamentos também declara a fila de entrada `lancamentos-api`, e falhas vão para a `error`.
 
 ---
 
@@ -135,7 +135,7 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 - **Transação no fluxo de caixa:** o DbContext usa `EnableRetryOnFailure`, que recusa transação aberta à mão. Usar `IUnitOfWork.ExecutarEmTransacaoAsync`, que roda o bloco na estratégia de execução do EF e o repete inteiro em falha transitória. Dentro do bloco, ler o estado de novo; não chamar `Update` em entidade recém-adicionada (vira UPDATE de linha inexistente).
 - **Migração só no dono da escrita:** o worker de lançamentos migra `fluxocaixa_lancamentos` e o Consolidado migra `fluxocaixa_consolidado`. As APIs não migram, para não disputarem a mesma migration ao subir.
 - **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`): a linha do dia não tem controle de concorrência, e dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
-- **Leitura do consolidado pode vir defasada até cerca de 60 s:** o Consolidado apaga a chave no Redis, mas a API de consulta também tem cache em memória (1 min) e response cache (60 s), que não são invalidados. Por isso o script usa um comerciante novo por cenário.
+- **Leitura do consolidado pode vir defasada até cerca de 60 s:** o Consolidado apaga a chave no Redis, mas a API de consulta também tem cache em memória (1 min) e response cache (60 s), que não são invalidados. Por isso o script usa um comerciante novo por cenário. E a leitura do Redis hoje falha ao desserializar o agregado e cai no banco (backlog 1).
 - **Worker com `Microsoft.NET.Sdk` precisa copiar o `appsettings.json`** para a saída (`CopyToOutputDirectory`): o `UseCustomSerilog` do host lê o arquivo do diretório de trabalho e derruba o processo se ele faltar.
 - **Dockerfiles copiam `src/` inteiro e o `Directory.Build.props`** (`bin/obj` ficam fora pelo `.dockerignore`). Não voltar para a lista manual de projetos: ela ficava defasada a cada projeto criado ou removido e quebrou o build da imagem. Sem o `Directory.Build.props`, o build da imagem fica sem TFM.
 - **`GSS Encryption Mode=Disable` nas connection strings do compose:** a imagem `aspnet:10.0` (Ubuntu) não tem `libgssapi_krb5.so.2`, e o Npgsql tenta negociar GSS ao conectar, imprimindo erro na subida de cada serviço com banco. Ninguém usa Kerberos aqui.
@@ -161,7 +161,7 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 | `docs/scripts/` | Scripts de teste (`readme-script.md` explica cada um) |
 | `docker/README.md` | Operação da stack e consultas SQL |
 
-Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as imagens de `docs/images/`) e `docs/rascunhos/` (planos locais).
+Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts das imagens geradas por IA, removidas na fase 6 por não baterem com o sistema; preferir mermaid e tabelas) e `docs/rascunhos/` (planos locais).
 
 **Regras de escrita** (o repositório é público e é avaliado por quem lê):
 - Nada de métrica sem evidência ("99,9%", "50 req/s", "P95 < 10 ms") — só com teste de carga ou monitoramento que comprove; do contrário, escrever como objetivo.
@@ -182,7 +182,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 | 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (#5) |
 | 4. Migração para .NET 10 | `fase/4-dotnet-10` | ✅ Na `main` (#7) |
 | 5. CI no GitHub Actions | `fase/5-ci` | ✅ Na `main` (#8) |
-| 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ⏳ Pendente |
+| 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ✅ Na `main` (#9) |
 
 ### Fase 3 — Fluxo de Caixa (escrita) no compose (concluída)
 - `lancamentos-api` (porta 5200), `lancamentos-worker` e `fluxocaixa-consolidado` no compose, com Dockerfiles que copiam `src/` inteiro; connection strings e RabbitMQ alinhados nos `appsettings`.
@@ -204,18 +204,19 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 - Horário de pico configurável: `Simulacao:HorarioPico:Habilitado` (padrão `true`), repassado pelo compose a partir de `SIMULAR_HORARIO_PICO`; o CI usa `false`.
 - `docs/scripts/aguardar-stack.sh`: espera o `/health` das três APIs, as sete filas e as duas assinaturas do Consolidado, porque mensagem enviada antes disso é descartada em silêncio.
 
-### Fase 6 — README e "Sobre"
-- `docs/README.md` (≈700 linhas) reduzido ao essencial; remover menções a "18 casos" e ao projeto `FluxoCaixa.Lancamentos`, que não existe mais.
-- Revisar `docs/arquitetura.md`, `docs/boas-praticas.md` e `docs/casos-uso.md` (citam MassTransit), ADR 002 (metas de latência e vazão sem medição) e os runbooks (usam `jq`).
-- Seção "Limitações conhecidas" no README.
-- Conferir se as imagens de `docs/images/` ainda batem com o sistema.
-- "Sobre" do GitHub: hoje diz ".NET 9"; atualizar a descrição e incluir os tópicos `dotnet`, `cqrs`, `postgresql`, `redis` e `opentelemetry`.
+### Fase 6 — README e "Sobre" (concluída)
+- `docs/README.md` reescrito (de 706 para cerca de 180 linhas): o que é, arquitetura em uma página, como rodar e validar, "Limitações conhecidas" e índice da documentação, com o selo do CI.
+- Documentação conferida com o código: arquitetura, design, boas práticas, casos de uso, diagramas, fluxo de caixa, ADRs, runbooks e `docker/README.md`. Saíram estados, endpoints, tabelas, métricas e regras de serviço que não existem; os runbooks não usam mais `jq`.
+- Removidas as quatro imagens de `docs/images/` (geradas por IA, com casos duplicados, ".NET 9" e 18 cenários) e os dez scripts `.ps1`, que não conferiam desfecho; ficaram tabelas e diagramas mermaid.
+- "Sobre" do GitHub: descrição com .NET 10 e tópicos `dotnet`, `cqrs`, `postgresql`, `redis` e `opentelemetry`.
+- Defeitos achados e registrados no backlog (não corrigidos, fora do escopo): Redis do consolidado que não serve leitura e compensação que não confere o resultado.
 
 ### Backlog (fora das fases, por prioridade)
-1. **Status real do pedido:** o orquestrador publica as transições de estado e a API mantém uma projeção (read model) consultada por `GET /api/pedidos/{id}/status`; hoje o endpoint é mock.
-2. **Testes automatizados da API de pedidos e da SAGA:** testes de integração (xUnit + Testcontainers com RabbitMQ e PostgreSQL) cobrindo os 12 casos, cenários de erro (400, 404) e os endpoints `/status` e `/health`.
-3. **Traces da SAGA:** só `SagaPoc.Api` e os serviços de lançamentos aparecem no Jaeger. O orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada, e o estado da SAGA não passa pelo EF). Avaliar `Rebus.Diagnostics` e a instrumentação do Npgsql.
-4. **Idempotência do worker de lançamentos:** cada tentativa de `RegistrarLancamento` gera um `Id` novo; se o envio do evento falhar depois do commit, a repetição do Rebus grava o lançamento de novo. Usar o `CorrelationId` do comando como chave de deduplicação.
-5. **`UseCustomSerilog` do host** (`SagaPoc.Observability`) monta a configuração com Seq e a descarta, lendo só o `appsettings.json`; os workers não mandam log para o Seq.
-6. Scripts `.ps1` antigos de `docs/scripts/` (fluxo de caixa, sistema completo, monitor) apontam todas as APIs para a mesma URL e não conferem resultado; revisar ou remover na fase 6.
-7. **Pacotes a revisar:** `FluentValidation.AspNetCore` (descontinuado e sem uso em `SagaPoc.Common`) e a imagem `jaegertracing/all-in-one:latest` (linha 1, encerrada; fixar a versão ou migrar para o Jaeger 2).
+1. **Redis do consolidado não serve leitura:** a API grava o `ConsolidadoDiario` no Redis, mas o `System.Text.Json` não o desserializa (construtor privado, `private set`); o `RedisCacheService` loga `Erro ao buscar do cache` com `NotSupportedException` e vai ao banco. Cachear um DTO (ou dar ao agregado um construtor com `[JsonConstructor]`) e cobrir com teste.
+2. **Compensação sem conferência e sem prazo:** `PedidoSaga` trata `PagamentoEstornado` e `PedidoRestauranteCancelado` sem ler o `Sucesso`, então um estorno que falhou conta como compensado; não há timeout de SAGA. `LiberarEntregador` nunca é enviado.
+3. **Status real do pedido:** o orquestrador publica as transições de estado e a API mantém uma projeção (read model) consultada por `GET /api/pedidos/{id}/status`; hoje o endpoint é mock.
+4. **Testes automatizados da API de pedidos e da SAGA:** testes de integração (xUnit + Testcontainers com RabbitMQ e PostgreSQL) cobrindo os 12 casos, cenários de erro (400, 404) e os endpoints `/status` e `/health`.
+5. **Traces da SAGA:** só `SagaPoc.Api` e os serviços de lançamentos aparecem no Jaeger. O orquestrador e os serviços da SAGA não geram span (o Rebus não tem instrumentação configurada, e o estado da SAGA não passa pelo EF). Avaliar `Rebus.Diagnostics` e a instrumentação do Npgsql. No fluxo de caixa, a `FluxoCaixa.Api` não recebe `Otlp__Endpoint` no compose e o Consolidado não chama `AddSagaOpenTelemetryForHost`.
+6. **Idempotência do worker de lançamentos:** cada tentativa de `RegistrarLancamento` gera um `Id` novo; se o envio do evento falhar depois do commit, a repetição do Rebus grava o lançamento de novo. Usar o `CorrelationId` do comando como chave de deduplicação.
+7. **`UseCustomSerilog` do host** (`SagaPoc.Observability`) monta a configuração com Seq e a descarta, lendo só o `appsettings.json`; os workers não mandam log para o Seq.
+8. **Pacotes e código a revisar:** `FluentValidation.AspNetCore` (descontinuado e sem uso em `SagaPoc.Common`), a imagem `jaegertracing/all-in-one:latest` (linha 1, encerrada; fixar a versão ou migrar para o Jaeger 2) e o `ServicoPagamentoComPolly`, que existe mas não está registrado.
