@@ -181,7 +181,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 | 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Na `main` (#4) |
 | 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (#5) |
 | 4. Migração para .NET 10 | `fase/4-dotnet-10` | ✅ Na `main` (#7) |
-| 5. CI no GitHub Actions | `fase/5-ci` | ✅ Na `main` (#PR) |
+| 5. CI no GitHub Actions | `fase/5-ci` | ✅ Na `main` (#8) |
 | 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ⏳ Pendente |
 
 ### Fase 3 — Fluxo de Caixa (escrita) no compose (concluída)
