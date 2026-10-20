@@ -83,7 +83,12 @@ bash docs/scripts/testar-casos-de-uso.sh 4      # um caso
 
 # Fluxo de caixa de ponta a ponta: lançamentos -> consolidado (sai 1 se divergir)
 bash docs/scripts/testar-fluxo-caixa.sh
+
+# Logo depois de um `up`: espera filas, assinaturas e APIs (sai 1 se o tempo acabar)
+bash docs/scripts/aguardar-stack.sh
 ```
+
+O CI (`.github/workflows/ci.yml`) roda os mesmos portões em todo PR: build, testes e, com a stack no compose, os dois scripts.
 
 | Serviço | Endereço |
 |---|---|
@@ -125,7 +130,7 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 
 - **Estado da SAGA é do Rebus.** O Rebus cria e mantém `pedido_saga_data` e `pedido_saga_index` (`data` é JSON em `bytea`). Nenhum outro componente (EF Core, migration, SQL manual) cria ou altera essas tabelas. Foi exatamente isso que quebrou a SAGA até 2026-10-17: o EF criava uma tabela com o mesmo nome e outro esquema.
 - **SAGA concluída some do banco.** `MarkAsComplete()` remove a linha; o desfecho final não fica persistido em lugar nenhum. Por isso `GET /api/pedidos/{id}/status` ainda é **mock** (sempre "EmProcessamento") — ver plano.
-- **Simulações nos serviços** (documentar, não "corrigir"): o entregador recusa 30% das alocações entre 12h e 14h UTC (horário de pico); o pool tem 10 entregadores, e cada um volta ao pool quando a entrega simulada termina (1 minuto estimado = 1 segundo). O script marca a recusa de pico como AVISO, não como falha.
+- **Simulações nos serviços** (documentar, não "corrigir"): o entregador recusa 30% das alocações entre 12h e 14h59 UTC (horário de pico), simulação que se desliga com `SIMULAR_HORARIO_PICO=false` no compose (o CI faz isso); o pool tem 10 entregadores, e cada um volta ao pool quando a entrega simulada termina (1 minuto estimado = 1 segundo). O script marca a recusa de pico como AVISO, não como falha.
 - **Fluxo de caixa: eventos por Publish/Subscribe.** O worker de lançamentos publica `LancamentoCreditoRegistrado`/`LancamentoDebitoRegistrado` e o Consolidado assina os dois ao subir (`onCreated`). Sem a assinatura, o RabbitMQ descarta os eventos em silêncio; mapear o evento no roteamento não adianta, porque o mapa só vale para `Send`.
 - **Transação no fluxo de caixa:** o DbContext usa `EnableRetryOnFailure`, que recusa transação aberta à mão. Usar `IUnitOfWork.ExecutarEmTransacaoAsync`, que roda o bloco na estratégia de execução do EF e o repete inteiro em falha transitória. Dentro do bloco, ler o estado de novo; não chamar `Update` em entidade recém-adicionada (vira UPDATE de linha inexistente).
 - **Migração só no dono da escrita:** o worker de lançamentos migra `fluxocaixa_lancamentos` e o Consolidado migra `fluxocaixa_consolidado`. As APIs não migram, para não disputarem a mesma migration ao subir.
@@ -176,7 +181,7 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 | 2b. Este CLAUDE.md; limpeza da documentação (índice e guia de Swagger removidos, ADRs versionados, links corrigidos) | `fase/2b-claude-md` | ✅ Na `main` (#4) |
 | 3. Lado de escrita do Fluxo de Caixa no compose | `fase/3-fluxo-caixa-compose` | ✅ Na `main` (#5) |
 | 4. Migração para .NET 10 | `fase/4-dotnet-10` | ✅ Na `main` (#7) |
-| 5. CI no GitHub Actions | `fase/5-ci` | ⏳ Pendente |
+| 5. CI no GitHub Actions | `fase/5-ci` | ✅ Na `main` (#8) |
 | 6. README, "Sobre" e tópicos do GitHub | `fase/6-readme-sobre` | ⏳ Pendente |
 
 ### Fase 3 — Fluxo de Caixa (escrita) no compose (concluída)
@@ -194,9 +199,10 @@ Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts que geraram as i
 - Imagens `sdk:10.0`/`aspnet:10.0`; os seis Dockerfiles da SAGA passaram a copiar `src/` inteiro, como os do fluxo de caixa.
 - Build com 0 aviso (eram 85) e nenhum pacote vulnerável, inclusive os transitivos.
 
-### Fase 5 — CI
-- Workflow em `.github/workflows/` com build e `dotnet test` em push/PR.
-- Opcional: job que sobe o compose e roda `testar-casos-de-uso.sh` (sai 1 se divergir). Para ficar determinístico, tornar o horário de pico do entregador configurável e desligá-lo no CI.
+### Fase 5 — CI (concluída)
+- `.github/workflows/ci.yml` em push na `main`, PR e disparo manual. Job `build-test`: build e `dotnet test` em Release. Job `e2e` (depois do primeiro): sobe o compose, roda `aguardar-stack.sh` e os dois scripts de ponta a ponta; em falha, despeja os logs de cada serviço; no fim, `down -v`.
+- Horário de pico configurável: `Simulacao:HorarioPico:Habilitado` (padrão `true`), repassado pelo compose a partir de `SIMULAR_HORARIO_PICO`; o CI usa `false`.
+- `docs/scripts/aguardar-stack.sh`: espera o `/health` das três APIs, as sete filas e as duas assinaturas do Consolidado, porque mensagem enviada antes disso é descartada em silêncio.
 
 ### Fase 6 — README e "Sobre"
 - `docs/README.md` (≈700 linhas) reduzido ao essencial; remover menções a "18 casos" e ao projeto `FluxoCaixa.Lancamentos`, que não existe mais.

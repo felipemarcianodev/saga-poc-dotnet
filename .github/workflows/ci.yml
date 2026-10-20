@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Um push novo na mesma branch cancela a execução anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build SagaPoc.sln -c Release
+
+      # Sem --no-build: o teste compila o próprio projeto, como no portão local.
+      - name: Testes
+        run: dotnet test SagaPoc.sln -c Release --logger "console;verbosity=normal"
+
+  e2e:
+    name: Ponta a ponta (compose)
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: docker compose -f docker/docker-compose.yml
+      # Sem a recusa de 30% no horário de pico, o desfecho dos casos não depende do relógio.
+      SIMULAR_HORARIO_PICO: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir a stack
+        run: $COMPOSE up -d --build
+
+      - name: Aguardar filas, assinaturas e APIs
+        run: bash docs/scripts/aguardar-stack.sh
+
+      - name: Casos de uso da SAGA
+        run: bash docs/scripts/testar-casos-de-uso.sh
+
+      - name: Fluxo de caixa
+        run: bash docs/scripts/testar-fluxo-caixa.sh
+
+      - name: Logs dos serviços
+        if: failure()
+        run: |
+          $COMPOSE ps -a
+          for servico in $($COMPOSE config --services); do
+            echo "::group::$servico"
+            $COMPOSE logs --no-color --tail 200 "$servico"
+            echo "::endgroup::"
+          done
+
+      - name: Derrubar a stack
+        if: always()
+        run: $COMPOSE down -v

@@ -80,7 +80,7 @@ BASE_URL=http://localhost:8080 TEMPO_MAXIMO=90 ./testar-casos-de-uso.sh
 - **Cancelado:** a SAGA para antes de qualquer passo que precise ser desfeito.
 - **Compensado:** um passo falhou depois de outros terem sido executados, e a SAGA desfez os anteriores (estorno, liberação do entregador, cancelamento no restaurante).
 
-> **Horário de pico simulado:** entre 12h e 14h (UTC), o serviço de entregador recusa 30% das alocações. Nessa janela, um caso que deveria concluir pode terminar compensado; o script marca isso como **AVISO**, e não como falha.
+> **Horário de pico simulado:** entre 12h e 14h59 (UTC), o serviço de entregador recusa 30% das alocações. Nessa janela, um caso que deveria concluir pode terminar compensado; o script marca isso como **AVISO**, e não como falha. Para desligar a simulação, suba a stack com `SIMULAR_HORARIO_PICO=false` (é o que o CI faz).
 
 ---
 
@@ -111,6 +111,21 @@ LANCAMENTOS_URL=http://localhost:5200 CONSULTA_URL=http://localhost:5100 TEMPO_M
 Ao final, confere que nenhuma mensagem nova caiu na fila `error`. Sai com código 1 se qualquer verificação falhar.
 
 **`testar-fluxo-caixa.ps1` (legado):** usa uma única URL para as duas APIs e não confere o resultado; será revisto na fase 6 do plano de retomada. Use o `.sh`.
+
+---
+
+## Antes dos testes de ponta a ponta
+
+### `aguardar-stack.sh`
+
+Espera a stack ficar pronta depois de um `docker compose up`. Container no ar não basta: mensagem enviada antes de o orquestrador declarar a fila dele, ou antes de o Consolidado assinar os eventos, é descartada pelo RabbitMQ sem erro. O script só libera quando as três APIs respondem 200 em `/health`, as sete filas existem e as duas assinaturas do Consolidado estão no exchange `RebusTopics`.
+
+```bash
+bash docs/scripts/aguardar-stack.sh
+TEMPO_MAXIMO=300 bash docs/scripts/aguardar-stack.sh   # padrão: 180 s
+```
+
+Sai com código 1 e lista o que ficou pendente se o tempo acabar. O CI (`.github/workflows/ci.yml`) roda este script e depois os dois testes acima.
 
 ---
 
