@@ -105,7 +105,8 @@ public class CancelarPedidoRestauranteHandler : IHandleMessages<CancelarPedidoRe
                 PedidoId: mensagem.PedidoId
             ));
 
-            throw; // Re-throw para Rebus lidar com retry policy
+            // Sem relançar: com exceção, o Rebus descartaria a resposta acima. A SAGA
+            // recebe a falha e decide se tenta de novo.
         }
     }
 }

@@ -117,15 +117,16 @@ Compensações (ordem reversa):
    1. Cancelar pedido no restaurante
 ```
 
-Os dois comandos de compensação saem no mesmo handler, na ordem reversa, mas são processados em paralelo por serviços diferentes. A SAGA só termina quando as duas confirmações chegam, em qualquer ordem.
+Os dois comandos de compensação saem no mesmo handler, na ordem reversa, mas são processados em paralelo por serviços diferentes. A SAGA confere o `Sucesso` de cada resposta: recusa gera nova tentativa (até 3, com 2 s entre elas), e a SAGA só termina quando nenhum passo está pendente, como `Cancelado` ou como `CompensacaoFalhou`.
 
 **Características das compensações**:
 - **Idempotente**: o estorno é deduplicado por chave (`estorno:{TransacaoId}`) num repositório em memória
-- **Best-effort**: tenta executar, mas pode falhar
+- **Conferida**: a resposta diz se deu certo; falha repetida é registrada como passo sem compensação, não como compensado
 - **Logged**: todas as compensações são logadas com o `CorrelacaoId`
 
 **O que pode dar errado**:
-- Se a compensação falhar e a confirmação nunca chegar, a SAGA fica parada em `ExecutandoCompensacao`. Não há timeout nem recuperação automática.
+- Se a resposta de uma compensação nunca chegar, o prazo da compensação (30 s) encerra a SAGA como `CompensacaoFalhou`. O pedido não fica parado, mas a pendência só existe no log de erro.
+- Resposta que chega depois de a SAGA terminar é descartada pelo Rebus; o passo que ela representa não é compensado.
 - A deduplicação em memória se perde quando o serviço reinicia e não vale entre instâncias.
 
 ---

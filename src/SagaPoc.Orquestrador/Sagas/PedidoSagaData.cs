@@ -83,9 +83,29 @@ public class PedidoSagaData : ISagaData
     public DateTime? DataConclusaoCompensacao { get; set; }
 
     /// <summary>
-    /// Lista de passos compensados com sucesso (para rastreamento).
+    /// Passos (Restaurante, Pagamento, Entregador) com comando de compensação enviado e ainda sem resposta.
+    /// </summary>
+    public List<string> PassosPendentes { get; set; } = new();
+
+    /// <summary>
+    /// Passos que o serviço confirmou como compensados.
     /// </summary>
     public List<string> PassosCompensados { get; set; } = new();
+
+    /// <summary>
+    /// Passos que esgotaram as tentativas ou o prazo sem compensação: exigem intervenção manual.
+    /// </summary>
+    public List<string> PassosComFalha { get; set; } = new();
+
+    /// <summary>
+    /// Quantas vezes o comando de compensação de cada passo já foi enviado.
+    /// </summary>
+    public Dictionary<string, int> TentativasPorPasso { get; set; } = new();
+
+    /// <summary>
+    /// Indica que a compensação começou porque o prazo do pedido acabou.
+    /// </summary>
+    public bool PrazoExpirado { get; set; }
 
     /// <summary>
     /// Indica se a validação do restaurante foi executada (precisa compensar).
@@ -103,12 +123,7 @@ public class PedidoSagaData : ISagaData
     public bool EntregadorAlocado { get; set; }
 
     /// <summary>
-    /// Contador de tentativas de compensação (para idempotência).
-    /// </summary>
-    public int TentativasCompensacao { get; set; }
-
-    /// <summary>
-    /// Erros ocorridos durante a compensação.
+    /// Erros ocorridos durante a compensação, um por tentativa recusada ou passo sem resposta.
     /// </summary>
     public List<string> ErrosCompensacao { get; set; } = new();
 

@@ -41,6 +41,12 @@ try
             "pedido_saga_data",   // Tabela de dados da SAGA
             "pedido_saga_index",  // Tabela de índices de correlação
             automaticallyCreateTables: true))
+        // Mensagens adiadas (prazos da SAGA e novas tentativas de compensação) ficam no
+        // PostgreSQL até a hora de entrega: o transporte do RabbitMQ não adia mensagens sozinho.
+        .Timeouts(t => t.StoreInPostgres(
+            connectionString,
+            "rebus_timeouts",
+            automaticallyCreateTables: true))
         .Routing(r => r.TypeBased()
             // Rotas para comandos enviados pela SAGA
             .Map<ValidarPedidoRestaurante>("fila-restaurante")
@@ -57,6 +63,8 @@ try
             // Retry policy nativo do Rebus irá lidar com falhas e concorrência
         })
     );
+
+    builder.Services.Configure<OpcoesSaga>(builder.Configuration.GetSection(OpcoesSaga.Secao));
 
     // Registrar a SAGA
     builder.Services.AutoRegisterHandlersFromAssemblyOf<PedidoSaga>();

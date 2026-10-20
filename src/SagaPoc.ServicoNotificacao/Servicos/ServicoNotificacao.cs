@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using SagaPoc.Common.Modelos;
 using SagaPoc.Common.ResultPattern;
 
@@ -13,7 +14,7 @@ public class ServicoNotificacao : IServicoNotificacao
     private readonly ILogger<ServicoNotificacao> _logger;
 
     // Simulação de histórico de notificações enviadas
-    private static readonly List<(string ClienteId, string Mensagem, TipoNotificacao Tipo, DateTime Data)> Historico = new();
+    private static readonly ConcurrentQueue<(string ClienteId, string Mensagem, TipoNotificacao Tipo, DateTime Data)> Historico = new();
 
     public ServicoNotificacao(ILogger<ServicoNotificacao> logger)
     {
@@ -72,7 +73,7 @@ public class ServicoNotificacao : IServicoNotificacao
         }
 
         // CENÁRIO 4: Notificação enviada com sucesso
-        Historico.Add((clienteId, mensagem, tipo, DateTime.UtcNow));
+        Historico.Enqueue((clienteId, mensagem, tipo, DateTime.UtcNow));
 
         // Simular diferentes canais baseado no tipo
         var canal = tipo switch

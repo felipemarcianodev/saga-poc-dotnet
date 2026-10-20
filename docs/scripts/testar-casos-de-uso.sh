@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Testa os 12 casos de uso da POC SAGA e confere o desfecho real de cada pedido.
+# Testa os 14 casos de uso da POC SAGA e confere o desfecho real de cada pedido.
 #
 # Uso: ./testar-casos-de-uso.sh [numero-do-caso]
 #   ./testar-casos-de-uso.sh      testa todos os casos
@@ -9,19 +9,27 @@
 # A API responde 202 assim que aceita o pedido; isso não prova que a SAGA
 # terminou. Por isso, depois de enviar os pedidos, o script lê os logs do
 # orquestrador (docker logs) e classifica cada pedido em CONCLUIDO, CANCELADO
-# ou COMPENSADO, comparando com o desfecho esperado do caso.
+# COMPENSADO, COMPENSACAO_FALHOU ou EXPIRADO, comparando com o desfecho
+# esperado do caso. No fim, confere se a fila error do RabbitMQ recebeu
+# mensagens novas (mensagem na error é sempre defeito).
 #
 # Variáveis de ambiente:
 #   BASE_URL           URL da API (padrão: http://localhost:5000)
 #   ORQUESTRADOR       container do orquestrador (padrão: saga-orquestrador)
-#   TEMPO_MAXIMO       segundos de espera pelos desfechos (padrão: 60)
+#   RABBITMQ           container do RabbitMQ (padrão: saga-rabbitmq)
+#   TEMPO_MAXIMO       segundos de espera pelos desfechos (padrão: 90)
+#   ESPERA_ATRASADAS   segundos desde o envio antes de conferir a fila error (padrão: 45),
+#                      para cobrir mensagens que chegam depois do desfecho: os prazos da
+#                      SAGA (30 s) e a resposta do restaurante lento (40 s)
 #
 # Código de saída: 0 se todos os casos tiveram o desfecho esperado; 1 caso contrário.
 
 BASE_URL="${BASE_URL:-http://localhost:5000}"
 API_ENDPOINT="$BASE_URL/api/pedidos"
 ORQUESTRADOR="${ORQUESTRADOR:-saga-orquestrador}"
-TEMPO_MAXIMO="${TEMPO_MAXIMO:-60}"
+RABBITMQ="${RABBITMQ:-saga-rabbitmq}"
+TEMPO_MAXIMO="${TEMPO_MAXIMO:-90}"
+ESPERA_ATRASADAS="${ESPERA_ATRASADAS:-45}"
 
 # Cores
 CYAN='\033[0;36m'
@@ -227,6 +235,40 @@ CASO_12='{
   "formaPagamento": "CREDITO"
 }'
 
+# O pagamento é aprovado, o entregador não cobre o endereço e o gateway recusa
+# o estorno em todas as tentativas: a compensação termina com falha registrada.
+CASO_13='{
+  "clienteId": "CLI_ESTORNO_FALHA",
+  "restauranteId": "REST001",
+  "itens": [
+    {
+      "produtoId": "PROD001",
+      "nome": "Pizza Calabresa",
+      "quantidade": 1,
+      "precoUnitario": 49.90
+    }
+  ],
+  "enderecoEntrega": "Rua MUITO LONGE do centro, 7000",
+  "formaPagamento": "CREDITO"
+}'
+
+# O restaurante demora mais que o prazo da SAGA: o prazo expira e a SAGA
+# compensa o que já tinha feito (nada, neste caso).
+CASO_14='{
+  "clienteId": "CLI008",
+  "restauranteId": "REST_LENTO",
+  "itens": [
+    {
+      "produtoId": "PROD001",
+      "nome": "Feijoada Completa",
+      "quantidade": 1,
+      "precoUnitario": 59.90
+    }
+  ],
+  "enderecoEntrega": "Rua das Laranjeiras, 77",
+  "formaPagamento": "PIX"
+}'
+
 # ========================================
 # Casos: nome e desfecho esperado
 # ========================================
@@ -234,10 +276,12 @@ CASO_12='{
 NOMES=("" "Pedido Normal (Happy Path)" "Restaurante Fechado" "Item Indisponível"
     "Pagamento Recusado" "Sem Entregador Disponível" "Timeout no Pagamento"
     "Pedido Premium (VIP)" "Múltiplos Itens" "Endereço Longe"
-    "Falha na Notificação" "Pedido Agendado" "Compensação Total")
+    "Falha na Notificação" "Pedido Agendado" "Compensação Total"
+    "Estorno Recusado" "Restaurante sem Resposta")
 
 ESPERADO=("" CONCLUIDO CANCELADO CANCELADO COMPENSADO COMPENSADO COMPENSADO
-    CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO COMPENSADO)
+    CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO CONCLUIDO COMPENSADO
+    COMPENSACAO_FALHOU EXPIRADO)
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -273,6 +317,8 @@ enviar_caso() {
 classificar() {
     local linhas=$1
     if echo "$linhas" | grep -q 'CONCLUÍDO COM SUCESSO'; then echo CONCLUIDO
+    elif echo "$linhas" | grep -q 'COMPENSAÇÃO FALHOU'; then echo COMPENSACAO_FALHOU
+    elif echo "$linhas" | grep -q 'PRAZO EXPIRADO' && echo "$linhas" | grep -q 'COMPENSAÇÃO CONCLUÍDA'; then echo EXPIRADO
     elif echo "$linhas" | grep -q 'COMPENSAÇÃO CONCLUÍDA'; then echo COMPENSADO
     elif echo "$linhas" | grep -q 'Cancelado:'; then echo CANCELADO
     elif [ -z "$linhas" ]; then echo SEM_REGISTRO
@@ -286,11 +332,11 @@ classificar() {
 
 CASO_USO=${1:-0}
 if [ "$CASO_USO" -eq 0 ] 2>/dev/null; then
-    CASOS=$(seq 1 12)
-elif [ "$CASO_USO" -ge 1 ] 2>/dev/null && [ "$CASO_USO" -le 12 ]; then
+    CASOS=$(seq 1 14)
+elif [ "$CASO_USO" -ge 1 ] 2>/dev/null && [ "$CASO_USO" -le 14 ]; then
     CASOS=$CASO_USO
 else
-    echo -e "${RED}Caso de uso inválido. Use valores de 1 a 12.${NC}"
+    echo -e "${RED}Caso de uso inválido. Use valores de 1 a 14.${NC}"
     exit 1
 fi
 
@@ -302,7 +348,16 @@ fi
 echo -e "${CYAN}Testes dos casos de uso - POC SAGA Pattern${NC}"
 echo -e "${CYAN}API: $API_ENDPOINT${NC}\n"
 
+mensagens_na_fila() {
+    docker exec "$RABBITMQ" rabbitmqctl list_queues -q name messages_ready messages_unacknowledged 2>/dev/null \
+        | awk -v fila="$1" '$1 == fila { print $2 + $3 }'
+}
+
+ERROS_ANTES="$(mensagens_na_fila error)"
+ERROS_ANTES="${ERROS_ANTES:-0}"
+
 inicio=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+inicio_segundos=$SECONDS
 for n in $CASOS; do enviar_caso "$n"; done
 
 # Aguarda até todos os pedidos aceitos terem desfecho ou o tempo acabar.
@@ -323,7 +378,7 @@ done
 falhas=0
 avisos=0
 echo
-printf "%-5s %-28s %-13s %-13s %s\n" CASO NOME ESPERADO OBTIDO RESULTADO
+printf "%-5s %-28s %-19s %-19s %s\n" CASO NOME ESPERADO OBTIDO RESULTADO
 for n in $CASOS; do
     if [ -z "${PEDIDO_ID[$n]}" ]; then
         obtido="NAO_ACEITO"; linhas=""
@@ -344,9 +399,25 @@ for n in $CASOS; do
         resultado="${RED}FALHOU${NC}"
         falhas=$((falhas + 1))
     fi
-    printf "%-5s %-28s %-13s %-13s " "$n" "${NOMES[$n]:0:28}" "${ESPERADO[$n]}" "$obtido"
+    printf "%-5s %-28s %-19s %-19s " "$n" "${NOMES[$n]:0:28}" "${ESPERADO[$n]}" "$obtido"
     echo -e "$resultado"
 done
+
+# Mensagens que chegam depois do desfecho (prazos de SAGA já concluída, resposta
+# atrasada do restaurante) não podem ir para a fila error.
+restante=$((ESPERA_ATRASADAS - (SECONDS - inicio_segundos)))
+if [ "$restante" -gt 0 ]; then
+    echo -e "\n${GRAY}Aguardando ${restante}s pelas mensagens atrasadas antes de conferir a fila error...${NC}"
+    sleep "$restante"
+fi
+ERROS_DEPOIS="$(mensagens_na_fila error)"
+ERROS_DEPOIS="${ERROS_DEPOIS:-0}"
+if [ "$ERROS_DEPOIS" -gt "$ERROS_ANTES" ]; then
+    echo -e "${RED}Fila error: $((ERROS_DEPOIS - ERROS_ANTES)) mensagem(ns) nova(s)${NC}"
+    falhas=$((falhas + 1))
+else
+    echo -e "${GREEN}Fila error: nenhuma mensagem nova${NC}"
+fi
 
 echo
 if [ "$falhas" -eq 0 ]; then

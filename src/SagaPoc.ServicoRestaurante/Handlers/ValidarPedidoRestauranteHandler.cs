@@ -107,17 +107,10 @@ public class ValidarPedidoRestauranteHandler : IHandleMessages<ValidarPedidoRest
                 mensagem.CorrelacaoId
             );
 
-            // Enviar resposta de falha em caso de exceção inesperada
-            await _bus.Reply(new PedidoRestauranteValidado(
-                CorrelacaoId: mensagem.CorrelacaoId,
-                Valido: false,
-                ValorTotal: 0,
-                TempoPreparoMinutos: 0,
-                PedidoId: null,
-                MotivoRejeicao: "Erro interno ao validar pedido no restaurante"
-            ));
-
-            throw; // Re-throw para Rebus lidar com retry policy
+            // Sem resposta aqui: o Rebus descarta o que o handler enviou quando ele falha.
+            // A mensagem é repetida e, esgotadas as tentativas, vai para a fila error;
+            // a SAGA não fica presa porque o prazo do pedido dispara a compensação.
+            throw;
         }
     }
 }

@@ -83,16 +83,10 @@ public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
                 mensagem.CorrelacaoId
             );
 
-            // Enviar resposta de falha em caso de exceção inesperada
-            await _bus.Reply(new EntregadorAlocado(
-                CorrelacaoId: mensagem.CorrelacaoId,
-                Alocado: false,
-                EntregadorId: null,
-                TempoEstimadoMinutos: 0,
-                MotivoFalha: "Erro interno ao alocar entregador"
-            ));
-
-            throw; // Re-throw para Rebus lidar com retry policy
+            // Sem resposta aqui: o Rebus descarta o que o handler enviou quando ele falha.
+            // A mensagem é repetida e, esgotadas as tentativas, vai para a fila error;
+            // a SAGA não fica presa porque o prazo do pedido dispara a compensação.
+            throw;
         }
     }
 }

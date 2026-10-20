@@ -100,15 +100,10 @@ public class ProcessarPagamentoHandler : IHandleMessages<ProcessarPagamento>
                 mensagem.CorrelacaoId
             );
 
-            // Enviar resposta de falha em caso de exceção inesperada
-            await _bus.Reply(new PagamentoProcessado(
-                CorrelacaoId: mensagem.CorrelacaoId,
-                Sucesso: false,
-                TransacaoId: null,
-                MotivoFalha: "Erro interno ao processar pagamento"
-            ));
-
-            throw; // Re-throw para Rebus lidar com retry policy
+            // Sem resposta aqui: o Rebus descarta o que o handler enviou quando ele falha.
+            // A mensagem é repetida e, esgotadas as tentativas, vai para a fila error;
+            // a SAGA não fica presa porque o prazo do pedido dispara a compensação.
+            throw;
         }
     }
 }
