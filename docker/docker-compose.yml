@@ -209,6 +209,8 @@ services:
     container_name: saga-servico-entregador
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      # Recusa de 30% das alocações entre 12h e 14h59 UTC; o CI desliga com SIMULAR_HORARIO_PICO=false
+      - Simulacao__HorarioPico__Habilitado=${SIMULAR_HORARIO_PICO:-true}
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123

@@ -11,6 +11,7 @@ namespace SagaPoc.ServicoEntregador.Servicos;
 public class ServicoEntregador : IServicoEntregador
 {
     private readonly ILogger<ServicoEntregador> _logger;
+    private readonly bool _simularHorarioPico;
 
     // Simulação de entregadores em memória (apenas para POC)
     private static readonly List<string> EntregadoresDisponiveis = new()
@@ -25,9 +26,11 @@ public class ServicoEntregador : IServicoEntregador
     private const int SegundosPorMinutoSimulado = 1;
     private static readonly object Lock = new();
 
-    public ServicoEntregador(ILogger<ServicoEntregador> logger)
+    public ServicoEntregador(ILogger<ServicoEntregador> logger, IConfiguration configuration)
     {
         _logger = logger;
+        // Desligado no CI, onde o resultado dos casos de uso não pode depender do relógio.
+        _simularHorarioPico = configuration.GetValue("Simulacao:HorarioPico:Habilitado", true);
     }
 
     /// <summary>
@@ -131,7 +134,7 @@ public class ServicoEntregador : IServicoEntregador
         await Task.Delay(Random.Shared.Next(150, 400));
 
         // Verificar horário de pico
-        if (DateTime.UtcNow.Hour >= 12 && DateTime.UtcNow.Hour <= 14)
+        if (_simularHorarioPico && DateTime.UtcNow.Hour >= 12 && DateTime.UtcNow.Hour <= 14)
         {
             // Simular probabilidade de não ter entregador (30% de chance)
             if (Random.Shared.Next(100) < 30)
