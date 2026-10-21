@@ -154,6 +154,7 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 | [arquitetura.md](arquitetura.md) | Serviços, comunicação, deploy e observabilidade |
 | [design/](design/) | Padrões internos (SAGA, CQRS, Result Pattern, Unit of Work) e escolhas de tecnologia |
 | [decisoes-tecnicas/](decisoes-tecnicas/) | ADRs |
+| [estado-e-evolucao.md](estado-e-evolucao.md) | Levantamento de 2026-10-20: defeitos achados e corrigidos, pendências e caminho de evolução |
 | [casos-uso.md](casos-uso.md) | Os 14 casos da SAGA |
 | [diagramas-compensacao.md](diagramas-compensacao.md) | Estados e compensações da SAGA |
 | [fluxo-caixa.md](fluxo-caixa.md), [diagramas-fluxo-caixa.md](diagramas-fluxo-caixa.md) | Contexto de fluxo de caixa |
