@@ -59,7 +59,9 @@ try
 
     app.UseSerilogRequestLogging();
 
-    app.UseHttpsRedirection();
+    // Sem HTTPS no container local: o compose passa Https__Redirecionar=false.
+    if (app.Configuration.GetValue("Https:Redirecionar", true))
+        app.UseHttpsRedirection();
 
     app.UseAuthorization();
 

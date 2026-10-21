@@ -579,7 +579,7 @@ Os Dockerfiles copiam `src/` inteiro e o `Directory.Build.props` (que define `ne
        "fila-servico"))
    ```
 2. **Segredos fora do compose**: variáveis injetadas por um cofre (Key Vault, Secrets Manager etc.).
-3. **Criptografia em trânsito**: HTTPS nas APIs, TLS no RabbitMQ, PostgreSQL e Redis.
+3. **Criptografia em trânsito**: HTTPS nas APIs, TLS no RabbitMQ, PostgreSQL e Redis. Hoje o compose desliga o redirecionamento HTTPS (`Https__Redirecionar=false`), porque o container só escuta HTTP; fora dele, a chave fica no padrão, ligada.
 4. **Autenticação nas APIs** (JWT ou OIDC).
 
 ---

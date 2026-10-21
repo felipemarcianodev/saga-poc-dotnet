@@ -101,6 +101,7 @@ services:
     container_name: saga-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - Https__Redirecionar=false
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=saga
       - RabbitMQ__Password=saga123
@@ -355,6 +356,7 @@ services:
     container_name: fluxocaixa-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - Https__Redirecionar=false
       - ConnectionStrings__FluxoCaixaDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - ConnectionStrings__ConsolidadoDb=Host=postgres-consolidado;Port=5432;Database=fluxocaixa_consolidado;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - ConnectionStrings__Redis=redis:6379,abortConnect=false
@@ -398,6 +400,7 @@ services:
     container_name: lancamentos-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - Https__Redirecionar=false
       - ConnectionStrings__LancamentosDb=Host=postgres-fluxocaixa;Port=5432;Database=fluxocaixa_lancamentos;Username=saga;Password=saga123;GSS Encryption Mode=Disable
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Port=5672
