@@ -19,6 +19,7 @@ O repositório é público e é avaliado por quem lê. A documentação tem de b
 | `docs/diagramas-compensacao.md`, `docs/diagramas-fluxo-caixa.md` | Diagramas mermaid e a matriz de compensação | Imagem gerada por IA |
 | `docs/fluxo-caixa.md` | Contexto de fluxo de caixa: lançamentos, eventos, consolidado e cache | |
 | `docs/runbook-troubleshooting.md`, `docs/troubleshooting-fluxo-caixa.md` | Sintoma, diagnóstico (comandos que funcionam sem `jq`) e ação | |
+| `docs/estado-e-evolucao.md` | Levantamento com a stack no ar: defeitos (com evidência e PR), o que foi verificado, pendências por impacto e caminho de evolução. Atualizar quando uma pendência for resolvida ou um levantamento novo for feito | Plano de fase (fica no `CLAUDE.md`) |
 | `docs/boas-praticas.md` | Aprendizados reais, com data quando é algo que já foi corrigido | Recomendação genérica sem lastro no projeto |
 | `docs/scripts/readme-script.md` | O que cada script `.sh` valida, variáveis de ambiente e a tabela "Quando um script falha" | |
 | `docker/README.md` | Operação da stack, portas, volumes e consultas SQL | |
