@@ -113,6 +113,12 @@ public class Lancamento : AggregateRoot
         string descricao,
         string comerciante)
     {
+        // Sem esta regra, um tipo fora do enum (ex.: 7) era gravado e contado como débito no consolidado.
+        if (!Enum.IsDefined(tipo))
+            return Resultado<Unit>.Falha(Erro.Validacao(
+                "Lancamento.TipoInvalido",
+                "O tipo do lançamento deve ser Débito (1) ou Crédito (2)"));
+
         if (valor <= 0)
             return Resultado<Unit>.Falha(Erro.Validacao(
                 "Lancamento.ValorInvalido",

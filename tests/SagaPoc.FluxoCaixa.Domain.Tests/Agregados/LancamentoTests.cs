@@ -115,6 +115,22 @@ public class LancamentoTests
     }
 
     [Fact]
+    public void Criar_ComTipoForaDoEnum_DeveRetornarFalha()
+    {
+        // Arrange & Act
+        var resultado = Lancamento.Criar(
+            (EnumTipoLancamento)7,
+            10m,
+            DateTime.Today,
+            "Descrição",
+            "COM001");
+
+        // Assert
+        resultado.EhSucesso.Should().BeFalse();
+        resultado.Erro.Codigo.Should().Be("Lancamento.TipoInvalido");
+    }
+
+    [Fact]
     public void Confirmar_LancamentoPendente_DeveAlterarStatusParaConfirmado()
     {
         // Arrange

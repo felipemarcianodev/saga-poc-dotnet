@@ -13,7 +13,7 @@ namespace SagaPoc.Api.Controllers;
 [Produces("application/json")]
 public class PedidosController : ControllerBase
 {
-    private readonly IBus? _bus;
+    private readonly IBus _bus;
     private readonly ILogger<PedidosController> _logger;
 
     /// <summary>
@@ -21,7 +21,7 @@ public class PedidosController : ControllerBase
     /// </summary>
     public PedidosController(
         ILogger<PedidosController> logger,
-        IBus? bus = null)
+        IBus bus)
     {
         _bus = bus;
         _logger = logger;
@@ -50,28 +50,20 @@ public class PedidosController : ControllerBase
             // Gerar ID de correlação único para rastrear a SAGA
             var correlacaoId = Guid.NewGuid();
 
-            // Enviar comando para iniciar a SAGA (se Rebus estiver configurado)
-            if (_bus != null)
-            {
-                await _bus.Send(new IniciarPedido(
-                    correlacaoId,
-                    request.ClienteId,
-                    request.RestauranteId,
-                    request.Itens,
-                    request.EnderecoEntrega,
-                    request.FormaPagamento
-                ));
+            // Enviar comando para iniciar a SAGA. Sem o barramento, a API não sobe:
+            // antes, ela respondia 202 sem enviar nada ("modo DEMO").
+            await _bus.Send(new IniciarPedido(
+                correlacaoId,
+                request.ClienteId,
+                request.RestauranteId,
+                request.Itens,
+                request.EnderecoEntrega,
+                request.FormaPagamento
+            ));
 
-                _logger.LogInformation(
-                    "Pedido {PedidoId} enviado com sucesso para processamento",
-                    correlacaoId);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Pedido {PedidoId} criado em modo DEMO - mensagem NÃO foi enviada (RabbitMQ não configurado)",
-                    correlacaoId);
-            }
+            _logger.LogInformation(
+                "Pedido {PedidoId} enviado com sucesso para processamento",
+                correlacaoId);
 
             // Retornar 202 Accepted com informações do pedido
             var response = new PedidoCriadoResponse

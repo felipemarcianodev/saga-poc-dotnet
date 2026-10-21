@@ -72,7 +72,7 @@ O compose sobe as duas APIs com `ASPNETCORE_ENVIRONMENT=Development`, então o S
 }
 ```
 
-Validação (DataAnnotations, responde 400): valor a partir de 0,01; descrição de 3 a 500 caracteres; comerciante de 3 a 100 caracteres; categoria até 100 caracteres, opcional. Sem `dataLancamento`, vale a data atual.
+Validação (DataAnnotations, responde 400): `tipo` obrigatório, `1` ou `2`; `valor` obrigatório, de 0,01 a 1 bilhão; descrição de 3 a 500 caracteres; comerciante de 3 a 100 caracteres; categoria até 100 caracteres, opcional. Sem `dataLancamento`, vale a data atual. O corpo não tem valores padrão: até 2026-10-20, um `POST {}` gravava um crédito de 150 para `COM001`, e um `tipo` fora do enum era gravado e contado como débito.
 
 Resposta 202:
 
@@ -87,7 +87,7 @@ O 202 só diz que o comando foi enviado. O `correlationId` **não** é o `id` do
 
 ### `GET /api/lancamentos?comerciante={comerciante}&inicio={data}&fim={data}`
 
-Lista os lançamentos do período (padrão: últimos 30 dias até hoje).
+Lista os lançamentos do período (padrão: últimos 30 dias até hoje). `comerciante` é obrigatório; início depois do fim responde 400.
 
 ```json
 [
@@ -133,7 +133,7 @@ Consulta um lançamento pelo `id` gravado; 404 se não existir.
 
 ### `GET /api/consolidado/{comerciante}/periodo?inicio={data}&fim={data}`
 
-Lista os consolidados do período. Esta rota não usa cache.
+Lista os consolidados do período. `inicio` e `fim` são obrigatórios, e início depois do fim responde 400 (antes, sem as datas, a rota respondia 200 com lista vazia). Esta rota não usa cache.
 
 ### Cache e defasagem
 
@@ -147,7 +147,7 @@ As rotas da API de consulta têm um limitador de janela fixa: 50 requisições p
 
 ## Testes
 
-- **Unidade:** `tests/SagaPoc.FluxoCaixa.Domain.Tests`, 18 testes xUnit: 15 do agregado `Lancamento` (criação, validações, confirmação, cancelamento e eventos) e 3 do snapshot do consolidado no cache (reconstituição e ida e volta pelo JSON). As regras do `ConsolidadoDiario`, os handlers e as APIs não têm teste de unidade.
+- **Unidade:** `tests/SagaPoc.FluxoCaixa.Domain.Tests`, 19 testes xUnit: 16 do agregado `Lancamento` (criação, validações, confirmação, cancelamento e eventos) e 3 do snapshot do consolidado no cache (reconstituição e ida e volta pelo JSON). As regras do `ConsolidadoDiario`, os handlers e as APIs não têm teste de unidade.
 - **Ponta a ponta:** `docs/scripts/testar-fluxo-caixa.sh`, com a stack no ar. Cada cenário usa um comerciante novo, para não ler valor do cache de uma rodada anterior:
   1. crédito e débito no mesmo dia: confere saldo, totais e quantidades;
   2. cinco créditos e três débitos no mesmo dia acumulam no mesmo consolidado;
@@ -186,5 +186,5 @@ Não há métricas (Prometheus, Grafana) na stack.
 - **Sem idempotência no Consolidado:** um evento reentregue soma o valor de novo.
 - **Sem outbox:** a gravação do lançamento e a publicação do evento não são atômicas.
 - **Consolidado processa uma mensagem por vez** (`MaxParallelism = 1`), porque a linha do dia não tem controle de concorrência; dois eventos em paralelo perderiam uma atualização. Escalar exige concorrência otimista ou UPDATE atômico.
-- **Recusa silenciosa no worker:** se `Lancamento.Criar` recusar o comando, o worker registra um aviso e descarta a mensagem; o cliente já recebeu 202. A validação da API cobre quase as mesmas regras, então isso só acontece com comando enviado direto para a fila.
+- **Recusa silenciosa no worker:** se `Lancamento.Criar` recusar o comando, o worker registra um aviso e descarta a mensagem; o cliente já recebeu 202. A validação da API cobre as mesmas regras (tipo, faixa de valor, descrição e comerciante), então isso só acontece com comando enviado direto para a fila.
 - **Leitura defasada** até cerca de 60 s, como descrito acima.

@@ -31,11 +31,13 @@ public record CriarPedidoRequest
     /// Endereço completo para entrega.
     /// </summary>
     [Required(ErrorMessage = "EnderecoEntrega é obrigatório")]
+    [MinLength(10, ErrorMessage = "EnderecoEntrega deve ter pelo menos 10 caracteres")]
     public string EnderecoEntrega { get; init; } = string.Empty;
 
     /// <summary>
-    /// Forma de pagamento (ex: "cartao_credito", "pix", "dinheiro").
+    /// Forma de pagamento: CREDITO, DEBITO, PIX ou DINHEIRO (maiúsculas ou minúsculas).
     /// </summary>
     [Required(ErrorMessage = "FormaPagamento é obrigatória")]
+    [RegularExpression("(?i)^(CREDITO|DEBITO|PIX|DINHEIRO)$", ErrorMessage = "FormaPagamento deve ser CREDITO, DEBITO, PIX ou DINHEIRO")]
     public string FormaPagamento { get; init; } = string.Empty;
 }
