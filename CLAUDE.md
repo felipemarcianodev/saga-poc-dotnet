@@ -32,6 +32,7 @@ Todo texto que a IA escreve neste repositório (documentação, README, ADR, com
 - **Método:** skill `revisar-texto-ptbr` (`.claude/skills/revisar-texto-ptbr/SKILL.md`).
 - **Automático:** `.claude/hooks/revisao-ptbr.mjs`, ligado em `.claude/settings.json`. Aponta palavra sem acento depois de cada edição de `.md`/`.txt`, recusa `git commit` com mensagem sem acento e, no fim do turno, pede a revisão completa dos textos tocados.
 - **Falso positivo:** acrescentar a palavra, em minúsculas, em `.claude/hooks/revisao-ptbr.permitidas.txt`; se for identificador, prefira colocá-lo entre crases no texto.
+- **Conteúdo da documentação:** spec `.claude/specs/documentacao.md`, aplicada pela skill `atualizar-documentacao` (ver "Documentação" abaixo).
 - **Fonte:** o hook e a skill vêm do repositório `meu-portfolio`, onde a governança nasceu. Mudanças são feitas lá e replicadas aqui, não editadas só neste repositório.
 
 ---
@@ -48,7 +49,7 @@ O trabalho segue o **Plano de retomada** (fim deste arquivo), uma fase por vez:
    - se a fase mexe em serviço, mensageria ou compose: stack no Docker + `docs/scripts/testar-casos-de-uso.sh` e `docs/scripts/testar-fluxo-caixa.sh` com saída 0
 4. Commit em pt-BR com acentuação, no formato `tipo(escopo): descrição` (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`). **Nunca** incluir assinatura ou atribuição de IA (`Co-Authored-By` etc.).
 5. Push da branch, PR para a `main` e merge quando os portões passarem. A `main` do GitHub é **protegida** e só aceita PR; nunca tentar push direto na `main`.
-6. Atualizar o status da fase neste arquivo no mesmo PR (com o número do PR) e registrar no backlog o que ficou de fora.
+6. Atualizar a documentação com a skill `atualizar-documentacao` e o status da fase neste arquivo no mesmo PR (com o número do PR) e registrar no backlog o que ficou de fora.
 
 Trabalho fora das fases (governança, correção avulsa) segue o mesmo fluxo, numa branch `chore/slug` ou `fix/slug`.
 
@@ -156,27 +157,7 @@ Filas: `fila-orquestrador`, `fila-restaurante`, `fila-pagamento`, `fila-entregad
 
 ## Documentação
 
-| Arquivo | O que vai nele |
-|---|---|
-| `docs/README.md` | Porta de entrada (o GitHub o exibe na página do repositório): o que é, como rodar, onde ler mais |
-| `docs/arquitetura.md` | Estrutura macro: serviços, comunicação, deploy, observabilidade |
-| `docs/design/` | Padrões internos (SAGA, CQRS, Result Pattern, Unit of Work) e escolhas de tecnologia |
-| `docs/decisoes-tecnicas/` | ADRs numerados (`NNN-nome.md`); o README da pasta tem o template |
-| `docs/casos-uso.md`, `docs/diagramas-*.md` | Cenários da SAGA e do fluxo de caixa, com diagramas |
-| `docs/fluxo-caixa.md` | Contexto de Fluxo de Caixa |
-| `docs/runbook-troubleshooting.md`, `docs/troubleshooting-fluxo-caixa.md` | Diagnóstico operacional |
-| `docs/boas-praticas.md` | Aprendizados reais do projeto |
-| `docs/scripts/` | Scripts de teste (`readme-script.md` explica cada um) |
-| `docker/README.md` | Operação da stack e consultas SQL |
-
-Fora do git (`.gitignore`): `docs/gerador-imagens*.md` (prompts das imagens geradas por IA, removidas na fase 6 por não baterem com o sistema; preferir mermaid e tabelas) e `docs/rascunhos/` (planos locais).
-
-**Regras de escrita** (o repositório é público e é avaliado por quem lê):
-- Nada de métrica sem evidência ("99,9%", "50 req/s", "P95 < 10 ms") — só com teste de carga ou monitoramento que comprove; do contrário, escrever como objetivo.
-- Declarar limitações e trade-offs reais; seção "O que pode dar errado" nos ADRs.
-- Tom direto, sem texto decorativo; não repetir a mesma estrutura de pastas ou diagrama em vários documentos.
-- Arquitetura (macro) ≠ design (padrões internos) ≠ implementação (tecnologia escolhida).
-- Ao remover um documento, procurar e corrigir os links para ele (`git grep nome-do-arquivo`).
+As regras de documentação (o que vai em cada arquivo, regras de escrita, o que atualizar a cada tipo de mudança e a conferência final) ficam na spec `.claude/specs/documentacao.md`. Para aplicá-las, use a skill `atualizar-documentacao` depois de qualquer mudança de comportamento e antes de abrir PR; ela lê a spec e termina na revisão pt-BR.
 
 ---
 
