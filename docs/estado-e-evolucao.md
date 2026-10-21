@@ -27,6 +27,7 @@ Levantamento feito em 2026-10-20 com a stack completa no Docker, em build Debug,
 | Lançamento de 2 bilhões respondia 202 e era descartado em silêncio pelo worker | Aviso no log do worker | #15 |
 | Pedido com quantidade 0, preço negativo, forma de pagamento desconhecida ou endereço curto respondia 202 e terminava cancelado ou compensado pela SAGA | Desfechos no log do orquestrador | #15 |
 | Consulta de período sem datas, ou com início depois do fim, respondia 200 com lista vazia | Resposta da API | #15 |
+| Aviso "Failed to determine the https port for redirect" a cada subida das três APIs: o container só escuta HTTP | Log da subida | #17 |
 | "Modo DEMO": sem barramento registrado, a API de pedidos respondia 202 sem enviar nada | Leitura do controller | #15 |
 
 ## Verificado e funcionando
@@ -48,7 +49,7 @@ Em ordem de impacto. As que já estavam no backlog do `CLAUDE.md` estão indicad
 5. **Sem espera por entregador.** Com o pool esgotado, o pedido é compensado na hora, com estorno, em vez de tentar alocar de novo depois de alguns segundos.
 6. **Idempotência do worker de lançamentos** (backlog). A repetição do comando grava o lançamento de novo.
 7. **Datas sem faixa no lançamento.** `dataLancamento` de 1900 ou 2099 é aceita e entra no consolidado.
-8. **`UseHttpsRedirection` em container sem HTTPS.** As três APIs avisam "Failed to determine the https port for redirect" a cada subida. Tirar ou condicionar o redirecionamento é decisão de segurança do dono.
+8. **HTTPS só fora do compose.** Desde #17, o redirecionamento é configurável (`Https:Redirecionar`, ligado por padrão) e o compose o desliga, porque o container não tem certificado. Num ambiente real, falta o HTTPS de fato (certificado no container ou num proxy à frente).
 9. **Traces da SAGA** (backlog). O orquestrador e os serviços da SAGA não aparecem no Jaeger.
 10. **Testes de integração** (backlog). A SAGA e as APIs só são validadas pelos scripts de ponta a ponta.
 11. **Datas com e sem fuso.** O consolidado devolve `"2026-10-20T00:00:00Z"`, o lançamento devolve `"2026-10-20T00:00:00"`.
