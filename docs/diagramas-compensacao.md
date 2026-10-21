@@ -175,7 +175,7 @@ Não existe estado separado para "compensado": recusa no restaurante e compensa�
 | Prazo do pedido (serviço sem resposta) | conforme a etapa | conforme a etapa | conforme a etapa | as dos passos já confirmados; se o entregador já foi alocado, a SAGA conclui |
 | Compensação recusada | | | | nova tentativa após 2 s, até 3; depois, `CompensacaoFalhou` |
 
-`LiberarEntregador` só é enviado quando a alocação do entregador chega durante a compensação, depois do prazo do pedido.
+`LiberarEntregador` só é enviado quando o prazo do pedido esgota durante a alocação, ou quando a alocação chega durante a compensação.
 
 ---
 
@@ -202,6 +202,6 @@ Duas respostas que chegam juntas para a mesma SAGA geram `ConcurrencyException` 
 ## O que pode dar errado
 
 - **Pendência só no log:** a compensação que falha termina como `COMPENSAÇÃO FALHOU`, com log de erro, e a SAGA é removida do banco. Não há fila de intervenção manual, alerta nem projeção que guarde o caso.
-- **Resposta depois do prazo:** depois que a SAGA termina, o Rebus descarta em silêncio as respostas atrasadas. Um pagamento aprovado depois do prazo não é estornado; um restaurante que valida depois do prazo fica com o pedido. Resolver exige que cada serviço aceite a compensação pelo `CorrelacaoId`, mesmo antes de concluir a operação.
+- **Compensação pelo pedido em memória:** com o prazo esgotado, o passo que não respondeu é compensado pelo `CorrelacaoId`, e o serviço recusa ou desfaz a operação que chegar depois. O registro de pedidos cancelados vive na memória do serviço; um reinício entre o cancelamento e a operação atrasada deixa a operação passar.
 - **Estado dos serviços em memória:** um restart do serviço de pagamento entre a cobrança e o estorno faz o estorno falhar com "transação não encontrada"; a SAGA tenta 3 vezes e termina como `CompensacaoFalhou`.
 - **Ordem das compensações:** estorno e cancelamento correm em paralelo. Para estes serviços simulados a ordem não importa; num sistema real em que ela importe, a SAGA teria de esperar uma confirmação antes de enviar o comando seguinte.

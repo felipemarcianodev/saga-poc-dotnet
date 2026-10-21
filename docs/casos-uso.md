@@ -23,7 +23,7 @@ Os serviços não têm banco nem integração externa: as falhas são disparadas
 | 11 | Pedido Agendado | nada | CONCLUIDO | nenhuma |
 | 12 | Compensação Total | entregador (endereço com `LONGE` e `DISTANTE`) | COMPENSADO | estorno do pagamento e cancelamento no restaurante |
 | 13 | Estorno Recusado | entregador (endereço com `LONGE`) e estorno (`CLI_ESTORNO_FALHA`) | COMPENSACAO_FALHOU | cancelamento no restaurante; o estorno é recusado nas 3 tentativas |
-| 14 | Restaurante sem Resposta | restaurante demora 40 s (`REST_LENTO`) | EXPIRADO | nenhuma (o prazo de 30 s expira antes da validação) |
+| 14 | Restaurante sem Resposta | restaurante demora 40 s (`REST_LENTO`) | EXPIRADO | cancelamento no restaurante pelo pedido (o prazo de 30 s expira antes da validação) |
 
 Como o script classifica o desfecho, pelas linhas `[SAGA]` do orquestrador:
 
@@ -33,9 +33,9 @@ Como o script classifica o desfecho, pelas linhas `[SAGA]` do orquestrador:
 - **COMPENSACAO_FALHOU**: `Pedido {PedidoId} - COMPENSAÇÃO FALHOU ...` (algum passo esgotou as tentativas ou o prazo; o log, em nível de erro, lista o que ficou sem compensação)
 - **EXPIRADO**: `Pedido {PedidoId} - PRAZO EXPIRADO na etapa {Etapa}` seguido de `COMPENSAÇÃO CONCLUÍDA` (um serviço não respondeu a tempo)
 
-A compensação de liberar o entregador (`LiberarEntregador`) só é enviada quando a alocação chega depois do prazo do pedido, durante a compensação; nenhum dos 14 casos força esse cenário. A única etapa depois da alocação é a notificação, e falha de notificação não compensa.
+A compensação de liberar o entregador (`LiberarEntregador`) só é enviada quando o prazo do pedido esgota durante a alocação; nenhum dos 14 casos força esse cenário. A única etapa depois da alocação é a notificação, e falha de notificação não compensa.
 
-No caso 14, a validação do restaurante chega 10 s depois de a SAGA terminar e é descartada pelo Rebus: o pedido fica validado no restaurante simulado e ninguém o cancela. É a limitação de resposta atrasada descrita em [arquitetura.md](arquitetura.md).
+No caso 14, o prazo esgota com o restaurante ainda validando, e a SAGA envia `CancelarPedidoRestaurante` pelo `CorrelacaoId`. Quando a validação termina, 10 s depois, o restaurante vê o cancelamento e desfaz o pedido ("Pedido cancelado durante a validação"); a resposta, que chega com a SAGA já encerrada, é descartada pelo Rebus sem deixar nada para trás.
 
 ---
 

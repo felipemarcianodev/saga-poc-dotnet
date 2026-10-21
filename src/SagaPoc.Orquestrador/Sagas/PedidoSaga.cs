@@ -132,6 +132,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             Data.TaxaEntrega = Data.ValorTotal * 0.15m; // 15% de taxa
             Data.RestauranteValidado = true; // Marcar para possível compensação
             Data.PedidoRestauranteId = message.PedidoId;
+            if (await CompensarSeRespostaAposPrazo(ValidandoRestaurante)) return;
             Data.EstadoAtual = ProcessandoPagamento;
 
             // Enviar comando para processar o pagamento
@@ -196,6 +197,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             // FLUXO DE SUCESSO: Pagamento aprovado
             Data.TransacaoId = message.TransacaoId;
             Data.PagamentoProcessado = true; // Marcar para possível compensação
+            if (await CompensarSeRespostaAposPrazo(ProcessandoPagamento)) return;
             Data.EstadoAtual = AlocandoEntregador;
 
             // Enviar comando para alocar entregador
@@ -245,6 +247,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             Data.EntregadorId = message.EntregadorId;
             Data.TempoEntregaMinutos = message.TempoEstimadoMinutos;
             Data.EntregadorAlocado = true; // Marcar para possível compensação
+            if (await CompensarSeRespostaAposPrazo(AlocandoEntregador)) return;
             Data.EstadoAtual = NotificandoCliente;
 
             _logger.LogInformation("[SAGA] Pedido {PedidoId} - Entregador {EntregadorId} alocado com sucesso!",
@@ -328,7 +331,9 @@ public class PedidoSaga : Saga<PedidoSagaData>,
         }
 
         Data.PrazoExpirado = true;
-        await IniciarCompensacao($"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {Data.EstadoAtual}");
+        await IniciarCompensacao(
+            $"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {Data.EstadoAtual}",
+            etapaSemResposta: Data.EstadoAtual);
     }
 
     /// <summary>
@@ -365,6 +370,24 @@ public class PedidoSaga : Saga<PedidoSagaData>,
         return false;
     }
 
+    /// <summary>
+    /// Confere o prazo também na chegada de cada resposta, sem depender só da mensagem adiada:
+    /// com a máquina carregada, a entrega do PrazoPedidoExpirado já atrasou mais de 20 s, e a
+    /// SAGA seguiu com um pedido vencido. Chamado depois de registrar o recurso que a resposta trouxe.
+    /// </summary>
+    private async Task<bool> CompensarSeRespostaAposPrazo(string etapa)
+    {
+        var decorrido = (DateTime.UtcNow - Data.DataInicio).TotalSeconds;
+        if (decorrido <= _opcoes.PrazoPedidoSegundos) return false;
+
+        _logger.LogWarning("[SAGA] Pedido {PedidoId} - PRAZO EXPIRADO na etapa {Etapa} ({Prazo}s): a resposta chegou em {Decorrido:F1}s",
+            Data.Id, etapa, _opcoes.PrazoPedidoSegundos, decorrido);
+
+        Data.PrazoExpirado = true;
+        await IniciarCompensacao($"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {etapa}");
+        return true;
+    }
+
     private void ConcluirComSucesso()
     {
         Data.DataConclusao = DateTime.UtcNow;
@@ -382,8 +405,10 @@ public class PedidoSaga : Saga<PedidoSagaData>,
 
     /// <summary>
     /// Inicia a compensação dos passos já feitos, na ordem inversa em que foram executados.
+    /// Com prazo esgotado, compensa também o passo que não respondeu: o serviço cancela pelo
+    /// pedido (CorrelacaoId), desfaz o que já tiver feito e recusa o que chegar depois.
     /// </summary>
-    private async Task IniciarCompensacao(string? motivo)
+    private async Task IniciarCompensacao(string? motivo, string? etapaSemResposta = null)
     {
         Data.MensagemErro = motivo;
         Data.EmCompensacao = true;
@@ -397,9 +422,12 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             TimeSpan.FromSeconds(_opcoes.PrazoCompensacaoSegundos),
             new PrazoCompensacaoExpirado(Data.Id));
 
-        if (Data.EntregadorAlocado) await CompensarPasso(PassoEntregador);
-        if (Data.PagamentoProcessado) await CompensarPasso(PassoPagamento);
-        if (Data.RestauranteValidado) await CompensarPasso(PassoRestaurante);
+        if (Data.EntregadorAlocado || etapaSemResposta == AlocandoEntregador)
+            await CompensarPasso(PassoEntregador);
+        if (Data.PagamentoProcessado || etapaSemResposta == ProcessandoPagamento)
+            await CompensarPasso(PassoPagamento);
+        if (Data.RestauranteValidado || etapaSemResposta == ValidandoRestaurante)
+            await CompensarPasso(PassoRestaurante);
 
         await VerificarSeCompensacaoCompleta();
     }
@@ -423,8 +451,9 @@ public class PedidoSaga : Saga<PedidoSagaData>,
     {
         object comando = passo switch
         {
-            PassoEntregador => new LiberarEntregador(Data.Id, Data.EntregadorId!),
-            PassoPagamento => new EstornarPagamento(Data.Id, Data.TransacaoId!),
+            // Sem o identificador (a resposta não chegou), o serviço compensa pelo CorrelacaoId
+            PassoEntregador => new LiberarEntregador(Data.Id, Data.EntregadorId),
+            PassoPagamento => new EstornarPagamento(Data.Id, Data.TransacaoId),
             PassoRestaurante => new CancelarPedidoRestaurante(Data.Id, Data.RestauranteId, Data.PedidoRestauranteId ?? Data.Id),
             _ => throw new InvalidOperationException($"Passo de compensação desconhecido: {passo}")
         };

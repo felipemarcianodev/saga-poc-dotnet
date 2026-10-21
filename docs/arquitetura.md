@@ -159,7 +159,9 @@ stateDiagram-v2
 **Prazos** (seção `Saga` do `appsettings.json`):
 - `PrazoPedidoSegundos` (30): se o pedido não chegar à notificação nesse tempo, a SAGA compensa o que já foi feito. Se o entregador já foi alocado, o pedido está confirmado e a SAGA conclui, mesmo sem resposta da notificação.
 - `PrazoCompensacaoSegundos` (30): passos que não responderam nesse tempo contam como falha.
-- Resposta atrasada que chega durante a compensação também é compensada (por exemplo, pagamento aprovado depois do prazo é estornado; entregador alocado depois do prazo é liberado com `LiberarEntregador`). Depois que a SAGA termina, o Rebus descarta essas respostas em silêncio.
+- O prazo do pedido também é conferido na chegada de cada resposta de sucesso: se já passou, a SAGA registra o recurso que a resposta trouxe e compensa, em vez de seguir para a próxima etapa. Isso cobre a entrega atrasada da mensagem adiada, observada com a máquina carregada (o prazo de 30 s não chegou antes de uma resposta de 40 s).
+- Com o prazo esgotado, a SAGA compensa também o passo que não respondeu, sem o identificador do recurso: `EstornarPagamento` e `LiberarEntregador` vão com `TransacaoId`/`EntregadorId` nulos, e `CancelarPedidoRestaurante` vai com o próprio `CorrelacaoId`. Cada serviço guarda, por pedido, o recurso que criou e se o pedido foi cancelado (`IRegistroCancelamentos`): compensa o que já tiver feito, recusa a operação que chegar depois e desfaz a que terminar depois do cancelamento. Por isso uma resposta descartada pelo Rebus (a SAGA já terminou) não deixa cobrança, entregador ou pedido para trás.
+- O registro e a operação conferem um ao outro em ordem inversa (a operação registra o recurso e depois confere o cancelamento; a compensação marca o cancelamento e depois procura o recurso), então, mesmo em paralelo, pelo menos um dos dois lados desfaz o trabalho.
 
 **Observações sobre o código atual**:
 - "Timeout no pagamento" (`CLI_TIMEOUT`) é uma resposta de falha do serviço simulado. O prazo da SAGA é testado pelo restaurante `REST_LENTO`, que demora 40 s para responder.
@@ -220,7 +222,7 @@ Existe uma variante com Polly (`ServicoPagamentoComPolly`: retry, circuit breake
 
 #### 3.3 **SagaPoc.ServicoEntregador**
 
-**Handlers**: `AlocarEntregadorHandler` e `LiberarEntregadorHandler` (compensação, enviada quando a alocação chega depois do prazo do pedido).
+**Handlers**: `AlocarEntregadorHandler` e `LiberarEntregadorHandler` (compensação, enviada quando o prazo do pedido esgota durante a alocação ou quando a alocação chega durante a compensação).
 
 **Regras**:
 - Taxa de entrega negativa ou acima de R$ 100,00: recusado

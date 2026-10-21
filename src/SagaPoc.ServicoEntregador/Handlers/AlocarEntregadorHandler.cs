@@ -2,6 +2,7 @@ using Rebus.Bus;
 using Rebus.Handlers;
 using SagaPoc.Common.Mensagens.Comandos;
 using SagaPoc.Common.Mensagens.Respostas;
+using SagaPoc.Infrastructure.Core;
 using SagaPoc.ServicoEntregador.Servicos;
 
 namespace SagaPoc.ServicoEntregador.Handlers;
@@ -13,15 +14,18 @@ namespace SagaPoc.ServicoEntregador.Handlers;
 public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
 {
     private readonly IServicoEntregador _servico;
+    private readonly IRegistroCancelamentos _cancelamentos;
     private readonly IBus _bus;
     private readonly ILogger<AlocarEntregadorHandler> _logger;
 
     public AlocarEntregadorHandler(
         IServicoEntregador servico,
+        IRegistroCancelamentos cancelamentos,
         IBus bus,
         ILogger<AlocarEntregadorHandler> logger)
     {
         _servico = servico;
+        _cancelamentos = cancelamentos;
         _bus = bus;
         _logger = logger;
     }
@@ -37,6 +41,23 @@ public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
             mensagem.TaxaEntrega
         );
 
+        // A SAGA desistiu do pedido (prazo) antes de a alocação chegar aqui: não alocar.
+        if (_cancelamentos.EstaCancelado(mensagem.CorrelacaoId))
+        {
+            _logger.LogWarning(
+                "Pedido cancelado antes da alocação; entregador não alocado. CorrelacaoId: {CorrelacaoId}",
+                mensagem.CorrelacaoId
+            );
+            await _bus.Reply(new EntregadorAlocado(
+                CorrelacaoId: mensagem.CorrelacaoId,
+                Alocado: false,
+                EntregadorId: null,
+                TempoEstimadoMinutos: 0,
+                MotivoFalha: "Pedido cancelado antes da alocação"
+            ));
+            return;
+        }
+
         try
         {
             // Executar alocação do entregador
@@ -45,6 +66,31 @@ public class AlocarEntregadorHandler : IHandleMessages<AlocarEntregador>
                 mensagem.EnderecoEntrega,
                 mensagem.TaxaEntrega
             );
+
+            if (resultado.EhSucesso)
+            {
+                // Registrar antes de conferir o cancelamento (a liberação faz o inverso).
+                _cancelamentos.RegistrarRecurso(mensagem.CorrelacaoId, resultado.Valor.EntregadorId);
+
+                if (_cancelamentos.EstaCancelado(mensagem.CorrelacaoId))
+                {
+                    _logger.LogWarning(
+                        "Pedido cancelado durante a alocação; liberando o entregador. CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
+                        mensagem.CorrelacaoId,
+                        resultado.Valor.EntregadorId
+                    );
+                    await _servico.LiberarAsync(resultado.Valor.EntregadorId);
+
+                    await _bus.Reply(new EntregadorAlocado(
+                        CorrelacaoId: mensagem.CorrelacaoId,
+                        Alocado: false,
+                        EntregadorId: null,
+                        TempoEstimadoMinutos: 0,
+                        MotivoFalha: "Pedido cancelado durante a alocação"
+                    ));
+                    return;
+                }
+            }
 
             // Preparar resposta baseada no resultado
             var resposta = resultado.Match(

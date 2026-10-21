@@ -10,36 +10,62 @@ namespace SagaPoc.ServicoPagamento.Handlers;
 /// <summary>
 /// Handler responsável por estornar pagamentos (compensação).
 /// Recebe comando EstornarPagamento como parte do fluxo de compensação da SAGA.
+/// Sem TransacaoId, estorna o que tiver sido cobrado para o pedido; em qualquer caso,
+/// marca o pedido como cancelado para que uma cobrança atrasada seja recusada ou desfeita.
 /// </summary>
 public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
 {
     private readonly IServicoPagamento _servico;
     private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly IRegistroCancelamentos _cancelamentos;
     private readonly IBus _bus;
     private readonly ILogger<EstornarPagamentoHandler> _logger;
 
     public EstornarPagamentoHandler(
         IServicoPagamento servico,
         IRepositorioIdempotencia idempotencia,
+        IRegistroCancelamentos cancelamentos,
         IBus bus,
         ILogger<EstornarPagamentoHandler> logger)
     {
         _servico = servico;
         _idempotencia = idempotencia;
+        _cancelamentos = cancelamentos;
         _bus = bus;
         _logger = logger;
     }
 
     public async Task Handle(EstornarPagamento mensagem)
     {
-        var chaveIdempotencia = $"estorno:{mensagem.TransacaoId}";
+        // Marcar antes de procurar a transação: uma cobrança em andamento registra a transação e
+        // depois confere o cancelamento, então pelo menos um dos dois lados vê o outro.
+        _cancelamentos.MarcarCancelado(mensagem.CorrelacaoId);
+        var transacaoId = mensagem.TransacaoId ?? _cancelamentos.ObterRecurso(mensagem.CorrelacaoId);
 
         _logger.LogWarning(
             "[COMPENSAÇÃO] Recebido comando EstornarPagamento. " +
             "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
             mensagem.CorrelacaoId,
-            mensagem.TransacaoId
+            transacaoId ?? "(nenhuma)"
         );
+
+        if (transacaoId is null)
+        {
+            // Nada foi cobrado ainda; a cobrança que chegar depois será recusada.
+            _logger.LogWarning(
+                "[COMPENSAÇÃO] Nenhuma cobrança para o pedido; cobrança posterior bloqueada. CorrelacaoId: {CorrelacaoId}",
+                mensagem.CorrelacaoId
+            );
+
+            await _bus.Reply(new PagamentoEstornado(
+                mensagem.CorrelacaoId,
+                Sucesso: true,
+                TransacaoId: null
+            ));
+            return;
+        }
+
+        var chaveIdempotencia = $"estorno:{transacaoId}";
 
         // ==================== IDEMPOTÊNCIA ====================
         // Verificar se já foi estornado
@@ -47,14 +73,14 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
         {
             _logger.LogWarning(
                 "[COMPENSAÇÃO] Estorno já processado anteriormente - TransacaoId: {TransacaoId}",
-                mensagem.TransacaoId
+                transacaoId
             );
 
             // Responder com sucesso mesmo assim (idempotência)
             await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: true,
-                TransacaoId: mensagem.TransacaoId
+                TransacaoId: transacaoId
             ));
             return;
         }
@@ -62,7 +88,7 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
         try
         {
             // ==================== PROCESSAR ESTORNO ====================
-            var resultado = await _servico.EstornarAsync(mensagem.TransacaoId);
+            var resultado = await _servico.EstornarAsync(transacaoId);
 
             if (resultado.EhSucesso)
             {
@@ -70,13 +96,13 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
                     "[COMPENSAÇÃO] Pagamento estornado com sucesso. " +
                     "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
                     mensagem.CorrelacaoId,
-                    mensagem.TransacaoId
+                    transacaoId
                 );
 
                 // Marcar como processado
                 await _idempotencia.MarcarProcessadoAsync(
                     chaveIdempotencia,
-                    new { transacaoId = mensagem.TransacaoId, data = DateTime.UtcNow }
+                    new { transacaoId, data = DateTime.UtcNow }
                 );
             }
             else
@@ -85,7 +111,7 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
                     "[COMPENSAÇÃO] Falha ao estornar pagamento. " +
                     "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}, Erro: {Erro}",
                     mensagem.CorrelacaoId,
-                    mensagem.TransacaoId,
+                    transacaoId,
                     resultado.Erro.Mensagem
                 );
             }
@@ -94,7 +120,7 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
             await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: resultado.EhSucesso,
-                TransacaoId: mensagem.TransacaoId
+                TransacaoId: transacaoId
             ));
         }
         catch (Exception ex)
@@ -104,14 +130,14 @@ public class EstornarPagamentoHandler : IHandleMessages<EstornarPagamento>
                 "[COMPENSAÇÃO] Erro crítico ao estornar pagamento. " +
                 "CorrelacaoId: {CorrelacaoId}, TransacaoId: {TransacaoId}",
                 mensagem.CorrelacaoId,
-                mensagem.TransacaoId
+                transacaoId
             );
 
             // Enviar resposta de falha usando Rebus
             await _bus.Reply(new PagamentoEstornado(
                 mensagem.CorrelacaoId,
                 Sucesso: false,
-                TransacaoId: mensagem.TransacaoId
+                TransacaoId: transacaoId
             ));
 
             // Sem relançar: com exceção, o Rebus descartaria a resposta acima. A SAGA

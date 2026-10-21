@@ -10,5 +10,5 @@ namespace SagaPoc.Common.Mensagens.Respostas;
 public record PagamentoEstornado(
     Guid CorrelacaoId,
     bool Sucesso,
-    string TransacaoId
+    string? TransacaoId
 );

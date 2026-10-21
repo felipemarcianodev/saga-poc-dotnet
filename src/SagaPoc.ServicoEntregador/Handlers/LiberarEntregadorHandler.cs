@@ -15,30 +15,53 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
 {
     private readonly IServicoEntregador _servico;
     private readonly IRepositorioIdempotencia _idempotencia;
+    private readonly IRegistroCancelamentos _cancelamentos;
     private readonly IBus _bus;
     private readonly ILogger<LiberarEntregadorHandler> _logger;
 
     public LiberarEntregadorHandler(
         IServicoEntregador servico,
         IRepositorioIdempotencia idempotencia,
+        IRegistroCancelamentos cancelamentos,
         IBus bus,
         ILogger<LiberarEntregadorHandler> logger)
     {
         _servico = servico;
         _idempotencia = idempotencia;
+        _cancelamentos = cancelamentos;
         _bus = bus;
         _logger = logger;
     }
 
     public async Task Handle(LiberarEntregador mensagem)
     {
-        var chaveIdempotencia = $"liberacao:{mensagem.EntregadorId}:{mensagem.CorrelacaoId}";
+        // Marcar antes de procurar o entregador: uma alocação em andamento registra o entregador e
+        // depois confere o cancelamento, então pelo menos um dos dois lados vê o outro.
+        _cancelamentos.MarcarCancelado(mensagem.CorrelacaoId);
+        var entregadorId = mensagem.EntregadorId ?? _cancelamentos.ObterRecurso(mensagem.CorrelacaoId);
+
+        if (entregadorId is null)
+        {
+            // Nada foi alocado ainda; a alocação que chegar depois será recusada.
+            _logger.LogWarning(
+                "[COMPENSAÇÃO] Nenhum entregador alocado para o pedido; alocação posterior bloqueada. CorrelacaoId: {CorrelacaoId}",
+                mensagem.CorrelacaoId
+            );
+            await _bus.Reply(new EntregadorLiberado(
+                mensagem.CorrelacaoId,
+                Sucesso: true,
+                EntregadorId: null
+            ));
+            return;
+        }
+
+        var chaveIdempotencia = $"liberacao:{entregadorId}:{mensagem.CorrelacaoId}";
 
         _logger.LogWarning(
             "[COMPENSAÇÃO] Recebido comando LiberarEntregador. " +
             "CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
             mensagem.CorrelacaoId,
-            mensagem.EntregadorId
+            entregadorId
         );
 
         // ==================== IDEMPOTÊNCIA ====================
@@ -46,13 +69,13 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
         {
             _logger.LogWarning(
                 "[COMPENSAÇÃO] Liberação já processada anteriormente - EntregadorId: {EntregadorId}",
-                mensagem.EntregadorId
+                entregadorId
             );
 
             await _bus.Reply(new EntregadorLiberado(
                 mensagem.CorrelacaoId,
                 Sucesso: true,
-                EntregadorId: mensagem.EntregadorId
+                EntregadorId: entregadorId
             ));
             return;
         }
@@ -60,7 +83,7 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
         try
         {
             // ==================== PROCESSAR LIBERAÇÃO ====================
-            var resultado = await _servico.LiberarAsync(mensagem.EntregadorId);
+            var resultado = await _servico.LiberarAsync(entregadorId);
 
             if (resultado.EhSucesso)
             {
@@ -68,12 +91,12 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
                     "[COMPENSAÇÃO] Entregador liberado com sucesso. " +
                     "CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
                     mensagem.CorrelacaoId,
-                    mensagem.EntregadorId
+                    entregadorId
                 );
 
                 await _idempotencia.MarcarProcessadoAsync(
                     chaveIdempotencia,
-                    new { entregadorId = mensagem.EntregadorId, data = DateTime.UtcNow }
+                    new { entregadorId = entregadorId, data = DateTime.UtcNow }
                 );
             }
             else
@@ -82,7 +105,7 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
                     "[COMPENSAÇÃO] Falha ao liberar entregador. " +
                     "CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}, Erro: {Erro}",
                     mensagem.CorrelacaoId,
-                    mensagem.EntregadorId,
+                    entregadorId,
                     resultado.Erro.Mensagem
                 );
             }
@@ -90,7 +113,7 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
             await _bus.Reply(new EntregadorLiberado(
                 mensagem.CorrelacaoId,
                 Sucesso: resultado.EhSucesso,
-                EntregadorId: mensagem.EntregadorId
+                EntregadorId: entregadorId
             ));
         }
         catch (Exception ex)
@@ -100,13 +123,13 @@ public class LiberarEntregadorHandler : IHandleMessages<LiberarEntregador>
                 "[COMPENSAÇÃO] Erro crítico ao liberar entregador. " +
                 "CorrelacaoId: {CorrelacaoId}, EntregadorId: {EntregadorId}",
                 mensagem.CorrelacaoId,
-                mensagem.EntregadorId
+                entregadorId
             );
 
             await _bus.Reply(new EntregadorLiberado(
                 mensagem.CorrelacaoId,
                 Sucesso: false,
-                EntregadorId: mensagem.EntregadorId
+                EntregadorId: entregadorId
             ));
 
             // Sem relançar: com exceção, o Rebus descartaria a resposta acima. A SAGA

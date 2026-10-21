@@ -2,6 +2,7 @@ using Rebus.Bus;
 using Rebus.Handlers;
 using SagaPoc.Common.Mensagens.Comandos;
 using SagaPoc.Common.Mensagens.Respostas;
+using SagaPoc.Infrastructure.Core;
 using SagaPoc.ServicoRestaurante.Servicos;
 
 namespace SagaPoc.ServicoRestaurante.Handlers;
@@ -13,15 +14,18 @@ namespace SagaPoc.ServicoRestaurante.Handlers;
 public class CancelarPedidoRestauranteHandler : IHandleMessages<CancelarPedidoRestaurante>
 {
     private readonly IServicoRestaurante _servico;
+    private readonly IRegistroCancelamentos _cancelamentos;
     private readonly IBus _bus;
     private readonly ILogger<CancelarPedidoRestauranteHandler> _logger;
 
     public CancelarPedidoRestauranteHandler(
         IServicoRestaurante servico,
+        IRegistroCancelamentos cancelamentos,
         IBus bus,
         ILogger<CancelarPedidoRestauranteHandler> logger)
     {
         _servico = servico;
+        _cancelamentos = cancelamentos;
         _bus = bus;
         _logger = logger;
     }
@@ -36,12 +40,19 @@ public class CancelarPedidoRestauranteHandler : IHandleMessages<CancelarPedidoRe
             mensagem.PedidoId
         );
 
+        // Marcar antes de procurar o pedido: uma validação em andamento registra o pedido e
+        // depois confere o cancelamento, então pelo menos um dos dois lados vê o outro.
+        _cancelamentos.MarcarCancelado(mensagem.CorrelacaoId);
+        var pedidoId = Guid.TryParse(_cancelamentos.ObterRecurso(mensagem.CorrelacaoId), out var registrado)
+            ? registrado
+            : mensagem.PedidoId;
+
         try
         {
             // Executar cancelamento do pedido
             var resultado = await _servico.CancelarPedidoAsync(
                 mensagem.RestauranteId,
-                mensagem.PedidoId
+                pedidoId
             );
 
             // Usar Match() para tratar sucesso/falha de forma elegante (Result Pattern)
