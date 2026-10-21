@@ -132,6 +132,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             Data.TaxaEntrega = Data.ValorTotal * 0.15m; // 15% de taxa
             Data.RestauranteValidado = true; // Marcar para possível compensação
             Data.PedidoRestauranteId = message.PedidoId;
+            if (await CompensarSeRespostaAposPrazo(ValidandoRestaurante)) return;
             Data.EstadoAtual = ProcessandoPagamento;
 
             // Enviar comando para processar o pagamento
@@ -196,6 +197,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             // FLUXO DE SUCESSO: Pagamento aprovado
             Data.TransacaoId = message.TransacaoId;
             Data.PagamentoProcessado = true; // Marcar para possível compensação
+            if (await CompensarSeRespostaAposPrazo(ProcessandoPagamento)) return;
             Data.EstadoAtual = AlocandoEntregador;
 
             // Enviar comando para alocar entregador
@@ -245,6 +247,7 @@ public class PedidoSaga : Saga<PedidoSagaData>,
             Data.EntregadorId = message.EntregadorId;
             Data.TempoEntregaMinutos = message.TempoEstimadoMinutos;
             Data.EntregadorAlocado = true; // Marcar para possível compensação
+            if (await CompensarSeRespostaAposPrazo(AlocandoEntregador)) return;
             Data.EstadoAtual = NotificandoCliente;
 
             _logger.LogInformation("[SAGA] Pedido {PedidoId} - Entregador {EntregadorId} alocado com sucesso!",
@@ -365,6 +368,24 @@ public class PedidoSaga : Saga<PedidoSagaData>,
         _logger.LogWarning("[SAGA] Pedido {PedidoId} - {Mensagem} ignorada no estado {Estado} (esperado {Esperado})",
             Data.Id, mensagem, Data.EstadoAtual, estadoEsperado);
         return false;
+    }
+
+    /// <summary>
+    /// Confere o prazo também na chegada de cada resposta, sem depender só da mensagem adiada:
+    /// com a máquina carregada, a entrega do PrazoPedidoExpirado já atrasou mais de 20 s, e a
+    /// SAGA seguiu com um pedido vencido. Chamado depois de registrar o recurso que a resposta trouxe.
+    /// </summary>
+    private async Task<bool> CompensarSeRespostaAposPrazo(string etapa)
+    {
+        var decorrido = (DateTime.UtcNow - Data.DataInicio).TotalSeconds;
+        if (decorrido <= _opcoes.PrazoPedidoSegundos) return false;
+
+        _logger.LogWarning("[SAGA] Pedido {PedidoId} - PRAZO EXPIRADO na etapa {Etapa} ({Prazo}s): a resposta chegou em {Decorrido:F1}s",
+            Data.Id, etapa, _opcoes.PrazoPedidoSegundos, decorrido);
+
+        Data.PrazoExpirado = true;
+        await IniciarCompensacao($"Prazo de {_opcoes.PrazoPedidoSegundos}s esgotado na etapa {etapa}");
+        return true;
     }
 
     private void ConcluirComSucesso()
