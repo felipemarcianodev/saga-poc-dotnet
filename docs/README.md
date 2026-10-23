@@ -140,7 +140,7 @@ No Git Bash do Windows, JSON com acento passado direto no argumento do `curl` ch
 - **Consolidado sem controle de concorrência.** Ele processa uma mensagem por vez (`MaxParallelism = 1`); escalar exige concorrência otimista ou UPDATE atômico.
 - **Consulta pode vir defasada até cerca de 60 s.** O Consolidado invalida o Redis, mas a API de consulta também tem cache em memória e response cache, que não são invalidados.
 - **Testes automatizados só no domínio do fluxo de caixa.** A SAGA e as APIs são validadas pelos scripts de ponta a ponta, não por testes de integração.
-- **Observabilidade parcial.** No Jaeger aparecem só a API de pedidos e os serviços de lançamentos; o orquestrador e os serviços da SAGA não geram span. Os logs vão para o console e para o Seq; em build Debug (`BUILD_CONFIGURATION=Debug` no compose), também para `logs/` na raiz.
+- **Observabilidade parcial.** No Jaeger aparecem só a API de pedidos e os serviços de lançamentos; o orquestrador e os serviços da SAGA não geram span. Os logs vão para o console e para o Seq, menos os do Consolidado, que no compose não recebe o endereço do Seq e ficam só no console; em build Debug (`BUILD_CONFIGURATION=Debug` no compose), também para `logs/` na raiz.
 - **Serviços simulados.** Restaurante, pagamento, entregador e notificação decidem pelo conteúdo do pedido. O entregador recusa 30% das alocações entre 12h e 14h59 UTC (horário de pico), simulação que se desliga com `SIMULAR_HORARIO_PICO=false`.
 - **Sem autenticação** nas APIs.
 - **Sem medição de desempenho.** Nenhum número de latência ou vazão foi medido; as metas citadas nos ADRs são objetivos.

@@ -172,7 +172,7 @@ O esquema de cada banco é definido pelas migrations do EF Core em `SagaPoc.Flux
 
 ## Observabilidade
 
-- **Logs:** Serilog no console de cada container (`docker logs`). O Seq (http://localhost:5342) recebe os logs das APIs; os workers só escrevem no console (ver backlog no `CLAUDE.md`).
+- **Logs:** Serilog no console de cada container (`docker logs`) e no Seq (http://localhost:5342), pela configuração única do `UseCustomSerilog` (`SagaPoc.Observability`), que vale para as APIs e para os workers. Exceção: no compose, o Consolidado não recebe `Seq__Url` e usa o padrão `http://localhost:5342`, que dentro do container não é o Seq; por isso os logs dele ficam só no console (lido no compose e no código, não verificado na interface do Seq).
 - **Traces:** a API de lançamentos e o worker exportam por OTLP para o Jaeger (http://localhost:16686). O Consolidado não configura OpenTelemetry, e a API de consulta não recebe o endereço do Jaeger no compose.
 - **Health:** `/health` nas duas APIs.
 
