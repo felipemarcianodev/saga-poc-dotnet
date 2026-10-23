@@ -453,7 +453,7 @@ O que existe hoje, e o que não existe:
 | Retry de banco | `EnableRetryOnFailure` do EF Core no fluxo de caixa (até 5 tentativas, espera máxima de 30 s) |
 | Idempotência | `IsNew` no início da SAGA; estorno e liberação deduplicados em memória; worker de lançamentos **sem** idempotência |
 | Circuit breaker | Não está em uso (a variante com Polly do pagamento não é registrada) |
-| Timeout de etapa da SAGA | Não existe |
+| Prazos da SAGA | `PrazoPedidoExpirado` e `PrazoCompensacaoExpirado` (30 s cada, configuráveis), mensagens adiadas guardadas em `rebus_timeouts`; ver a seção do orquestrador |
 | Outbox | Não existe: se um serviço cair entre gravar no banco e enviar a mensagem, estado e mensageria divergem |
 
 ### Idempotência das compensações
